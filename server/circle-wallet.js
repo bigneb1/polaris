@@ -19,11 +19,14 @@ import "dotenv/config";
 const execFileP = promisify(execFile);
 const CIRCLE_BIN = process.env.CIRCLE_BIN || "circle";
 const CHAIN = process.env.CIRCLE_CHAIN || "ARC-TESTNET";
+// Arc is a testnet — every Circle command must target the testnet session.
+const TESTNET = process.env.CIRCLE_TESTNET !== "false";
 
 const baseEnv = { ...process.env, CIRCLE_ACCEPT_TERMS: "1" };
 
 async function circle(args) {
-  const { stdout } = await execFileP(CIRCLE_BIN, args, { env: baseEnv, maxBuffer: 1024 * 1024 });
+  const full = TESTNET ? [...args, "--testnet"] : args;
+  const { stdout } = await execFileP(CIRCLE_BIN, full, { env: baseEnv, maxBuffer: 1024 * 1024 });
   return stdout;
 }
 
@@ -32,7 +35,8 @@ export async function isLoggedIn() {
   try {
     const out = await circle(["wallet", "status", "-o", "json"]);
     const j = JSON.parse(out);
-    return Boolean(j?.agent?.testnet || j?.testnet || j?.loggedIn);
+    const net = TESTNET ? j?.data?.testnet : j?.data?.mainnet;
+    return net?.tokenStatus === "VALID";
   } catch {
     return false;
   }

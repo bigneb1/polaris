@@ -1,7 +1,7 @@
 import { ethers } from "ethers";
 import "dotenv/config";
 
-import { ADDR, ABI, provider, readTaskMeta, USDC_DECIMALS, requireAddresses } from "./chain.js";
+import { ADDR, ABI, provider, readTaskMeta, USDC_DECIMALS, requireAddresses, queryLogsChunked } from "./chain.js";
 import { produceWork } from "./score.js";
 import { payForService } from "./x402.js";
 
@@ -103,9 +103,7 @@ class Agent {
 
   /** If we won and haven't delivered yet, do the work and trigger settlement. */
   async fulfilWins() {
-    const head = await provider.getBlockNumber();
-    const from = head > LOOKBACK ? head - LOOKBACK : 0;
-    const logs = await this.bid.queryFilter(this.bid.filters.BidAwarded(null, this.wallet.address), from, head);
+    const logs = await queryLogsChunked(this.bid, this.bid.filters.BidAwarded(null, this.wallet.address));
     for (const lg of logs) {
       const taskId = lg.args.taskId;
       if (this.handled.has(taskId)) continue;
@@ -164,9 +162,7 @@ async function main() {
 
   const tick = async () => {
     try {
-      const head = await provider.getBlockNumber();
-      const from = head > LOOKBACK ? head - LOOKBACK : 0;
-      const submitted = await taskReg.queryFilter(taskReg.filters.TaskSubmitted(), from, head);
+      const submitted = await queryLogsChunked(taskReg, taskReg.filters.TaskSubmitted());
 
       for (const lg of submitted) {
         const taskId = lg.args.taskId;

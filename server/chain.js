@@ -51,13 +51,36 @@ export const ABI = {
 };
 
 const LOOKBACK = BigInt(process.env.INDEX_LOOKBACK_BLOCKS || "500000");
+// Arc public RPC caps eth_getLogs at a 10,000-block range — query in chunks.
+const CHUNK = Number(process.env.INDEX_CHUNK_BLOCKS || "9000");
+
+/**
+ * queryFilter in bounded chunks so we never exceed the RPC's getLogs range cap.
+ * @param {import('ethers').Contract} contract
+ * @param {import('ethers').DeferredTopicFilter|any} filter
+ * @param {number} [lookback] blocks back from head to scan (default INDEX_LOOKBACK_BLOCKS)
+ */
+export async function queryLogsChunked(contract, filter, lookback) {
+  const head = await provider.getBlockNumber();
+  const back = lookback ?? Number(LOOKBACK);
+  const start = head > back ? head - back : 0;
+  const out = [];
+  for (let from = start; from <= head; from += CHUNK) {
+    const to = Math.min(from + CHUNK - 1, head);
+    try {
+      const logs = await contract.queryFilter(filter, from, to);
+      out.push(...logs);
+    } catch {
+      // skip a bad chunk (rate limit / transient) rather than abort the tick
+    }
+  }
+  return out;
+}
 
 /** Read a task's metadata (description/rubric/etc.) from its TaskSubmitted event. */
 export async function readTaskMeta(taskId) {
   const reg = new ethers.Contract(ADDR.taskRegistry, ABI.taskRegistry, provider);
-  const head = await provider.getBlockNumber();
-  const from = head > Number(LOOKBACK) ? head - Number(LOOKBACK) : 0;
-  const logs = await reg.queryFilter(reg.filters.TaskSubmitted(taskId), from, head);
+  const logs = await queryLogsChunked(reg, reg.filters.TaskSubmitted(taskId));
   if (logs.length === 0) return null;
   const a = logs[logs.length - 1].args;
   return {
