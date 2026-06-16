@@ -1,0 +1,132 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Theme variables (RGB channels). Default = light "soft white" (the
+   tresmarescapital-inspired look). [data-theme="dark"] swaps to the night palette. ── */
+:root {
+  --c-void: 246 247 249;        /* page background — soft white */
+  --c-deep: 255 255 255;
+  --c-panel: 255 255 255;
+  --c-card: 255 255 255;
+  --c-border: 226 230 236;
+  --c-border2: 208 214 224;
+  --c-blue: 37 110 230;
+  --c-blue-l: 31 95 205;
+  --c-blue-d: 22 80 190;
+  --c-usdc: 39 117 202;
+  --c-usdc-l: 31 95 196;
+  --c-purple: 124 58 237;
+  --c-violet: 138 70 230;
+  --c-green: 13 148 100;
+  --c-amber: 190 120 10;
+  --c-red: 220 50 50;
+  --c-text: 16 22 34;           /* primary text — near black */
+  --c-text-muted: 86 100 122;   /* secondary */
+  --c-text-faint: 142 154 172;  /* tertiary */
+
+  --shadow-panel: 0 20px 50px -28px rgb(16 22 34 / 0.18);
+  --shadow-soft: 0 10px 30px -16px rgb(16 22 34 / 0.12);
+
+  --ambient: radial-gradient(900px circle at 80% -8%, rgb(45 126 248 / 0.10), transparent 55%),
+    radial-gradient(720px circle at 5% 108%, rgb(124 58 237 / 0.08), transparent 55%);
+}
+
+:root[data-theme="dark"] {
+  --c-void: 2 4 8;
+  --c-deep: 5 8 15;
+  --c-panel: 8 14 26;
+  --c-card: 12 20 36;
+  --c-border: 20 32 53;
+  --c-border2: 30 48 80;
+  --c-blue: 45 126 248;
+  --c-blue-l: 91 155 255;
+  --c-blue-d: 26 92 212;
+  --c-usdc: 39 117 202;
+  --c-usdc-l: 91 155 255;
+  --c-purple: 124 58 237;
+  --c-violet: 168 85 247;
+  --c-green: 16 185 129;
+  --c-amber: 245 158 11;
+  --c-red: 239 68 68;
+  --c-text: 240 248 255;
+  --c-text-muted: 139 168 204;
+  --c-text-faint: 61 90 122;
+
+  --shadow-panel: 0 24px 60px -24px rgb(0 0 0 / 0.8);
+  --shadow-soft: 0 12px 36px -20px rgb(0 0 0 / 0.6);
+
+  --ambient: radial-gradient(900px circle at 78% -10%, rgb(45 126 248 / 0.14), transparent 55%),
+    radial-gradient(700px circle at 8% 110%, rgb(124 58 237 / 0.12), transparent 55%);
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  background: rgb(var(--c-void));
+  color: rgb(var(--c-text));
+  font-family: "Outfit", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+  transition: background-color 0.4s ease, color 0.4s ease;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background: var(--ambient);
+  pointer-events: none;
+}
+
+@layer components {
+  .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
+  .font-display { font-family: "Fraunces", "Outfit", Georgia, serif; }
+
+  .eyebrow { @apply mono text-[11px] uppercase tracking-[0.28em] text-grey-l; }
+  .text-gradient { @apply bg-blue-violet bg-clip-text text-transparent; }
+
+  .panel { @apply rounded-2xl border border-border bg-card/80 backdrop-blur-xl; box-shadow: var(--shadow-soft); }
+  .panel-hover { @apply transition-all duration-300 hover:border-border2 hover:shadow-glow-sm; }
+
+  .btn {
+    @apply mono inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-[13px]
+      font-semibold uppercase tracking-[0.12em] transition-all duration-200 disabled:cursor-not-allowed
+      disabled:opacity-40;
+  }
+  .btn-primary { @apply btn bg-blue-violet text-white shadow-glow-sm hover:brightness-110 active:brightness-95; color: #fff; }
+  .btn-ghost { @apply btn border border-border2 bg-transparent text-grey-l hover:border-blue hover:text-white; }
+
+  .input-field {
+    @apply mono w-full rounded-xl border border-border bg-deep px-4 py-3 text-sm text-white
+      placeholder:text-grey focus:border-blue focus:outline-none focus:ring-1 focus:ring-blue/40 transition-colors;
+  }
+
+  .hairline {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgb(var(--c-blue) / 0.5), rgb(var(--c-purple) / 0.5), transparent);
+  }
+}
+
+/* btn-primary should always have white label text regardless of theme */
+.btn-primary { color: #fff; }
+
+.reveal {
+  opacity: 0;
+  transform: translateY(28px);
+  transition: opacity 0.8s cubic-bezier(0.16,1,0.3,1), transform 0.8s cubic-bezier(0.16,1,0.3,1);
+}
+.reveal.in { opacity: 1; transform: translateY(0); }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: rgb(var(--c-deep)); }
+::-webkit-scrollbar-thumb { background: rgb(var(--c-border2)); border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: rgb(var(--c-text-faint)); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}

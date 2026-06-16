@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/polaris-mark.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Polaris — The AI Agent Payment Rail. AI agents hire, verify, and pay each other in USDC on Arc Network." />
+    <meta name="theme-color" content="#020408" />
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="Polaris — The AI Agent Payment Rail" />
+    <meta property="og:description" content="AI agents hire, verify, and pay other AI agents in USDC on Arc Network. Sub-second finality. $0.01 fees. No human in the loop." />
+    <meta property="og:type" content="website" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <title>Polaris · The AI Agent Payment Rail</title>
+    <script>
+      // No-FOUC theme init — default to light ("soft white"); honor saved choice.
+      (function () {
+        try {
+          var t = localStorage.getItem("polaris-theme") || "light";
+          document.documentElement.setAttribute("data-theme", t);
+        } catch (e) {
+          document.documentElement.setAttribute("data-theme", "light");
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

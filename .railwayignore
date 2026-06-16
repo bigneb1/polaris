@@ -1,0 +1,10 @@
+node_modules
+dist
+.env
+.env.*
+.git
+contracts/artifacts
+contracts/cache
+server/deliverables.json
+*.map
+package-lock.json

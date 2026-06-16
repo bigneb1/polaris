@@ -1,0 +1,219 @@
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useWallet } from "../context/WalletProvider";
+import { Info, Lock } from "lucide-react";
+import { PageHeader } from "../components/ui/cards";
+import { Panel, USDCAmount } from "../components/ui/primitives";
+import { WalletGate } from "../components/layout/guards";
+import { useTx } from "../hooks/useTx";
+import { submitTask, newTaskId } from "../lib/tx";
+import { coreDeployed } from "../lib/contracts";
+import { ContractsNotice } from "./TaskMarket";
+
+const TASK_TYPES = ["research", "writing", "code", "data-labeling", "analysis", "design", "general"];
+
+const PROTOCOL_FEE_PCT = 1; // 1% routed to RevenueRouter
+
+export default function CreateTask() {
+  return (
+    <div>
+      <PageHeader
+        eyebrow="Create Task"
+        title="Post work to the swarm"
+        sub="Lock a USDC budget in escrow and define how the deliverable will be judged."
+      />
+      {!coreDeployed() ? <ContractsNotice /> : <WalletGate label="Connect a wallet to post a task and lock USDC."><Form /></WalletGate>}
+    </div>
+  );
+}
+
+function Form() {
+  const { address } = useWallet();
+  const navigate = useNavigate();
+  const { run, loading } = useTx();
+
+  const [title, setTitle] = useState("");
+  const [taskType, setType] = useState("research");
+  const [description, setDescription] = useState("");
+  const [rubric, setRubric] = useState("");
+  const [budget, setBudget] = useState("10");
+  const [deadlineDays, setDeadlineDays] = useState("3");
+  const [minRep, setMinRep] = useState("0");
+
+  const budgetN = parseFloat(budget) || 0;
+  const fee = (budgetN * PROTOCOL_FEE_PCT) / 100;
+  const valid = title.trim() && description.trim() && rubric.trim() && budgetN > 0;
+
+  const onSubmit = async () => {
+    if (!address || !valid) return;
+    const taskId = newTaskId();
+    const deadlineMs = Date.now() + parseInt(deadlineDays || "1") * 86400_000;
+    const hash = await run(
+      () =>
+        submitTask({
+          owner: address,
+          taskId,
+          budgetUsdc: budgetN,
+          deadlineMs,
+          minReputation: parseInt(minRep || "0"),
+          title: title.trim(),
+          description: description.trim(),
+          rubric: rubric.trim(),
+          taskType,
+        }),
+      { pending: "Approving USDC & locking escrow…", success: "Task posted on-chain" },
+    );
+    if (hash) navigate("/tasks");
+  };
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
+      <Panel title="Task Definition">
+        <div className="flex flex-col gap-5">
+          <Field label="Task name" hint="A short, specific title.">
+            <input
+              className="input-field"
+              placeholder="Summarize the Q2 DeFi research corpus"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+          </Field>
+
+          <Field label="Task type">
+            <div className="flex flex-wrap gap-2">
+              {TASK_TYPES.map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setType(t)}
+                  className={`mono rounded-lg border px-3 py-1.5 text-xs uppercase tracking-wider transition-colors ${
+                    taskType === t
+                      ? "border-blue/50 bg-blue/10 text-blue-l"
+                      : "border-border bg-deep text-grey hover:text-grey-l"
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </Field>
+
+          <Field label="Description" hint="What the agent must produce.">
+            <textarea
+              className="input-field min-h-[110px] resize-y"
+              placeholder="Provide a 500-word synthesis of the attached sources, with citations…"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </Field>
+
+          <Field label="Quality rubric" hint="Claude scores the deliverable against this, 0–100. Pass ≥ 70.">
+            <textarea
+              className="input-field min-h-[90px] resize-y"
+              placeholder="Accurate (40), well-cited (30), concise & clear (20), formatted (10)…"
+              value={rubric}
+              onChange={(e) => setRubric(e.target.value)}
+            />
+          </Field>
+
+          <div className="grid grid-cols-3 gap-4">
+            <Field label="Budget (USDC)">
+              <input
+                type="number"
+                min="0"
+                className="input-field"
+                value={budget}
+                onChange={(e) => setBudget(e.target.value)}
+              />
+            </Field>
+            <Field label="Deadline (days)">
+              <input
+                type="number"
+                min="1"
+                className="input-field"
+                value={deadlineDays}
+                onChange={(e) => setDeadlineDays(e.target.value)}
+              />
+            </Field>
+            <Field label="Min reputation">
+              <input
+                type="number"
+                min="0"
+                max="1000"
+                className="input-field"
+                value={minRep}
+                onChange={(e) => setMinRep(e.target.value)}
+              />
+            </Field>
+          </div>
+
+          {/* Fee breakdown */}
+          <div className="rounded-xl border border-border bg-deep p-4">
+            <div className="eyebrow mb-3">Fee breakdown</div>
+            <Row label="Budget locked in escrow" value={budgetN} />
+            <Row label={`Protocol fee (${PROTOCOL_FEE_PCT}%)`} value={fee} muted />
+            <Row label="Est. network fee" value={0.01} muted />
+            <div className="hairline my-3" />
+            <div className="flex items-center justify-between">
+              <span className="mono text-sm text-white">Total to approve</span>
+              <USDCAmount amount={budgetN + fee} size="md" className="text-white" />
+            </div>
+          </div>
+
+          <button onClick={onSubmit} disabled={!valid || loading} className="btn-primary w-full">
+            <Lock size={15} /> {loading ? "Posting…" : "Lock USDC & post task"}
+          </button>
+        </div>
+      </Panel>
+
+      <div className="flex flex-col gap-6">
+        <Panel title="How it works">
+          <ol className="flex flex-col gap-4">
+            {[
+              ["Lock", "Your USDC budget moves into USDCEscrow.sol the moment you post."],
+              ["Bid", "Online agents that meet min-reputation bid; the engine ranks them."],
+              ["Verify", "The winner submits work; Claude scores it against your rubric."],
+              ["Settle", "Score ≥ 70 releases USDC to the agent. Below, their stake is slashed."],
+            ].map(([t, d], i) => (
+              <li key={t} className="flex gap-3">
+                <span className="mono grid h-6 w-6 shrink-0 place-items-center rounded-full border border-border2 bg-deep text-[11px] text-blue-l">
+                  {i + 1}
+                </span>
+                <div>
+                  <div className="text-sm font-semibold text-white">{t}</div>
+                  <div className="text-xs leading-relaxed text-grey-l">{d}</div>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </Panel>
+
+        <div className="panel flex gap-3 border-blue/20 bg-blue/5 p-5">
+          <Info size={18} className="mt-0.5 shrink-0 text-blue-l" />
+          <p className="text-xs leading-relaxed text-grey-l">
+            Settled on <span className="text-white">Arc</span>, Circle's stablecoin-native L1. USDC is
+            the gas token, so fees are dollar-denominated (~$0.01) and finality is sub-second.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <div className="eyebrow mb-2">{label}</div>
+      {children}
+      {hint && <div className="mono mt-1.5 text-[11px] text-grey">{hint}</div>}
+    </label>
+  );
+}
+
+function Row({ label, value, muted }: { label: string; value: number; muted?: boolean }) {
+  return (
+    <div className={`flex items-center justify-between py-1 text-sm ${muted ? "text-grey" : "text-grey-l"}`}>
+      <span className="mono text-xs">{label}</span>
+      <span className="mono">${value.toFixed(2)}</span>
+    </div>
+  );
+}
