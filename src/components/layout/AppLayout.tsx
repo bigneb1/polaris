@@ -7,7 +7,6 @@ import {
   Coins,
   Compass,
   User,
-  Settings,
   Home,
   Menu,
   X,
@@ -19,6 +18,7 @@ import Logo, { PolarisMark } from "../brand/Logo";
 import { NetworkBanner } from "./guards";
 import ThemeToggle from "../ThemeToggle";
 import WalletButton from "../WalletButton";
+import Footer from "./Footer";
 import { cn } from "../../lib/utils";
 
 const NAV = [
@@ -29,7 +29,6 @@ const NAV = [
   { to: "/settlement", icon: Coins, label: "Settlement" },
   { to: "/explorer", icon: Compass, label: "Explorer" },
   { to: "/profile", icon: User, label: "Profile" },
-  { to: "/settings", icon: Settings, label: "Settings" },
 ];
 
 const PATH_LABELS: Record<string, string> = {
@@ -40,7 +39,6 @@ const PATH_LABELS: Record<string, string> = {
   "/settlement": "settlement-center",
   "/explorer": "agent-explorer",
   "/profile": "my-dashboard",
-  "/settings": "network-config",
 };
 
 function Sidebar({
@@ -125,15 +123,12 @@ function Topbar({
         <button onClick={onToggleCollapse} className="hidden h-9 w-9 place-items-center rounded-lg border border-border bg-card text-grey-l hover:text-white lg:grid" aria-label="Collapse sidebar">
           {collapsed ? <PanelLeft size={17} /> : <PanelLeftClose size={17} />}
         </button>
-        <Logo size={20} withText />
+        <NavLink to="/"><Logo size={20} withText /></NavLink>
         <span className="mono hidden text-xs text-grey md:inline">/ {label}</span>
       </div>
       <div className="flex items-center gap-2 sm:gap-2.5">
-        <span className="mono hidden items-center gap-1.5 rounded-full border border-green/30 bg-green/10 px-2.5 py-1 text-[10px] uppercase tracking-widest text-green md:inline-flex">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green" /> Live
-        </span>
-        <span className="mono hidden rounded-full border border-usdc/30 bg-usdc/10 px-2.5 py-1 text-[10px] uppercase tracking-widest text-usdc-l xl:inline">
-          USDC · Arc
+        <span className="mono hidden rounded-full border border-blue/30 bg-blue/10 px-2.5 py-1 text-[10px] uppercase tracking-widest text-blue-l md:inline">
+          Arc Testnet
         </span>
         <ThemeToggle />
         <WalletButton />
@@ -173,6 +168,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         />
         <NetworkBanner />
         <main className="mx-auto max-w-[1320px] px-4 py-6 sm:px-6 sm:py-7">{children}</main>
+        <Footer />
       </div>
     </div>
   );

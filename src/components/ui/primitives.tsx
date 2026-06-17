@@ -1,5 +1,5 @@
 /**
- * Polaris shared UI primitives — the design-system building blocks referenced
+ * Polaris shared UI primitives - the design-system building blocks referenced
  * across every page. Kept in one file so the vocabulary stays consistent.
  */
 import type { ReactNode } from "react";

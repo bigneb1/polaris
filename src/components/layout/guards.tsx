@@ -7,7 +7,7 @@ import { useWallet } from "../../context/WalletProvider";
 import WalletButton from "../WalletButton";
 
 /**
- * Wrong-network banner — only relevant for an injected fallback wallet. Circle
+ * Wrong-network banner - only relevant for an injected fallback wallet. Circle
  * smart accounts are always on Arc, so they never trigger it.
  */
 export function NetworkBanner() {
@@ -41,7 +41,7 @@ export function WalletGate({ children, label }: { children: ReactNode; label?: s
       <div>
         <div className="text-xl font-semibold text-white">Connect your wallet</div>
         <p className="mx-auto mt-1 max-w-sm text-sm text-grey-l">
-          {label ?? "Connect a Circle passkey wallet to continue — gasless on Arc."}
+          {label ?? "Connect a Circle passkey wallet to continue - gasless on Arc."}
         </p>
       </div>
       <WalletButton />

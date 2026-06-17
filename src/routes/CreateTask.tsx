@@ -61,7 +61,7 @@ function Form() {
           rubric: rubric.trim(),
           taskType,
         }),
-      { pending: "Approving USDC & locking escrow…", success: "Task posted on-chain" },
+      { pending: "Approving USDC & locking escrow…", success: "Task posted onchain" },
     );
     if (hash) navigate("/tasks");
   };

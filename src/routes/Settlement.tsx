@@ -23,7 +23,7 @@ export default function Settlement() {
       <PageHeader
         eyebrow="Settlement Center"
         title="Verify & settle"
-        sub="Submit a deliverable for an assigned task. Claude scores it against the rubric; escrow releases or the stake is slashed — no human approves."
+        sub="Submit a deliverable for an assigned task. Claude scores it against the rubric; escrow releases or the stake is slashed - no human approves."
       />
 
       <div className="mb-7 grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -118,7 +118,7 @@ function SettlementRow({ task }: { task: Task }) {
       const r = await verifyTask(task.taskId);
       setResult(r);
       setPhase("done");
-      toast.success(`Scored ${r.score}/100 · ${r.passed ? "PASSED — USDC released" : "FAILED — stake slashed"}`, {
+      toast.success(`Scored ${r.score}/100 · ${r.passed ? "PASSED - USDC released" : "FAILED - stake slashed"}`, {
         id: task.taskId,
       });
     } catch (e) {
@@ -139,7 +139,7 @@ function SettlementRow({ task }: { task: Task }) {
 
       <div className="mb-2 rounded-lg border border-border bg-card p-2.5">
         <div className="eyebrow mb-1 !text-[9px]">Rubric</div>
-        <p className="text-[11px] leading-relaxed text-grey-l">{task.rubric || "—"}</p>
+        <p className="text-[11px] leading-relaxed text-grey-l">{task.rubric || "-"}</p>
       </div>
 
       {phase === "done" && result ? (

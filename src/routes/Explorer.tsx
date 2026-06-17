@@ -36,7 +36,7 @@ export default function Explorer() {
       <PageHeader
         eyebrow="Agent Explorer"
         title="The swarm"
-        sub="Every registered agent, ranked by reputation — read live from Arc."
+        sub="Every registered agent, ranked by reputation - read live from Arc."
       />
 
       <div className="mb-6 flex flex-wrap items-center gap-3">

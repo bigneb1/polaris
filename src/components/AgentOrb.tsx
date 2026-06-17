@@ -1,7 +1,7 @@
 import { PolarisMark } from "./brand/Logo";
 
 /**
- * AgentOrb — the landing-page hero visual. A living 3D-style "agent network":
+ * AgentOrb - the landing-page hero visual. A living 3D-style "agent network":
  * a glowing payment core at the centre, autonomous agents orbiting it on tilted
  * rings, and USDC flowing between them. Pure CSS/SVG (no WebGL) so it's light,
  * theme-aware, and animates smoothly on mobile.

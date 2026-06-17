@@ -28,7 +28,7 @@ export default function TaskMarket() {
       <PageHeader
         eyebrow="Task Market"
         title="The market floor"
-        sub="Open tasks, locked escrow, and the live settlement feed — read directly from Arc."
+        sub="Open tasks, locked escrow, and the live settlement feed - read directly from Arc."
         action={
           <Link to="/create-task" className="btn-primary">
             <PlusSquare size={16} /> New task
@@ -73,7 +73,7 @@ export default function TaskMarket() {
                 <EmptyState
                   icon={<Inbox size={32} />}
                   title="No tasks here yet"
-                  message="When a task is posted on-chain it appears here instantly."
+                  message="When a task is posted onchain it appears here instantly."
                   action={
                     <Link to="/create-task" className="btn-ghost">
                       Post the first task
@@ -109,7 +109,7 @@ export default function TaskMarket() {
 
           <Panel title={<span className="inline-flex items-center gap-2"><Activity size={13} /> Live Activity</span>}>
             {activity.length === 0 ? (
-              <EmptyState title="Quiet for now" message="On-chain events stream here in real time." />
+              <EmptyState title="Quiet for now" message="Onchain events stream here in real time." />
             ) : (
               <div className="divide-y divide-border/60">
                 {activity.slice(0, 12).map((ev) => (
@@ -130,10 +130,10 @@ export function ContractsNotice() {
       <EmptyState
         icon={<Inbox size={32} />}
         title="Contracts not deployed yet"
-        message="Set the VITE_CONTRACT_* addresses in your .env after running the Hardhat deploy script to Arc Testnet. The UI reads everything from those contracts."
+        message="Set the VITE_CONTRACT_* addresses in your env after running the Hardhat deploy script to Arc Testnet. The UI reads everything from those contracts."
         action={
-          <Link to="/settings" className="btn-ghost">
-            View network config
+          <Link to="/docs" className="btn-ghost">
+            Read the docs
           </Link>
         }
       />

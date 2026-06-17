@@ -3,7 +3,7 @@ import { createConfig, http } from "wagmi";
 import { injected } from "wagmi/connectors";
 
 /**
- * Arc Testnet — Circle's stablecoin-native L1.
+ * Arc Testnet - Circle's stablecoin-native L1.
  *
  * Verified params (2026-06-15) against docs.arc.io + Alchemy/QuickNode/thirdweb
  * chainlists. NOTE the original build prompt had three wrong values, corrected
@@ -13,7 +13,7 @@ import { injected } from "wagmi/connectors";
  *   - explorer https://testnet.arcscan.app  (prompt said explorer.arc.network)
  *
  * USDC is the NATIVE gas token at the system address below. The ERC-20 interface
- * uses 6 decimals (native gas precision is 18 — always read decimals on-chain
+ * uses 6 decimals (native gas precision is 18 - always read decimals onchain
  * rather than assuming).
  */
 const ENV = (import.meta as { env?: Record<string, string | undefined> }).env ?? {};
@@ -53,7 +53,7 @@ export function explorerAddr(addr: string) {
   return `${ARC_EXPLORER}/address/${addr}`;
 }
 
-// WalletConnect/RainbowKit removed — Circle Modular Wallets is the primary wallet
+// WalletConnect/RainbowKit removed - Circle Modular Wallets is the primary wallet
 // (see src/context/WalletProvider.tsx). wagmi is kept only for chain reads (the
 // event indexer) and an optional injected-wallet fallback for signing.
 export const wagmiConfig = createConfig({

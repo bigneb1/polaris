@@ -5,7 +5,7 @@
 /* ── Theme variables (RGB channels). Default = light "soft white" (the
    tresmarescapital-inspired look). [data-theme="dark"] swaps to the night palette. ── */
 :root {
-  --c-void: 246 247 249;        /* page background — soft white */
+  --c-void: 246 247 249;        /* page background - soft white */
   --c-deep: 255 255 255;
   --c-panel: 255 255 255;
   --c-card: 255 255 255;
@@ -21,7 +21,7 @@
   --c-green: 13 148 100;
   --c-amber: 190 120 10;
   --c-red: 220 50 50;
-  --c-text: 16 22 34;           /* primary text — near black */
+  --c-text: 16 22 34;           /* primary text - near black */
   --c-text-muted: 86 100 122;   /* secondary */
   --c-text-faint: 142 154 172;  /* tertiary */
 
@@ -32,7 +32,7 @@
     radial-gradient(720px circle at 5% 108%, rgb(124 58 237 / 0.08), transparent 55%);
 }
 
-/* Dark theme — modelled on OpenRouter's site: warm near-black zinc surfaces,
+/* Dark theme - modelled on OpenRouter's site: warm near-black zinc surfaces,
    high-contrast text, restrained borders, subtle blue/violet accent glow. */
 :root[data-theme="dark"] {
   --c-void: 9 9 11;          /* zinc-950 near-black */

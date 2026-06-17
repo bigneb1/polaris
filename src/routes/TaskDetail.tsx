@@ -92,7 +92,7 @@ export default function TaskDetail() {
                 {bids.length > 0 && (
                   <button
                     onClick={() =>
-                      run(() => awardBid(task.taskId), { pending: "Awarding best bid…", success: "Bid awarded — agent assigned" })
+                      run(() => awardBid(task.taskId), { pending: "Awarding best bid…", success: "Bid awarded - agent assigned" })
                     }
                     disabled={loading}
                     className="btn-primary !py-2"
@@ -186,7 +186,7 @@ function PlaceBid({ taskId, budget }: { taskId: `0x${string}`; budget: number })
           onClick={() =>
             run(() => placeBid(taskId, parseFloat(amount) || 0, (parseInt(etaMin) || 30) * 60), {
               pending: "Placing bid…",
-              success: "Bid placed on-chain",
+              success: "Bid placed onchain",
             })
           }
           disabled={loading}

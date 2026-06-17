@@ -5,12 +5,12 @@ import { parseAbi, type Address } from "viem";
  *
  * Addresses are read from Vite env (VITE_CONTRACT_*) so the same build promotes
  * across deployments. They default to "0x" (undeployed) until the Hardhat deploy
- * script fills them in — the UI surfaces a "contracts not deployed" state rather
+ * script fills them in - the UI surfaces a "contracts not deployed" state rather
  * than throwing when they are absent.
  *
  * Design note: task & agent metadata (title, description, rubric, capabilities)
  * is emitted as strings inside events, so the chain-indexing layer (onchain.ts)
- * can reconstruct the full UI from logs alone — no off-chain database. Only the
+ * can reconstruct the full UI from logs alone - no off-chain database. Only the
  * unbounded deliverable blob lives in the backend, keyed by taskId.
  */
 const e = (import.meta as { env?: Record<string, string> }).env ?? {};

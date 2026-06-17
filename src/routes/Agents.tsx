@@ -75,7 +75,7 @@ function RegisterForm() {
     if (!address || !valid) return;
     await run(
       () => registerAgent({ owner: address, name: name.trim(), capabilities: caps, stakeUsdc: stakeN }),
-      { pending: "Approving stake & registering agent…", success: "Agent registered on-chain" },
+      { pending: "Approving stake & registering agent…", success: "Agent registered onchain" },
     );
     setName("");
     setCaps([]);

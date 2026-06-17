@@ -1,8 +1,8 @@
 /**
- * AgentAvatar — the landing hero figure. A sleek AI-agent bust (not a generic
+ * AgentAvatar - the landing hero figure. A sleek AI-agent bust (not a generic
  * orbit): rounded head with a gradient visor, glowing eyes, a Polaris-star
  * antenna, and a subtle USDC chip on the chest. Pure SVG + CSS so it's crisp,
- * theme-aware, and lightweight. Gentle float — no busy motion.
+ * theme-aware, and lightweight. Gentle float - no busy motion.
  */
 export default function AgentAvatar() {
   return (

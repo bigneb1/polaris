@@ -1,5 +1,5 @@
 /**
- * Polaris brand mark — a four-point north star.
+ * Polaris brand mark - a four-point north star.
  *
  * The star is the "fixed point" agents navigate by: a payment rail that always
  * settles. Rendered as inline SVG (not an <img>) so it inherits motion classes

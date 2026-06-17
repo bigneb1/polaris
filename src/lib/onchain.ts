@@ -29,7 +29,10 @@ type Client = NonNullable<UsePublicClientReturnType>;
 const ENV = (import.meta as { env?: Record<string, string> }).env ?? {};
 const FROM_BLOCK = ENV.VITE_INDEX_FROM_BLOCK ? BigInt(ENV.VITE_INDEX_FROM_BLOCK) : null;
 const LOOKBACK = BigInt(ENV.VITE_INDEX_LOOKBACK_BLOCKS || "500000");
-const CHUNK = BigInt(ENV.VITE_INDEX_CHUNK_BLOCKS || "10000");
+// Arc public RPC caps eth_getLogs at a 10,000-block range, so we must stay
+// strictly under it (9000) or every windowed query silently fails and the UI
+// shows no agents/tasks.
+const CHUNK = BigInt(ENV.VITE_INDEX_CHUNK_BLOCKS || "9000");
 const REFETCH_MS = 8000;
 
 function toUsdc(raw: bigint): number {
@@ -65,7 +68,7 @@ async function getLogsWindowed(
       const logs = await client.getLogs({ address, events, fromBlock: from, toBlock: to });
       out.push(...logs);
     } catch {
-      // RPC chunk failed (rate limit / range cap) — skip; next refetch retries.
+      // RPC chunk failed (rate limit / range cap) - skip; next refetch retries.
     }
   }
   return out;
@@ -152,7 +155,7 @@ async function indexAll(client: Client) {
     }
   }
 
-  /* On-chain settlement attestations (VerifierBridge.VerificationSubmitted) */
+  /* Onchain settlement attestations (VerifierBridge.VerificationSubmitted) */
   for (const log of verifierLogs) {
     const ev = decode(log, VERIFIER_BRIDGE_ABI);
     if (!ev || ev.eventName !== "VerificationSubmitted") continue;

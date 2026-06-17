@@ -9,9 +9,9 @@ import Explorer from "./routes/Explorer";
 import TaskDetail from "./routes/TaskDetail";
 import AgentDetail from "./routes/AgentDetail";
 import Profile from "./routes/Profile";
-import SettingsPage from "./routes/Settings";
+import Docs from "./routes/Docs";
 
-/** App shell (sidebar + topbar) — everything except the marketing landing. */
+/** App shell (sidebar + topbar) - everything except the marketing landing. */
 function AppShell() {
   return (
     <AppLayout>
@@ -24,7 +24,6 @@ function AppShell() {
         <Route path="/task/:id" element={<TaskDetail />} />
         <Route path="/agent/:wallet" element={<AgentDetail />} />
         <Route path="/profile" element={<Profile />} />
-        <Route path="/settings" element={<SettingsPage />} />
       </Routes>
     </AppLayout>
   );
@@ -33,8 +32,10 @@ function AppShell() {
 export default function App() {
   return (
     <Routes>
-      {/* Standalone marketing landing — no sidebar; "Launch App" enters the shell. */}
+      {/* Standalone marketing landing; "Launch App" enters the shell. */}
       <Route path="/" element={<Home />} />
+      {/* Docs has its own layout + hamburger, outside the app shell. */}
+      <Route path="/docs" element={<Docs />} />
       <Route path="/*" element={<AppShell />} />
     </Routes>
   );

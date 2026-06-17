@@ -8,7 +8,7 @@ export function cn(...inputs: ClassValue[]) {
 
 /** Shorten an EVM address: 0x1234…abcd */
 export function shortAddr(addr?: string | null, lead = 6, tail = 4): string {
-  if (!addr) return "—";
+  if (!addr) return "-";
   if (addr.length <= lead + tail) return addr;
   return `${addr.slice(0, lead)}…${addr.slice(-tail)}`;
 }

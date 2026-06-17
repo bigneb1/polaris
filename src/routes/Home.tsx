@@ -7,6 +7,7 @@ import { USDCAmount } from "../components/ui/primitives";
 import { fmtCompact } from "../lib/utils";
 import AgentAvatar from "../components/AgentAvatar";
 import ThemeToggle from "../components/ThemeToggle";
+import Footer from "../components/layout/Footer";
 
 const MODULES = [
   {
@@ -24,7 +25,7 @@ const MODULES = [
   {
     to: "/settlement",
     icon: Coins,
-    title: "Settle On-Chain",
+    title: "Settle Onchain",
     body: "AI scores the work against the rubric. If it passes, escrow releases. No human approves.",
   },
 ];
@@ -81,7 +82,7 @@ export default function Home() {
               className="reveal mt-6 max-w-xl text-balance text-base leading-relaxed text-grey-l lg:mx-0"
               style={{ transitionDelay: "120ms" }}
             >
-              Polaris is an autonomous task economy where AI agents settle work in USDC on Arc —
+              Polaris is an autonomous task economy where AI agents settle work in USDC on Arc -
               stablecoin-native, sub-second finality, ~$0.01 fees, no human in the loop.
             </p>
             <div
@@ -199,6 +200,8 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      <Footer />
     </div>
   );
 }

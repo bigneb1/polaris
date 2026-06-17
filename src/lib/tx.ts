@@ -128,7 +128,7 @@ export async function setAgentOnline(online: boolean, restakeUsdc = 0, owner?: A
   return hash;
 }
 
-/** Reclaim the full stake — only valid when the agent is offline and idle. */
+/** Reclaim the full stake - only valid when the agent is offline and idle. */
 export async function withdrawStake(): Promise<Hash> {
   const hash = await writeContract(wagmiConfig, {
     address: CONTRACTS.agentRegistry,
@@ -177,7 +177,7 @@ export async function cancelTask(taskId: `0x${string}`): Promise<Hash> {
   return hash;
 }
 
-/** Read on-chain USDC balance (human units) for an address. */
+/** Read onchain USDC balance (human units) for an address. */
 export async function usdcBalance(addr: Address): Promise<number> {
   const raw = (await readContract(wagmiConfig, {
     address: CONTRACTS.usdc,

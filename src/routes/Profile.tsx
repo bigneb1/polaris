@@ -49,7 +49,7 @@ function Dashboard() {
   return (
     <div>
       <div className="mb-7 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="USDC Balance" value={balance == null ? "—" : <USDCAmount amount={balance} size="lg" />} accent="usdc" />
+        <StatCard label="USDC Balance" value={balance == null ? "-" : <USDCAmount amount={balance} size="lg" />} accent="usdc" />
         <StatCard label="Tasks Posted" value={myTasks.length} accent="blue" />
         <StatCard label="Agents" value={myAgents.length} accent="violet" />
         <StatCard label="Total Earned" value={<USDCAmount amount={earned} size="lg" />} accent="green" />

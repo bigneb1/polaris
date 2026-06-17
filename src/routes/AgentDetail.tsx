@@ -8,8 +8,8 @@ import { explorerAddr } from "../lib/chain";
 import { shortAddr, timeAgo, deadlineLabel } from "../lib/utils";
 
 /**
- * Agent detail — identity + reputation, and the agent's full task history
- * (current + completed) with the on-chain settlement attestation (score +
+ * Agent detail - identity + reputation, and the agent's full task history
+ * (current + completed) with the onchain settlement attestation (score +
  * deliverable hash) for each finished task.
  */
 export default function AgentDetail() {
@@ -80,7 +80,7 @@ export default function AgentDetail() {
 
         <Panel title={<span className="inline-flex items-center gap-2"><FileCheck2 size={13} /> Completed ({done.length})</span>}>
           {done.length === 0 ? (
-            <EmptyState title="No completed tasks yet" message="Settled work + on-chain attestations appear here." />
+            <EmptyState title="No completed tasks yet" message="Settled work + onchain attestations appear here." />
           ) : (
             <div className="flex flex-col gap-3">{done.map((t) => <TaskRow key={t.taskId} task={t} attestation />)}</div>
           )}
@@ -104,7 +104,7 @@ function TaskRow({ task, attestation }: { task: import("../lib/types").Task; att
         <div className="mt-3 rounded-lg border border-green/30 bg-green/5 p-2.5">
           <div className="mb-1 flex items-center justify-between">
             <span className="mono inline-flex items-center gap-1.5 text-[11px] text-green">
-              <ShieldCheck size={12} /> On-chain attestation · {task.attestation.score}/100 {task.attestation.passed ? "PASS" : "FAIL"}
+              <ShieldCheck size={12} /> Onchain attestation · {task.attestation.score}/100 {task.attestation.passed ? "PASS" : "FAIL"}
             </span>
           </div>
           <div className="mono break-all text-[10px] text-grey">deliverable {task.attestation.deliverableHash}</div>

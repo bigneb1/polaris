@@ -16,7 +16,7 @@ export type VerifyResult = {
   txHash?: string;
 };
 
-/** Store a deliverable for a task (kept off-chain; only its score goes on-chain). */
+/** Store a deliverable for a task (kept off-chain; only its score goes onchain). */
 export async function submitDeliverable(taskId: string, agentWallet: string, deliverable: string) {
   const res = await fetch(`${API_URL}/api/deliverable`, {
     method: "POST",
@@ -36,7 +36,7 @@ export async function getDeliverable(taskId: string): Promise<{ deliverable: str
 
 /**
  * Trigger verification: backend scores with Claude, signs, and calls
- * VerifierBridge.submitVerification — which releases USDC or slashes the stake.
+ * VerifierBridge.submitVerification - which releases USDC or slashes the stake.
  */
 export async function verifyTask(taskId: string): Promise<VerifyResult> {
   const res = await fetch(`${API_URL}/api/verify`, {

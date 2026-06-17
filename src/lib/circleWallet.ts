@@ -1,95 +1,91 @@
 /**
- * Circle Modular Wallets — passkey-secured ERC-4337 smart accounts on Arc.
+ * Circle Modular Wallets - passkey-secured smart accounts on Arc, gasless via
+ * Circle's paymaster. Implemented per the official quickstart:
+ * https://developers.circle.com/wallets/modular/create-a-wallet-and-send-gasless-txn
  *
- * Lets a human create/log in a wallet with a passkey (no seed phrase) and
- * transact gaslessly via Circle's Gas Station + bundler. Arc testnet is
- * supported by Circle Modular Wallets (chain path `arcTestnet`).
- *
- * Entirely gated on VITE_CIRCLE_CLIENT_KEY + VITE_CIRCLE_CLIENT_URL — when those
- * are absent the UI hides the Circle option and the rest of the app is unaffected.
- * Nothing here runs at import time, so the build stays green without credentials.
+ * Gated on VITE_CIRCLE_CLIENT_KEY + VITE_CIRCLE_CLIENT_URL; when absent the UI
+ * hides the Circle option. Nothing runs at import time so the build stays green.
  */
 import {
   toPasskeyTransport,
   toWebAuthnCredential,
   toModularTransport,
   toCircleSmartAccount,
+  encodeTransfer,
   WebAuthnMode,
 } from "@circle-fin/modular-wallets-core";
-import { createPublicClient } from "viem";
+import { createPublicClient, erc20Abi, formatUnits } from "viem";
 import { toWebAuthnAccount, createBundlerClient } from "viem/account-abstraction";
-import { arcTestnet } from "./chain";
+import { arcTestnet, USDC_ADDRESS, USDC_DECIMALS } from "./chain";
 
 const ENV = (import.meta as { env?: Record<string, string> }).env ?? {};
 const CLIENT_KEY = ENV.VITE_CIRCLE_CLIENT_KEY || "";
 const CLIENT_URL = ENV.VITE_CIRCLE_CLIENT_URL || "";
 const CHAIN_PATH = ENV.VITE_CIRCLE_CHAIN_PATH || "arcTestnet";
 
-/** Whether Circle Modular Wallets is configured for this build. */
 export function circleEnabled(): boolean {
   return Boolean(CLIENT_KEY && CLIENT_URL);
 }
 
 export type CircleSession = {
   address: `0x${string}`;
-  // The bundler client used to send gasless user operations.
-  // Typed loosely to avoid leaking the SDK's internal generics through the app.
+  username: string;
   bundler: ReturnType<typeof createBundlerClient>;
   account: Awaited<ReturnType<typeof toCircleSmartAccount>>;
+  publicClient: ReturnType<typeof createPublicClient>;
 };
 
-function transports() {
-  const passkey = toPasskeyTransport(CLIENT_URL, CLIENT_KEY);
-  const modular = toModularTransport(`${CLIENT_URL}/${CHAIN_PATH}`, CLIENT_KEY);
-  return { passkey, modular };
+function makeConnect(mode: WebAuthnMode) {
+  return async (username: string): Promise<CircleSession> => {
+    if (!circleEnabled()) throw new Error("Circle wallet not configured (set VITE_CIRCLE_CLIENT_KEY/URL).");
+
+    const passkeyTransport = toPasskeyTransport(CLIENT_URL, CLIENT_KEY);
+    const credential = await toWebAuthnCredential({ transport: passkeyTransport, mode, username });
+
+    const modularTransport = toModularTransport(`${CLIENT_URL}/${CHAIN_PATH}`, CLIENT_KEY);
+    const publicClient = createPublicClient({ chain: arcTestnet, transport: modularTransport });
+
+    const account = await toCircleSmartAccount({
+      client: publicClient,
+      owner: toWebAuthnAccount({ credential }),
+    });
+
+    const bundler = createBundlerClient({
+      account,
+      chain: arcTestnet,
+      transport: modularTransport,
+    });
+
+    return { address: account.address as `0x${string}`, username, bundler, account, publicClient };
+  };
 }
 
-/** Register a brand-new passkey + Circle smart account for `username`. */
-export async function registerCircleWallet(username: string): Promise<CircleSession> {
-  return connect(username, WebAuthnMode.Register);
+export const registerCircleWallet = makeConnect(WebAuthnMode.Register);
+export const loginCircleWallet = makeConnect(WebAuthnMode.Login);
+
+/** USDC balance (human units) for the connected smart account. */
+export async function circleUsdcBalance(session: CircleSession): Promise<number> {
+  const raw = (await session.publicClient.readContract({
+    address: USDC_ADDRESS,
+    abi: erc20Abi,
+    functionName: "balanceOf",
+    args: [session.address],
+  })) as bigint;
+  return Number(formatUnits(raw, USDC_DECIMALS));
 }
 
-/** Log in to an existing passkey + Circle smart account. */
-export async function loginCircleWallet(username: string): Promise<CircleSession> {
-  return connect(username, WebAuthnMode.Login);
-}
-
-async function connect(username: string, mode: WebAuthnMode): Promise<CircleSession> {
-  if (!circleEnabled()) throw new Error("Circle Modular Wallets not configured (set VITE_CIRCLE_CLIENT_KEY/URL).");
-  const { passkey, modular } = transports();
-
-  const credential = await toWebAuthnCredential({ transport: passkey, mode, username });
-
-  const client = createPublicClient({ chain: arcTestnet, transport: modular });
-  const account = await toCircleSmartAccount({
-    client,
-    owner: toWebAuthnAccount({ credential }),
-    name: username,
-  });
-
-  const bundler = createBundlerClient({
-    account,
-    chain: arcTestnet,
-    transport: modular,
-  });
-
-  return { address: account.address as `0x${string}`, bundler, account };
-}
-
-/**
- * Send a gasless user operation (Circle Gas Station sponsors fees).
- * @param session a CircleSession from register/login
- * @param calls   viem call objects: { to, abi?, functionName?, args?, value? }
- */
-export async function sendGasless(
+/** Send a gasless USDC transfer (paymaster-sponsored). */
+export async function circleSendUsdc(
   session: CircleSession,
-  calls: { to: `0x${string}`; data?: `0x${string}`; value?: bigint }[],
+  to: `0x${string}`,
+  amount: number,
 ): Promise<`0x${string}`> {
+  const units = BigInt(Math.round(amount * 10 ** USDC_DECIMALS));
   const hash = await session.bundler.sendUserOperation({
     account: session.account,
-    calls,
+    calls: [encodeTransfer(to, USDC_ADDRESS, units)],
     paymaster: true,
   });
-  const receipt = await session.bundler.waitForUserOperationReceipt({ hash });
-  return receipt.receipt.transactionHash as `0x${string}`;
+  const { receipt } = await session.bundler.waitForUserOperationReceipt({ hash });
+  return receipt.transactionHash as `0x${string}`;
 }
