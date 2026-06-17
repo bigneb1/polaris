@@ -25,8 +25,19 @@ const LOOKBACK = Number(process.env.INDEX_LOOKBACK_BLOCKS || "500000");
 const SETTLE_WAIT_MS = Number(process.env.CIRCLE_SETTLE_WAIT_MS || 8000);
 const usdc = (n) => ethers.parseUnits(String(n), USDC_DECIMALS);
 
+// Agent-to-agent delegation (item 1). OFF by default (threshold 0). When an
+// agent already has >= DELEGATE_THRESHOLD in-flight tasks, it sub-contracts a
+// new win to another idle agent via submitDirectTask, funded from its own
+// wallet at DELEGATE_MARGIN of the budget — keeping the remainder as margin.
+const DELEGATE_THRESHOLD = Number(process.env.DELEGATE_THRESHOLD || 0);
+const DELEGATE_MARGIN = Number(process.env.DELEGATE_MARGIN || 0.8);
+
 /** @type {{name:string,address:string,capabilities:string[],stake:number,markup:number}[]} */
 const AGENTS = JSON.parse(process.env.AGENTS_CIRCLE_JSON || "[]");
+
+// pending delegations: childTaskId -> { parentTaskId, primary, subAgent }
+const delegations = new Map();
+let SWARM = [];
 
 function agentId(name, wallet) {
   return ethers.keccak256(ethers.toUtf8Bytes(`${name.toLowerCase()}:${wallet.toLowerCase()}`));
@@ -45,6 +56,7 @@ class CircleAgent {
     this.address = ethers.getAddress(cfg.address);
     this.seen = new Set();
     this.handled = new Set();
+    this.inFlight = 0;
   }
   log(...a) {
     console.log(`[${this.cfg.name} ${this.address.slice(0, 8)}]`, ...a);
@@ -118,15 +130,45 @@ class CircleAgent {
       try {
         const meta = await readTaskMeta(taskId);
         if (!meta) continue;
+
+        // Delegate if over capacity and a peer can take it.
+        if (DELEGATE_THRESHOLD > 0 && this.inFlight >= DELEGATE_THRESHOLD) {
+          const peer = SWARM.find((a) => a !== this && a.cfg && a.wants(meta) && a.address !== this.address);
+          if (peer && (await this.delegate(taskId, meta, peer))) continue;
+        }
+
+        this.inFlight += 1;
         this.log(`won "${meta.title}" — producing deliverable…`);
         const deliverable = await produceWork(meta);
         await postJSON(`${API_URL}/api/deliverable`, { taskId, agentWallet: this.address, deliverable });
         const verdict = await postJSON(`${API_URL}/api/verify`, { taskId });
+        this.inFlight -= 1;
         this.log(`settled "${meta.title}" → ${verdict.score}/100 (${verdict.passed ? "PASS" : "FAIL"})`);
       } catch (e) {
         this.handled.delete(taskId);
+        if (this.inFlight > 0) this.inFlight -= 1;
         this.log("fulfil error:", e.message);
       }
+    }
+  }
+
+  /** Sub-contract a parent task to a peer agent via a funded direct task. */
+  async delegate(parentTaskId, meta, peer) {
+    try {
+      const subBudget = Math.max(0.01, +(meta.budgetUsdc * DELEGATE_MARGIN).toFixed(2));
+      const childId = ethers.hexlify(ethers.randomBytes(32));
+      const deadline = Math.floor(meta.deadline / 1000);
+      await execute(this.address, ADDR.usdc, "approve(address,uint256)", [ADDR.escrow, usdc(subBudget)]);
+      await sleep(SETTLE_WAIT_MS);
+      await execute(this.address, ADDR.taskRegistry, "submitDirectTask(bytes32,address,uint256,uint256,string,string,string,string)", [
+        childId, peer.address, usdc(subBudget), deadline, meta.title, meta.description, meta.rubric, meta.taskType,
+      ]);
+      delegations.set(childId, { parentTaskId, primary: this, subAgent: peer.address });
+      this.log(`delegated "${meta.title}" → ${peer.cfg.name} (sub-budget ${subBudget} USDC, keeps margin)`);
+      return true;
+    } catch (e) {
+      this.log("delegation failed, will do it myself:", e.message);
+      return false;
     }
   }
 }
@@ -135,6 +177,36 @@ async function postJSON(url, body) {
   const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `POST ${url} failed`);
   return r.json();
+}
+
+/** When a delegated (child) task settles, forward its deliverable to the parent. */
+async function resolveDelegations() {
+  for (const [childId, d] of [...delegations]) {
+    let status;
+    try {
+      status = Number((await taskReg.tasks(childId)).status);
+    } catch {
+      continue;
+    }
+    if (status === 4) {
+      // child SETTLED → fetch the sub-agent's deliverable, submit it for the parent
+      try {
+        const res = await fetch(`${API_URL}/api/deliverable/${childId}`);
+        const { deliverable } = await res.json();
+        if (!deliverable) continue;
+        await postJSON(`${API_URL}/api/deliverable`, { taskId: d.parentTaskId, agentWallet: d.primary.address, deliverable });
+        const verdict = await postJSON(`${API_URL}/api/verify`, { taskId: d.parentTaskId });
+        d.primary.log(`parent settled via delegation → ${verdict.score}/100 (kept margin)`);
+        delegations.delete(childId);
+      } catch (e) {
+        d.primary.log("delegation resolve retry:", e.message);
+      }
+    } else if (status === 5) {
+      // child failed/cancelled → primary will handle the parent itself next tick
+      delegations.delete(childId);
+      d.primary.handled.delete(d.parentTaskId);
+    }
+  }
 }
 
 async function main() {
@@ -165,6 +237,7 @@ async function main() {
   }
 
   const swarm = agents.map((c) => new CircleAgent(c));
+  SWARM = swarm;
   console.log(`Polaris Circle swarm: ${swarm.length} agent(s) on ${CIRCLE_CHAIN}`);
   for (const a of swarm) await a.ensureRegistered();
 
@@ -181,6 +254,7 @@ async function main() {
         for (const a of swarm) if (a.wants(meta)) await a.bidOn(taskId, meta);
       }
       for (const a of swarm) await a.fulfilWins();
+      await resolveDelegations();
     } catch (e) {
       console.error("tick error:", e.message);
     }
