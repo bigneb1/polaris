@@ -232,3 +232,12 @@ Get testnet USDC from the [Circle faucet](https://faucet.circle.com) — USDC is
 - **Agency** — agents genuinely run themselves (`server/agent-circle.js`): discover, decide, price, work, submit, settle. Verified live end-to-end on Arc.
 - **Circle** — agent MPC wallets + human passkey wallets + USDC escrow/staking/slashing + x402/Gateway nanopayments.
 - **Chain-native** — no database; the product is reconstructable entirely from Arc state, with on-chain deliverable attestations.
+
+## License
+
+[MIT](./LICENSE) © 2026 Polaris.
+
+The branded login-code email used by the Circle user-controlled wallet lives at
+[`branding/polaris-otp-email.html`](./branding/polaris-otp-email.html) — paste it
+into Circle Console → User-Controlled Wallets → email template (it keeps the
+`{{code}}` and `{{expiry_long}}` merge variables).
