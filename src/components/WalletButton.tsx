@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
-import { Fingerprint, LogOut, ChevronDown, Copy, Check, KeyRound, X } from "lucide-react";
+import { Fingerprint, LogOut, ChevronDown, Copy, Check, KeyRound, X, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { useWallet } from "../context/WalletProvider";
 import { shortAddr, fmtUSDC } from "../lib/utils";
+import { humanizeError } from "../lib/errors";
 import { USDCAmount } from "./ui/primitives";
 
 /**
@@ -12,7 +13,7 @@ import { USDCAmount } from "./ui/primitives";
  * not brand name.
  */
 export default function WalletButton() {
-  const { address, isConnected, circle, balance, lastUsername, disconnect } = useWallet();
+  const { address, isConnected, circle, uc, balance, lastUsername, disconnect } = useWallet();
   const [menuOpen, setMenuOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -34,7 +35,7 @@ export default function WalletButton() {
         >
           {balance != null && <span className="hidden text-grey-l sm:inline">{fmtUSDC(balance)} USDC</span>}
           <span className="grid h-5 w-5 place-items-center rounded-full bg-blue-violet text-[9px] text-white">
-            {circle ? (circle.username[0] || "C").toUpperCase() : "•"}
+            {circle ? (circle.username[0] || "C").toUpperCase() : uc ? "P" : "•"}
           </span>
           <span>{shortAddr(address)}</span>
           <ChevronDown size={13} className="text-grey" />
@@ -44,7 +45,9 @@ export default function WalletButton() {
           <>
             <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
             <div className="absolute right-0 z-50 mt-2 w-64 rounded-xl border border-border bg-card p-3 shadow-panel">
-              <div className="eyebrow mb-1 !text-[9px]">{circle ? `Passkey wallet · ${circle.username}` : "Injected wallet"}</div>
+              <div className="eyebrow mb-1 !text-[9px]">
+                {circle ? `Passkey wallet · ${circle.username}` : uc ? "PIN wallet · Circle" : "Injected wallet"}
+              </div>
               <div className="mb-3 flex items-center justify-between rounded-lg border border-border bg-deep px-3 py-2">
                 <span className="mono text-xs text-grey-l">{shortAddr(address, 8, 6)}</span>
                 <button onClick={copy} className="text-grey hover:text-blue-l" title="Copy address">
@@ -55,7 +58,7 @@ export default function WalletButton() {
                 <div className="eyebrow mb-1 !text-[9px]">USDC Balance</div>
                 <USDCAmount amount={balance ?? 0} size="md" className="text-white" />
               </div>
-              {circle && (
+              {(circle || uc) && (
                 <button
                   onClick={() => {
                     disconnect();
@@ -86,7 +89,7 @@ export default function WalletButton() {
 
 /* ── Centered connect modal ─────────────────────────────────────────────────*/
 function ConnectModal({ onClose, lastUsername }: { onClose: () => void; lastUsername: string | null }) {
-  const { circleEnabled, connecting, connect } = useWallet();
+  const { circleEnabled, ucEnabled, hasUcUser, connecting, connect, connectUserWallet } = useWallet();
   const [view, setView] = useState<"options" | "create" | "login">(lastUsername ? "login" : "options");
   const [username, setUsername] = useState(lastUsername ?? "");
 
@@ -104,7 +107,17 @@ function ConnectModal({ onClose, lastUsername }: { onClose: () => void; lastUser
       onClose();
       toast.success(mode === "register" ? "Wallet created" : "Welcome back");
     } catch (e) {
-      toast.error((e as Error).message || "Passkey failed");
+      toast.error(humanizeError(e, "Could not connect your passkey wallet. Please try again."));
+    }
+  };
+
+  const goPin = async () => {
+    try {
+      await connectUserWallet(hasUcUser ? "login" : "register");
+      onClose();
+      toast.success(hasUcUser ? "Welcome back" : "Wallet created");
+    } catch (e) {
+      toast.error(humanizeError(e, "Could not set up your PIN wallet. Please try again."));
     }
   };
 
@@ -144,6 +157,18 @@ function ConnectModal({ onClose, lastUsername }: { onClose: () => void; lastUser
               desc="Return to a wallet you already created with your passkey."
               onClick={() => setView("login")}
             />
+            {ucEnabled && (
+              <OptionRow
+                icon={<Lock size={18} />}
+                title={hasUcUser ? "Unlock your PIN wallet" : "Create a PIN wallet"}
+                desc={
+                  hasUcUser
+                    ? "Return to the wallet you secured with a PIN on this device."
+                    : "Secured by a PIN, recoverable across devices. Gasless on Arc."
+                }
+                onClick={goPin}
+              />
+            )}
           </div>
         ) : (
           <div className="flex flex-col gap-4">

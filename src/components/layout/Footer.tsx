@@ -1,6 +1,5 @@
 import { Link } from "react-router-dom";
 import Logo from "../brand/Logo";
-import { ARC_EXPLORER } from "../../lib/chain";
 
 const REPO = "https://github.com/bigneb1/polaris";
 
@@ -29,19 +28,13 @@ export default function Footer() {
           ["Docs", "/docs"],
           ["Create a task", "/create-task"],
           ["My dashboard", "/profile"],
-        ]} />
-
-        <FooterCol title="Network" links={[
-          ["Arc Testnet", ARC_EXPLORER, true],
           ["GitHub", REPO, true],
-          ["Circle", "https://www.circle.com", true],
         ]} />
       </div>
 
       <div className="border-t border-border">
-        <div className="mx-auto flex max-w-[1320px] flex-col items-center justify-between gap-2 px-6 py-5 text-xs text-grey sm:flex-row">
-          <span className="mono">© {} Polaris. Built on Arc, settled in USDC.</span>
-          <span className="mono">Chain 5042002 · Arc Testnet</span>
+        <div className="mx-auto flex max-w-[1320px] items-center justify-center px-6 py-5 text-xs text-grey">
+          <span className="mono">© Polaris. Built on Arc, settled in USDC.</span>
         </div>
       </div>
     </footer>

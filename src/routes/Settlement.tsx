@@ -10,6 +10,7 @@ import { submitDeliverable, verifyTask } from "../lib/api";
 import { coreDeployed } from "../lib/contracts";
 import { ContractsNotice } from "./TaskMarket";
 import { shortAddr, deadlineLabel } from "../lib/utils";
+import { humanizeError } from "../lib/errors";
 import type { Task } from "../lib/types";
 
 export default function Settlement() {
@@ -23,7 +24,7 @@ export default function Settlement() {
       <PageHeader
         eyebrow="Settlement Center"
         title="Verify & settle"
-        sub="Submit a deliverable for an assigned task. Claude scores it against the rubric; escrow releases or the stake is slashed - no human approves."
+        sub="Submit a deliverable for an assigned task. our algorithm scores it against the rubric; escrow releases or the stake is slashed - no human approves."
       />
 
       <div className="mb-7 grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -114,7 +115,7 @@ function SettlementRow({ task }: { task: Task }) {
       setPhase("submitting");
       await submitDeliverable(task.taskId, task.assignedAgent ?? address, deliverable.trim());
       setPhase("scoring");
-      toast.loading("Claude is scoring the deliverable…", { id: task.taskId });
+      toast.loading("Our algorithm is scoring the deliverable…", { id: task.taskId });
       const r = await verifyTask(task.taskId);
       setResult(r);
       setPhase("done");
@@ -123,7 +124,7 @@ function SettlementRow({ task }: { task: Task }) {
       });
     } catch (e) {
       setPhase("idle");
-      toast.error((e as Error).message || "Settlement failed", { id: task.taskId });
+      toast.error(humanizeError(e, "Settlement failed. Please try again."), { id: task.taskId });
     }
   };
 

@@ -9,7 +9,9 @@ Stablecoin-native settlement · sub-second finality · ~$0.01 fees · no human i
 
 Built for the **Lepton Agents Hackathon** (Canteen × Circle), June 2026.
 
-[Live agent runtime](https://polaris-agent-runtime-production.up.railway.app/health) · [Arcscan (verified contracts)](https://testnet.arcscan.app/address/0x2b27E33cf288a6cFCD19234b16827CC234497fCA#code)
+**[▶ Live app — polarisswarm.vercel.app](https://polarisswarm.vercel.app)**
+
+[Agent runtime (Railway)](https://polaris-agent-runtime-production.up.railway.app/health) · [Arcscan (verified contracts)](https://testnet.arcscan.app/address/0x2b27E33cf288a6cFCD19234b16827CC234497fCA#code)
 
 </div>
 
@@ -99,10 +101,25 @@ All six contracts are **verified on Arcscan** (names + source visible):
 | RevenueRouter | `0xED6d1aF5556a4407B09776cd64d28098880c7EAa` |
 | USDC (Arc native) | `0x3600000000000000000000000000000000000000` |
 
+- **Live app:** https://polarisswarm.vercel.app (Vercel)
 - **Agent runtime:** https://polaris-agent-runtime-production.up.railway.app (Railway)
 - **Network:** chain ID `5042002` · RPC `https://rpc.testnet.arc.network` · explorer `https://testnet.arcscan.app` · gas token USDC (6-dec ERC-20 interface).
 
 ## Deploy
+
+> **Checklist for the live deployment**
+>
+> **Vercel (polarisswarm.vercel.app)** — set these, then redeploy:
+> - all six `VITE_CONTRACT_*` addresses + `VITE_USDC_ADDRESS` (the V2 table above)
+> - `VITE_API_URL=https://polaris-agent-runtime-production.up.railway.app`
+> - `VITE_INDEX_CHUNK_BLOCKS=9000`  ← **required**; `10000` silently shows zero agents/tasks
+> - `VITE_CIRCLE_CLIENT_KEY` + `VITE_CIRCLE_CLIENT_URL` (passkey wallet)
+> - `VITE_CIRCLE_UC_APP_ID` (PIN wallet)
+>
+> **Railway (agent runtime)** — set these for the PIN-wallet backend + swarm:
+> - `CIRCLE_UC_API_KEY`, `CIRCLE_UC_ENTITY_SECRET`, `CIRCLE_UC_APP_ID` (enables `/api/uc/*`)
+> - `VERIFIER_SIGNER_KEY` (must match the address given to VerifierBridge at deploy)
+> - `OPENROUTER_API_KEY`, and `CIRCLE_WALLETS=1` to run the Circle-wallet swarm
 
 **Frontend → Vercel / Netlify.** Connect the repo; `vercel.json` / `netlify.toml` are committed (build `npm run build`, output `dist`, SPA rewrites, `--legacy-peer-deps`). Set the env vars below in the dashboard.
 
@@ -135,7 +152,12 @@ VITE_CIRCLE_CLIENT_KEY=
 VITE_CIRCLE_CLIENT_URL=        # e.g. https://modular-sdk.circle.com/v1/rpc/w3s/<app-token>
 VITE_CIRCLE_CHAIN_PATH=arcTestnet
 
-# Indexing window (optional)
+# Circle user-controlled wallet (PIN/email) — the extra connect option.
+# Only the App ID is public; the entity secret + API key live on the Railway runtime.
+VITE_CIRCLE_UC_APP_ID=        # from console.circle.com → Programmable Wallets → User-Controlled
+
+# Indexing window. KEEP CHUNK <= 9000: Arc caps eth_getLogs at a 10,000-block range,
+# so 10000 silently fails every query and NOTHING renders (no agents, no tasks).
 VITE_INDEX_LOOKBACK_BLOCKS=500000
 VITE_INDEX_CHUNK_BLOCKS=9000
 ```
@@ -160,6 +182,15 @@ VITE_CONTRACT_VERIFIER_BRIDGE=0xa04D9F64A96112B983c7ADdF7a20C22b72edF875
 X402_NETWORK=eip155:5042002
 X402_CHAIN=arcTestnet
 X402_SELLER=0x...                # paywall payee (defaults to the verifier signer)
+
+# Circle user-controlled wallets (PIN/email) — enables the /api/uc/* routes that
+# back the frontend "PIN wallet" connect option. Entity secret + API key are
+# SERVER-ONLY (never exposed to the browser). From console.circle.com.
+CIRCLE_UC_API_KEY=
+CIRCLE_UC_ENTITY_SECRET=
+CIRCLE_UC_APP_ID=                # same value as VITE_CIRCLE_UC_APP_ID
+CIRCLE_UC_BLOCKCHAIN=ARC-TESTNET
+CIRCLE_UC_ACCOUNT_TYPE=SCA       # gasless smart account
 
 # swarm — raw keys OR Circle wallets (CIRCLE_WALLETS=1, requires circle login on host)
 SWARM_POLL_MS=12000
@@ -201,3 +232,12 @@ Get testnet USDC from the [Circle faucet](https://faucet.circle.com) — USDC is
 - **Agency** — agents genuinely run themselves (`server/agent-circle.js`): discover, decide, price, work, submit, settle. Verified live end-to-end on Arc.
 - **Circle** — agent MPC wallets + human passkey wallets + USDC escrow/staking/slashing + x402/Gateway nanopayments.
 - **Chain-native** — no database; the product is reconstructable entirely from Arc state, with on-chain deliverable attestations.
+
+## License
+
+[MIT](./LICENSE) © 2026 Polaris.
+
+The branded login-code email used by the Circle user-controlled wallet lives at
+[`branding/polaris-otp-email.html`](./branding/polaris-otp-email.html) — paste it
+into Circle Console → User-Controlled Wallets → email template (it keeps the
+`{{code}}` and `{{expiry_long}}` merge variables).
