@@ -7,7 +7,18 @@ import "dotenv/config";
 import { createGatewayMiddleware } from "@circle-fin/x402-batching/server";
 import { ADDR, ABI, provider, readTaskMeta, readAssignedAgent, requireAddresses } from "./chain.js";
 import { scoreAgentWork } from "./score.js";
-import { ucEnabled, createSession, refreshSession, initChallenge, getWallet, contractExecutionChallenge } from "./circle-user.js";
+import {
+  ucEnabled,
+  createSession,
+  refreshSession,
+  initChallenge,
+  getWallet,
+  contractExecutionChallenge,
+  emailDeviceToken,
+  walletByToken,
+  createWalletForToken,
+  contractExecutionChallengeByToken,
+} from "./circle-user.js";
 
 /**
  * Polaris verifier backend.
@@ -198,18 +209,52 @@ if (ucEnabled()) {
   });
 
   app.post("/api/uc/execute", async (req, res) => {
-    const { userId, walletId, contractAddress, abiFunctionSignature, abiParameters } = req.body ?? {};
-    if (!userId || !walletId || !contractAddress || !abiFunctionSignature) {
-      return res.status(400).json({ error: "userId, walletId, contractAddress, abiFunctionSignature required" });
+    const { userId, userToken, walletId, contractAddress, abiFunctionSignature, abiParameters } = req.body ?? {};
+    if (!walletId || !contractAddress || !abiFunctionSignature || (!userId && !userToken)) {
+      return res.status(400).json({ error: "walletId, contractAddress, abiFunctionSignature, and userId or userToken required" });
     }
     try {
-      res.json(await contractExecutionChallenge(userId, walletId, contractAddress, abiFunctionSignature, abiParameters ?? []));
+      const out = userToken
+        ? await contractExecutionChallengeByToken(userToken, walletId, contractAddress, abiFunctionSignature, abiParameters ?? [])
+        : await contractExecutionChallenge(userId, walletId, contractAddress, abiFunctionSignature, abiParameters ?? []);
+      res.json(out);
     } catch (e) {
       res.status(502).json({ error: e.message });
     }
   });
 
-  console.log("Circle user-controlled wallets: POST /api/uc/{session,init,execute} enabled");
+  // ── Email OTP login (the auth mode enabled in the Circle Console) ──────────
+  app.post("/api/uc/email-token", async (req, res) => {
+    const { deviceId, email } = req.body ?? {};
+    if (!deviceId || !email) return res.status(400).json({ error: "deviceId and email required" });
+    try {
+      res.json(await emailDeviceToken(deviceId, email));
+    } catch (e) {
+      res.status(502).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/uc/wallet-by-token", async (req, res) => {
+    const { userToken } = req.body ?? {};
+    if (!userToken) return res.status(400).json({ error: "userToken required" });
+    try {
+      res.json((await walletByToken(userToken)) ?? {});
+    } catch (e) {
+      res.status(502).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/uc/create-wallet", async (req, res) => {
+    const { userToken } = req.body ?? {};
+    if (!userToken) return res.status(400).json({ error: "userToken required" });
+    try {
+      res.json(await createWalletForToken(userToken));
+    } catch (e) {
+      res.status(502).json({ error: e.message });
+    }
+  });
+
+  console.log("Circle user-controlled wallets: POST /api/uc/{session,init,email-token,wallet-by-token,create-wallet,execute} enabled");
 } else {
   console.log("Circle user-controlled wallets disabled (set CIRCLE_UC_API_KEY + CIRCLE_UC_ENTITY_SECRET)");
 }

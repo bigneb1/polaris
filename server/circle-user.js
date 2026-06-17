@@ -65,6 +65,52 @@ export async function getWallet(userId) {
   return { walletId: w.id, address: w.address, state: w.state };
 }
 
+/* ── Email OTP login (the auth mode enabled in the Circle Console) ──────────
+ * Flow: browser getDeviceId() -> emailDeviceToken(deviceId,email) [emails the
+ * OTP] -> browser verifyOtp() -> onLoginComplete yields a userToken -> we look
+ * up (or create) the user's Arc wallet by that token. No PIN involved.        */
+
+/** Request an email-OTP device token; Circle emails the one-time code. */
+export async function emailDeviceToken(deviceId, email) {
+  const c = uc();
+  const res = await c.createDeviceTokenForEmailLogin({ deviceId, email });
+  return {
+    deviceToken: res.data.deviceToken,
+    deviceEncryptionKey: res.data.deviceEncryptionKey,
+    otpToken: res.data.otpToken,
+  };
+}
+
+/** The user's Arc wallet, addressed by the post-login userToken. */
+export async function walletByToken(userToken) {
+  const c = uc();
+  const res = await c.listWallets({ userToken, blockchain: BLOCKCHAIN });
+  const w = res.data?.wallets?.[0];
+  if (!w) return null;
+  return { walletId: w.id, address: w.address, state: w.state };
+}
+
+/** Create an Arc wallet for an email-authenticated user; returns a challengeId. */
+export async function createWalletForToken(userToken) {
+  const c = uc();
+  const res = await c.createWallet({ userToken, blockchains: [BLOCKCHAIN], accountType: ACCOUNT_TYPE });
+  return { challengeId: res.data.challengeId };
+}
+
+/** Contract-execution challenge addressed by userToken (email-login users). */
+export async function contractExecutionChallengeByToken(userToken, walletId, contractAddress, abiFunctionSignature, abiParameters) {
+  const c = uc();
+  const res = await c.createUserTransactionContractExecutionChallenge({
+    userToken,
+    walletId,
+    contractAddress,
+    abiFunctionSignature,
+    abiParameters,
+    fee: { type: "level", config: { feeLevel: "MEDIUM" } },
+  });
+  return { challengeId: res.data.challengeId };
+}
+
 /**
  * Initiate a contract write from the user's wallet. Returns a challengeId the
  * browser signs with the user's PIN. callData is an ABI function signature +

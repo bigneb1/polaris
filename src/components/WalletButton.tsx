@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { Fingerprint, LogOut, ChevronDown, ChevronRight, Copy, Check, X, Mail, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { useWallet } from "../context/WalletProvider";
@@ -88,13 +89,14 @@ export default function WalletButton() {
   );
 }
 
-/* ── Centered connect modal (Privy-style) ───────────────────────────────────*/
+/* ── Centered connect modal (Privy-style, portaled to body) ─────────────────*/
 function ConnectModal({ onClose, lastUsername }: { onClose: () => void; lastUsername: string | null }) {
-  const { circleEnabled, ucEnabled, hasUcUser, connect, connectUserWallet } = useWallet();
-  const [view, setView] = useState<"options" | "passkey">("options");
+  const { circleEnabled, ucEnabled, lastUcEmail, connect, connectEmailWallet } = useWallet();
+  const [view, setView] = useState<"options" | "passkey" | "email">("options");
   const [mode, setMode] = useState<"register" | "login">(lastUsername ? "login" : "register");
   const [username, setUsername] = useState(lastUsername ?? "");
-  const [busy, setBusy] = useState<null | "passkey" | "pin">(null);
+  const [email, setEmail] = useState(lastUcEmail ?? "");
+  const [busy, setBusy] = useState<null | "passkey" | "email">(null);
   const [mounted, setMounted] = useState(false);
 
   // entrance animation + close on Escape
@@ -122,23 +124,30 @@ function ConnectModal({ onClose, lastUsername }: { onClose: () => void; lastUser
     }
   };
 
-  const goPin = async () => {
-    setBusy("pin");
+  const goEmail = async () => {
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) return toast.error("Enter a valid email");
+    setBusy("email");
     try {
-      await connectUserWallet(hasUcUser ? "login" : "register");
+      await connectEmailWallet(email.trim());
       onClose();
-      toast.success(hasUcUser ? "Welcome back" : "Wallet created");
+      toast.success("Wallet connected");
     } catch (e) {
-      toast.error(humanizeError(e, "Could not set up your PIN wallet. Please try again."));
+      toast.error(humanizeError(e, "Could not sign in with email. Please try again."));
     } finally {
       setBusy(null);
     }
   };
 
-  return (
+  const headings: Record<typeof view, { title: string; sub: string }> = {
+    options: { title: "Log in to Polaris", sub: "Connect a wallet to hire agents and settle in USDC." },
+    passkey: { title: "Passkey wallet", sub: "Choose a username for your device passkey." },
+    email: { title: "Continue with email", sub: "We'll send a one-time code to verify it's you." },
+  };
+
+  const modal = (
     <div
       className={cn(
-        "fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-md transition-opacity duration-200",
+        "fixed inset-0 z-[1000] flex items-center justify-center bg-black/60 p-4 backdrop-blur-md transition-opacity duration-200",
         mounted ? "opacity-100" : "opacity-0",
       )}
       onClick={onClose}
@@ -163,14 +172,8 @@ function ConnectModal({ onClose, lastUsername }: { onClose: () => void; lastUser
         {/* Brand header */}
         <div className="flex flex-col items-center px-7 pb-2 pt-9 text-center">
           <PolarisMark size={40} />
-          <h3 className="mt-4 text-xl font-semibold tracking-tight text-white">
-            {view === "passkey" ? "Passkey wallet" : "Log in to Polaris"}
-          </h3>
-          <p className="mt-1.5 text-sm leading-relaxed text-grey-l">
-            {view === "passkey"
-              ? "Choose a username for your device passkey."
-              : "Connect a wallet to hire agents and settle in USDC."}
-          </p>
+          <h3 className="mt-4 text-xl font-semibold tracking-tight text-white">{headings[view].title}</h3>
+          <p className="mt-1.5 text-sm leading-relaxed text-grey-l">{headings[view].sub}</p>
         </div>
 
         <div className="px-7 pb-7 pt-5">
@@ -186,11 +189,10 @@ function ConnectModal({ onClose, lastUsername }: { onClose: () => void; lastUser
               {ucEnabled && (
                 <MethodButton
                   icon={<Mail size={18} />}
-                  title={hasUcUser ? "Continue with email" : "Email"}
-                  desc={hasUcUser ? "Unlock your PIN-secured wallet" : "PIN-secured wallet, recoverable across devices"}
-                  loading={busy === "pin"}
+                  title="Email"
+                  desc="One-time code to your inbox. Gasless, no seed phrase."
                   disabled={busy !== null}
-                  onClick={goPin}
+                  onClick={() => setView("email")}
                 />
               )}
               {circleEnabled && (
@@ -202,6 +204,29 @@ function ConnectModal({ onClose, lastUsername }: { onClose: () => void; lastUser
                   onClick={() => setView("passkey")}
                 />
               )}
+            </div>
+          ) : view === "email" ? (
+            <div className="flex flex-col gap-4">
+              <input
+                autoFocus
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                className="input-field"
+                placeholder="you@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && goEmail()}
+              />
+              <button onClick={goEmail} disabled={busy !== null || !email.trim()} className="btn-primary w-full">
+                {busy === "email" ? "Sending code…" : "Continue"}
+              </button>
+              <button
+                onClick={() => setView("options")}
+                className="mono inline-flex items-center justify-center gap-1.5 text-xs text-grey hover:text-grey-l"
+              >
+                <ArrowLeft size={13} /> All options
+              </button>
             </div>
           ) : (
             <div className="flex flex-col gap-4">
@@ -254,6 +279,11 @@ function ConnectModal({ onClose, lastUsername }: { onClose: () => void; lastUser
       </div>
     </div>
   );
+
+  // Portal to <body> so the modal centers on the viewport, not inside the
+  // backdrop-blurred header (a backdrop-filter ancestor would otherwise become
+  // the containing block for position:fixed and pin the modal to the header).
+  return createPortal(modal, document.body);
 }
 
 function MethodButton({

@@ -21,11 +21,14 @@ export function ucWalletEnabled(): boolean {
 
 export type UcSession = {
   kind: "uc";
-  userId: string;
   userToken: string;
   encryptionKey: string;
   walletId: string;
   address: `0x${string}`;
+  /** Present for email-OTP logins; used only for display / re-login prefill. */
+  email?: string;
+  /** Present for legacy PIN logins. */
+  userId?: string;
 };
 
 const publicClient = createPublicClient({ chain: arcTestnet, transport: http(ARC_RPC_URL) });
@@ -158,6 +161,74 @@ export async function loginUserWallet(userId: string): Promise<UcSession> {
   return { kind: "uc", ...sess, ...wallet };
 }
 
+/** Poll for the Arc wallet addressed by a post-login userToken. */
+async function walletByToken(userToken: string): Promise<{ walletId: string; address: `0x${string}` } | null> {
+  const w = await api<{ walletId?: string; address?: string }>("/api/uc/wallet-by-token", { userToken });
+  return w.walletId && w.address ? { walletId: w.walletId, address: w.address as `0x${string}` } : null;
+}
+
+/**
+ * Email-OTP connect (the auth mode enabled in the Circle Console).
+ *
+ * Browser getDeviceId() -> backend emails the OTP -> Circle's verifyOtp() UI
+ * collects the code -> onLoginComplete yields a userToken -> we look up (or
+ * create) the user's Arc wallet. No PIN is involved.
+ */
+export async function connectEmailWallet(email: string): Promise<UcSession> {
+  if (!ucWalletEnabled()) throw new Error("Circle user wallet not configured");
+  if (!email.trim()) throw new Error("Enter your email");
+  const { W3SSdk } = await import("@circle-fin/w3s-pw-web-sdk");
+
+  // onLoginComplete delivers the authenticated session token.
+  let resolveLogin!: (r: { userToken: string; encryptionKey: string }) => void;
+  let rejectLogin!: (e: Error) => void;
+  const loginDone = new Promise<{ userToken: string; encryptionKey: string }>((res, rej) => {
+    resolveLogin = res;
+    rejectLogin = rej;
+  });
+  const onLoginComplete = (
+    error: { message?: string } | undefined,
+    result: { userToken?: string; encryptionKey?: string } | undefined,
+  ) => {
+    if (error) rejectLogin(new Error(error.message || "Email login failed"));
+    else if (result?.userToken && result.encryptionKey)
+      resolveLogin({ userToken: result.userToken, encryptionKey: result.encryptionKey });
+    else rejectLogin(new Error("Email login returned no session"));
+  };
+
+  const sdk = new W3SSdk({ appSettings: { appId: APP_ID } }, onLoginComplete);
+  brandSdk(sdk);
+
+  const deviceId = await sdk.getDeviceId();
+  const { deviceToken, deviceEncryptionKey, otpToken } = await api<{
+    deviceToken: string;
+    deviceEncryptionKey: string;
+    otpToken: string;
+  }>("/api/uc/email-token", { deviceId, email: email.trim() });
+
+  sdk.updateConfigs(
+    { appSettings: { appId: APP_ID }, loginConfigs: { deviceToken, deviceEncryptionKey, otpToken } },
+    onLoginComplete,
+  );
+  sdk.verifyOtp();
+
+  const { userToken, encryptionKey } = await loginDone;
+
+  // Ensure the Arc wallet exists (create + sign the challenge if first login).
+  let wallet = await walletByToken(userToken);
+  if (!wallet) {
+    const { challengeId } = await api<{ challengeId: string }>("/api/uc/create-wallet", { userToken });
+    sdk.setAuthentication({ userToken, encryptionKey });
+    await runChallenge(sdk, challengeId);
+    for (let i = 0; i < 8 && !wallet; i++) {
+      wallet = await walletByToken(userToken);
+      if (!wallet) await new Promise((r) => setTimeout(r, 1500));
+    }
+  }
+  if (!wallet) throw new Error("Wallet not ready, please try again");
+  return { kind: "uc", userToken, encryptionKey, walletId: wallet.walletId, address: wallet.address, email: email.trim() };
+}
+
 /** USDC balance (human units) of the user wallet. */
 export async function ucUsdcBalance(session: UcSession): Promise<number> {
   const raw = (await publicClient.readContract({
@@ -185,6 +256,7 @@ export async function ucWrite(session: UcSession, call: Call): Promise<void> {
   // Validate encodability up-front (throws clearly if the call is malformed).
   encodeFunctionData({ abi: call.abi, functionName: call.functionName, args: call.args });
   const { challengeId } = await api<{ challengeId: string }>("/api/uc/execute", {
+    userToken: session.userToken,
     userId: session.userId,
     walletId: session.walletId,
     contractAddress: call.address,

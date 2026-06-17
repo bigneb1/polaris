@@ -9,8 +9,7 @@ import {
 } from "../lib/circleWallet";
 import {
   ucWalletEnabled,
-  registerUserWallet,
-  loginUserWallet,
+  connectEmailWallet as connectEmailWalletLib,
   ucUsdcBalance,
   type UcSession,
 } from "../lib/circleUserWallet";
@@ -21,7 +20,7 @@ import {
  * in later with the same passkey.
  */
 const LAST_USER_KEY = "polaris-circle-username";
-const LAST_UC_KEY = "polaris-uc-userid";
+const LAST_UC_KEY = "polaris-uc-email";
 
 type Ctx = {
   address?: `0x${string}`;
@@ -38,10 +37,10 @@ type Ctx = {
   balance: number | null;
   /** Last username this browser registered/logged in with (for quick re-login). */
   lastUsername: string | null;
-  /** Whether this browser has a remembered user-controlled wallet to re-login. */
-  hasUcUser: boolean;
+  /** Last email this browser used for an OTP login (for quick re-login). */
+  lastUcEmail: string | null;
   connect: (username: string, mode: "register" | "login") => Promise<void>;
-  connectUserWallet: (mode: "register" | "login") => Promise<void>;
+  connectEmailWallet: (email: string) => Promise<void>;
   disconnect: () => void;
   refreshBalance: () => void;
 };
@@ -61,7 +60,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       return null;
     }
   });
-  const [lastUcUser, setLastUcUser] = useState<string | null>(() => {
+  const [lastUcEmail, setLastUcEmail] = useState<string | null>(() => {
     try {
       return localStorage.getItem(LAST_UC_KEY);
     } catch {
@@ -86,26 +85,22 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const connectUserWallet = useCallback(
-    async (mode: "register" | "login") => {
-      setConnecting(true);
+  const connectEmailWallet = useCallback(async (email: string) => {
+    setConnecting(true);
+    try {
+      const session = await connectEmailWalletLib(email);
+      setUc(session);
+      setCircle(null);
       try {
-        const session =
-          mode === "login" && lastUcUser ? await loginUserWallet(lastUcUser) : await registerUserWallet();
-        setUc(session);
-        setCircle(null);
-        try {
-          localStorage.setItem(LAST_UC_KEY, session.userId);
-        } catch {
-          /* ignore */
-        }
-        setLastUcUser(session.userId);
-      } finally {
-        setConnecting(false);
+        localStorage.setItem(LAST_UC_KEY, email);
+      } catch {
+        /* ignore */
       }
-    },
-    [lastUcUser],
-  );
+      setLastUcEmail(email);
+    } finally {
+      setConnecting(false);
+    }
+  }, []);
 
   const refreshBalance = useCallback(() => {
     if (circle) circleUsdcBalance(circle).then(setBalance).catch(() => setBalance(null));
@@ -133,9 +128,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     connecting,
     balance,
     lastUsername,
-    hasUcUser: Boolean(lastUcUser),
+    lastUcEmail,
     connect,
-    connectUserWallet,
+    connectEmailWallet,
     disconnect: () => {
       setCircle(null);
       setUc(null);
