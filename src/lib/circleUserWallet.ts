@@ -7,7 +7,7 @@
  * the PIN ceremony locally with @circle-fin/w3s-pw-web-sdk. Contract writes are
  * initiated on the backend as challenges and signed here with the user's PIN.
  */
-import { W3SSdk } from "@circle-fin/w3s-pw-web-sdk";
+import type { W3SSdk } from "@circle-fin/w3s-pw-web-sdk";
 import { createPublicClient, http, encodeFunctionData, erc20Abi, formatUnits, type Abi } from "viem";
 import { arcTestnet, USDC_ADDRESS, USDC_DECIMALS, ARC_RPC_URL } from "./chain";
 
@@ -104,7 +104,14 @@ function brandSdk(sdk: W3SSdk): void {
   });
 }
 
-function makeSdk(userToken: string, encryptionKey: string): W3SSdk {
+/**
+ * The Circle PIN SDK bundles Node-oriented deps (jsonwebtoken, dotenv) that
+ * reference process/Buffer and crash if evaluated at app startup. We import it
+ * lazily here so it is code-split out of the entry bundle and only loaded when
+ * the user actually opens the PIN wallet flow.
+ */
+async function makeSdk(userToken: string, encryptionKey: string): Promise<W3SSdk> {
+  const { W3SSdk } = await import("@circle-fin/w3s-pw-web-sdk");
   const sdk = new W3SSdk();
   sdk.setAppSettings({ appId: APP_ID });
   sdk.setAuthentication({ userToken, encryptionKey });
@@ -137,7 +144,7 @@ export async function registerUserWallet(): Promise<UcSession> {
   if (!ucWalletEnabled()) throw new Error("Circle user wallet not configured");
   const sess = await api<{ userId: string; userToken: string; encryptionKey: string }>("/api/uc/session", {});
   const { challengeId } = await api<{ challengeId: string }>("/api/uc/init", { userId: sess.userId });
-  const sdk = makeSdk(sess.userToken, sess.encryptionKey);
+  const sdk = await makeSdk(sess.userToken, sess.encryptionKey);
   await runChallenge(sdk, challengeId);
   const wallet = await fetchWallet(sess.userId);
   return { kind: "uc", ...sess, ...wallet };
@@ -184,7 +191,7 @@ export async function ucWrite(session: UcSession, call: Call): Promise<void> {
     abiFunctionSignature,
     abiParameters,
   });
-  const sdk = makeSdk(session.userToken, session.encryptionKey);
+  const sdk = await makeSdk(session.userToken, session.encryptionKey);
   await runChallenge(sdk, challengeId);
 }
 
