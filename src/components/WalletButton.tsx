@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
-import { Fingerprint, LogOut, ChevronDown, Copy, Check, KeyRound, X, Lock } from "lucide-react";
+import { Fingerprint, LogOut, ChevronDown, ChevronRight, Copy, Check, X, Mail, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { useWallet } from "../context/WalletProvider";
-import { shortAddr, fmtUSDC } from "../lib/utils";
+import { shortAddr, fmtUSDC, cn } from "../lib/utils";
 import { humanizeError } from "../lib/errors";
+import { PolarisMark } from "./brand/Logo";
 import { USDCAmount } from "./ui/primitives";
 
 /**
@@ -87,137 +88,207 @@ export default function WalletButton() {
   );
 }
 
-/* ── Centered connect modal ─────────────────────────────────────────────────*/
+/* ── Centered connect modal (Privy-style) ───────────────────────────────────*/
 function ConnectModal({ onClose, lastUsername }: { onClose: () => void; lastUsername: string | null }) {
-  const { circleEnabled, ucEnabled, hasUcUser, connecting, connect, connectUserWallet } = useWallet();
-  const [view, setView] = useState<"options" | "create" | "login">(lastUsername ? "login" : "options");
+  const { circleEnabled, ucEnabled, hasUcUser, connect, connectUserWallet } = useWallet();
+  const [view, setView] = useState<"options" | "passkey">("options");
+  const [mode, setMode] = useState<"register" | "login">(lastUsername ? "login" : "register");
   const [username, setUsername] = useState(lastUsername ?? "");
+  const [busy, setBusy] = useState<null | "passkey" | "pin">(null);
+  const [mounted, setMounted] = useState(false);
 
-  // close on Escape
+  // entrance animation + close on Escape
   useEffect(() => {
+    const id = requestAnimationFrame(() => setMounted(true));
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      cancelAnimationFrame(id);
+      window.removeEventListener("keydown", onKey);
+    };
   }, [onClose]);
 
-  const go = async (mode: "register" | "login") => {
+  const goPasskey = async () => {
     if (!username.trim()) return toast.error("Enter a username");
+    setBusy("passkey");
     try {
       await connect(username.trim(), mode);
       onClose();
       toast.success(mode === "register" ? "Wallet created" : "Welcome back");
     } catch (e) {
       toast.error(humanizeError(e, "Could not connect your passkey wallet. Please try again."));
+    } finally {
+      setBusy(null);
     }
   };
 
   const goPin = async () => {
+    setBusy("pin");
     try {
       await connectUserWallet(hasUcUser ? "login" : "register");
       onClose();
       toast.success(hasUcUser ? "Welcome back" : "Wallet created");
     } catch (e) {
       toast.error(humanizeError(e, "Could not set up your PIN wallet. Please try again."));
+    } finally {
+      setBusy(null);
     }
   };
 
   return (
     <div
-      className="fixed inset-0 z-[100] grid place-items-center bg-black/55 p-4 backdrop-blur-sm"
+      className={cn(
+        "fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-md transition-opacity duration-200",
+        mounted ? "opacity-100" : "opacity-0",
+      )}
       onClick={onClose}
+      role="dialog"
+      aria-modal="true"
     >
-      <div className="panel w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-5 flex items-start justify-between">
-          <div>
-            <h3 className="text-lg font-semibold text-white">Connect a wallet</h3>
-            <p className="mt-1 text-sm text-grey-l">Choose how you want to sign in. Gasless on Arc Testnet.</p>
-          </div>
-          <button onClick={onClose} className="text-grey hover:text-white" aria-label="Close">
-            <X size={18} />
-          </button>
+      <div
+        className={cn(
+          "relative w-full max-w-[400px] overflow-hidden rounded-2xl border border-border bg-card shadow-panel transition-all duration-200",
+          mounted ? "translate-y-0 scale-100 opacity-100" : "translate-y-2 scale-[0.98] opacity-0",
+        )}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          onClick={onClose}
+          className="absolute right-4 top-4 grid h-8 w-8 place-items-center rounded-lg text-grey transition-colors hover:bg-deep hover:text-white"
+          aria-label="Close"
+        >
+          <X size={17} />
+        </button>
+
+        {/* Brand header */}
+        <div className="flex flex-col items-center px-7 pb-2 pt-9 text-center">
+          <PolarisMark size={40} />
+          <h3 className="mt-4 text-xl font-semibold tracking-tight text-white">
+            {view === "passkey" ? "Passkey wallet" : "Log in to Polaris"}
+          </h3>
+          <p className="mt-1.5 text-sm leading-relaxed text-grey-l">
+            {view === "passkey"
+              ? "Choose a username for your device passkey."
+              : "Connect a wallet to hire agents and settle in USDC."}
+          </p>
         </div>
 
-        {!circleEnabled ? (
-          <div className="rounded-xl border border-amber/30 bg-amber/5 p-4 text-xs leading-relaxed text-grey-l">
-            Wallet connection needs a Circle client key. Add{" "}
-            <span className="mono text-grey">VITE_CIRCLE_CLIENT_KEY</span> and{" "}
-            <span className="mono text-grey">VITE_CIRCLE_CLIENT_URL</span> from the Circle console, then redeploy.
-          </div>
-        ) : view === "options" ? (
-          <div className="flex flex-col gap-3">
-            <OptionRow
-              icon={<Fingerprint size={18} />}
-              title="Create a smart wallet"
-              desc="Secured by a passkey on this device. No seed phrase, gasless transactions."
-              onClick={() => setView("create")}
-            />
-            <OptionRow
-              icon={<KeyRound size={18} />}
-              title="Sign in with a passkey"
-              desc="Return to a wallet you already created with your passkey."
-              onClick={() => setView("login")}
-            />
-            {ucEnabled && (
-              <OptionRow
-                icon={<Lock size={18} />}
-                title={hasUcUser ? "Unlock your PIN wallet" : "Create a PIN wallet"}
-                desc={
-                  hasUcUser
-                    ? "Return to the wallet you secured with a PIN on this device."
-                    : "Secured by a PIN, recoverable across devices. Gasless on Arc."
-                }
-                onClick={goPin}
-              />
-            )}
-          </div>
-        ) : (
-          <div className="flex flex-col gap-4">
-            <button onClick={() => setView("options")} className="mono self-start text-xs text-grey hover:text-grey-l">
-              ← Back
-            </button>
-            <label className="block">
-              <div className="eyebrow mb-2">Username</div>
+        <div className="px-7 pb-7 pt-5">
+          {!circleEnabled && !ucEnabled ? (
+            <div className="rounded-xl border border-amber/30 bg-amber/5 p-4 text-xs leading-relaxed text-grey-l">
+              Wallet connection needs Circle credentials. Add{" "}
+              <span className="mono text-grey">VITE_CIRCLE_CLIENT_KEY</span> /{" "}
+              <span className="mono text-grey">VITE_CIRCLE_CLIENT_URL</span> (passkey) or{" "}
+              <span className="mono text-grey">VITE_CIRCLE_UC_APP_ID</span> (email), then redeploy.
+            </div>
+          ) : view === "options" ? (
+            <div className="flex flex-col gap-2.5">
+              {ucEnabled && (
+                <MethodButton
+                  icon={<Mail size={18} />}
+                  title={hasUcUser ? "Continue with email" : "Email"}
+                  desc={hasUcUser ? "Unlock your PIN-secured wallet" : "PIN-secured wallet, recoverable across devices"}
+                  loading={busy === "pin"}
+                  disabled={busy !== null}
+                  onClick={goPin}
+                />
+              )}
+              {circleEnabled && (
+                <MethodButton
+                  icon={<Fingerprint size={18} />}
+                  title="Passkey"
+                  desc="Face ID or fingerprint on this device. Gasless."
+                  disabled={busy !== null}
+                  onClick={() => setView("passkey")}
+                />
+              )}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-4">
+              {/* segmented create / sign-in toggle */}
+              <div className="flex rounded-xl border border-border bg-deep p-1">
+                {(["register", "login"] as const).map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => setMode(m)}
+                    className={cn(
+                      "flex-1 rounded-lg py-1.5 text-xs font-medium transition-colors",
+                      mode === m ? "bg-card text-white shadow-soft" : "text-grey hover:text-grey-l",
+                    )}
+                  >
+                    {m === "register" ? "Create new" : "Sign in"}
+                  </button>
+                ))}
+              </div>
               <input
                 autoFocus
                 className="input-field"
-                placeholder="e.g. alice"
+                placeholder="Username, e.g. alice"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && go(view === "create" ? "register" : "login")}
+                onKeyDown={(e) => e.key === "Enter" && goPasskey()}
               />
-            </label>
-            <button
-              onClick={() => go(view === "create" ? "register" : "login")}
-              disabled={connecting || !username.trim()}
-              className="btn-primary w-full"
-            >
-              {connecting ? "Waiting for passkey…" : view === "create" ? "Create wallet" : "Sign in"}
-            </button>
-            <p className="mono text-center text-[11px] text-grey">
-              {view === "create"
-                ? "Your passkey is saved by your device, tied to this username."
-                : "Use the passkey you created with this username."}
-            </p>
-          </div>
-        )}
+              <button onClick={goPasskey} disabled={busy !== null || !username.trim()} className="btn-primary w-full">
+                {busy === "passkey"
+                  ? "Waiting for passkey…"
+                  : mode === "register"
+                    ? "Create wallet"
+                    : "Sign in"}
+              </button>
+              <button
+                onClick={() => setView("options")}
+                className="mono inline-flex items-center justify-center gap-1.5 text-xs text-grey hover:text-grey-l"
+              >
+                <ArrowLeft size={13} /> All options
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Footer trust line */}
+        <div className="border-t border-border bg-deep/60 px-7 py-3.5 text-center">
+          <span className="mono text-[10px] uppercase tracking-widest text-grey">
+            Gasless on Arc · secured by Circle
+          </span>
+        </div>
       </div>
     </div>
   );
 }
 
-function OptionRow({ icon, title, desc, onClick }: { icon: React.ReactNode; title: string; desc: string; onClick: () => void }) {
+function MethodButton({
+  icon,
+  title,
+  desc,
+  onClick,
+  loading,
+  disabled,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  desc: string;
+  onClick: () => void;
+  loading?: boolean;
+  disabled?: boolean;
+}) {
   return (
     <button
       onClick={onClick}
-      className="flex items-start gap-3 rounded-xl border border-border bg-deep p-4 text-left transition-colors hover:border-blue"
+      disabled={disabled}
+      className="group flex items-center gap-3 rounded-xl border border-border bg-deep p-3.5 text-left transition-all hover:border-blue hover:bg-card disabled:cursor-not-allowed disabled:opacity-50"
     >
-      <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-border2 bg-card text-blue-l">
+      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-border2 bg-card text-blue-l">
         {icon}
       </span>
-      <span>
+      <span className="min-w-0 flex-1">
         <span className="block text-sm font-semibold text-white">{title}</span>
-        <span className="mt-0.5 block text-xs leading-relaxed text-grey-l">{desc}</span>
+        <span className="block truncate text-xs text-grey-l">{desc}</span>
       </span>
+      {loading ? (
+        <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-border2 border-t-blue-l" />
+      ) : (
+        <ChevronRight size={17} className="shrink-0 text-grey transition-transform group-hover:translate-x-0.5 group-hover:text-grey-l" />
+      )}
     </button>
   );
 }
