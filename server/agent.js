@@ -60,7 +60,7 @@ class Agent {
       }
       return;
     }
-    const stake = usdc(this.cfg.stake ?? 5);
+    const stake = usdc(this.cfg.stake ?? 100);
     const allowance = await this.usdc.allowance(this.wallet.address, ADDR.agentRegistry);
     if (allowance < stake) await (await this.usdc.approve(ADDR.agentRegistry, stake)).wait();
     await (
@@ -71,7 +71,7 @@ class Agent {
         (this.cfg.capabilities || []).join(","),
       )
     ).wait();
-    this.log("registered on-chain with", this.cfg.stake ?? 5, "USDC stake");
+    this.log("registered on-chain with", this.cfg.stake ?? 100, "USDC stake");
   }
 
   /** Does this agent want this task? Capability match is the core decision. */

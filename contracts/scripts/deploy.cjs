@@ -46,7 +46,7 @@ async function main() {
   const bidEngineAddr = await bidEngine.getAddress();
   console.log("BidEngine:", bidEngineAddr);
 
-  const taskReg = await ethers.deployContract("TaskRegistry", [escrowAddr]);
+  const taskReg = await ethers.deployContract("TaskRegistry", [escrowAddr, agentRegAddr]);
   await taskReg.waitForDeployment();
   const taskRegAddr = await taskReg.getAddress();
   console.log("TaskRegistry:", taskRegAddr);
@@ -71,6 +71,7 @@ async function main() {
   await (await escrow.setTaskRegistry(taskRegAddr)).wait();
   await (await escrow.setVerifierBridge(verifierAddr)).wait();
   await (await agentReg.setVerifierBridge(verifierAddr)).wait();
+  await (await agentReg.setTaskRegistry(taskRegAddr)).wait();
   await (await taskReg.setBidEngine(bidEngineAddr)).wait();
   await (await taskReg.setVerifierBridge(verifierAddr)).wait();
   await (await bidEngine.setTaskRegistry(taskRegAddr)).wait();

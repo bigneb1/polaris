@@ -59,7 +59,7 @@ class CircleAgent {
       }
       return;
     }
-    const stakeAmt = usdc(this.cfg.stake ?? 5);
+    const stakeAmt = usdc(this.cfg.stake ?? 100);
     // ensure the wallet has USDC (faucet) + allowance to the registry
     const bal = await usdcR.balanceOf(this.address);
     if (bal < stakeAmt) {
@@ -156,7 +156,7 @@ async function main() {
       { name: "Scribe-Writer", capabilities: ["writing", "translation"], markup: 0.9 },
       { name: "Forge-Coder", capabilities: ["code"], markup: 0.88 },
     ];
-    agents = wallets.slice(0, personas.length).map((address, i) => ({ ...personas[i], address, stake: 5 }));
+    agents = wallets.slice(0, personas.length).map((address, i) => ({ ...personas[i], address, stake: 100 }));
     console.log(`Auto-mapped ${agents.length} Circle wallet(s) to personas.`);
   }
   if (agents.length === 0) {

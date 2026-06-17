@@ -52,23 +52,30 @@ export const TASK_REGISTRY_ABI = parseAbi([
   "function submitTask(bytes32 taskId, uint256 budgetUsdc, uint256 deadline, uint256 minReputation, string title, string description, string rubric, string taskType)",
   "function cancelTask(bytes32 taskId)",
   "function tasks(bytes32) view returns (bytes32 taskId, address requester, uint256 budgetUsdc, uint256 deadline, uint256 minReputation, address assignedAgent, uint8 status, uint256 createdAt)",
+  "function submitDirectTask(bytes32 taskId, address agent, uint256 budgetUsdc, uint256 deadline, string title, string description, string rubric, string taskType)",
+  "function slashOnTimeout(bytes32 taskId)",
   "event TaskSubmitted(bytes32 indexed taskId, address indexed requester, uint256 budgetUsdc, uint256 deadline, uint256 minReputation, string title, string description, string rubric, string taskType)",
   "event TaskAssigned(bytes32 indexed taskId, address indexed agent, uint256 bidAmount)",
   "event TaskSettled(bytes32 indexed taskId, address indexed agent, uint256 amount)",
   "event TaskCancelled(bytes32 indexed taskId)",
+  "event TaskTimedOut(bytes32 indexed taskId, address indexed agent)",
 ]);
 
 export const AGENT_REGISTRY_ABI = parseAbi([
   "function register(bytes32 agentId, uint256 stakeAmount, string name, string capabilities)",
-  "function unstake()",
+  "function deactivate()",
+  "function withdrawStake()",
   "function restake(uint256 additionalAmount)",
-  "function agents(address) view returns (address wallet, bytes32 agentId, uint256 stakedUsdc, uint256 reputation, uint256 tasksCompleted, uint256 tasksFailed, bool online, bool registered)",
+  "function agents(address) view returns (address wallet, bytes32 agentId, uint256 stakedUsdc, uint256 reputation, uint256 tasksCompleted, uint256 tasksFailed, uint256 activeTasks, bool online, bool registered)",
   "function getReputation(address wallet) view returns (uint256)",
   "function isOnline(address wallet) view returns (bool)",
   "function getStake(address wallet) view returns (uint256)",
+  "function getActiveTasks(address wallet) view returns (uint256)",
   "event AgentRegistered(address indexed wallet, bytes32 indexed agentId, uint256 stake, string name, string capabilities)",
-  "event AgentUnstaked(address indexed wallet, uint256 amount)",
+  "event AgentDeactivated(address indexed wallet)",
   "event AgentRestaked(address indexed wallet, uint256 amount)",
+  "event StakeWithdrawn(address indexed wallet, uint256 amount)",
+  "event TaskAssignedToAgent(address indexed wallet, uint256 activeTasks)",
   "event ReputationUpdated(address indexed wallet, uint256 newRep)",
   "event AgentSlashed(address indexed wallet, uint256 penalty)",
 ]);
@@ -83,7 +90,8 @@ export const BID_ENGINE_ABI = parseAbi([
 ]);
 
 export const VERIFIER_BRIDGE_ABI = parseAbi([
-  "function submitVerification(bytes32 taskId, address agent, address requester, bool passed, uint8 score, bytes signature)",
+  "function submitVerification(bytes32 taskId, address agent, address requester, bool passed, uint8 score, bytes32 deliverableHash, bytes signature)",
   "function processed(bytes32) view returns (bool)",
-  "event VerificationSubmitted(bytes32 indexed taskId, address indexed agent, bool passed, uint8 score)",
+  "function attestations(bytes32) view returns (address agent, bool passed, uint8 score, bytes32 deliverableHash, uint256 timestamp)",
+  "event VerificationSubmitted(bytes32 indexed taskId, address indexed agent, bool passed, uint8 score, bytes32 deliverableHash)",
 ]);

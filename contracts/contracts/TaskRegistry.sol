@@ -6,22 +6,32 @@ interface IUSDCEscrow {
     function refund(bytes32 taskId) external;
 }
 
+interface IAgentRegistryT {
+    function onAssigned(address wallet) external;
+    function isOnline(address w) external view returns (bool);
+    function getReputation(address w) external view returns (uint256);
+    function slash(address wallet, address beneficiary) external returns (uint256);
+}
+
 /**
- * TaskRegistry — the task lifecycle + on-chain metadata source.
+ * TaskRegistry (V2) — task lifecycle + on-chain metadata source.
  *
- * KEY FIX vs the build prompt: submitTask no longer does its own transferFrom.
- * The requester approves USDCEscrow; this contract just calls escrow.lockFunds,
- * which is the single point that pulls USDC. (The prompt pulled twice and every
- * submit reverted.)
- *
- * Task metadata (title/description/rubric/type) is emitted in TaskSubmitted so
- * the frontend reconstructs everything from logs — no off-chain database.
+ * V2 additions:
+ *  - assignAgent bumps the agent's active-task counter (AgentRegistry.onAssigned).
+ *  - submitDirectTask: a requester hires a NAMED agent directly (skips the
+ *    auction) — used for "hire this agent for me" and for agent-to-agent
+ *    delegation. Agent must be online and meet the reputation floor.
+ *  - slashOnTimeout: if an assigned agent misses the deadline, anyone can call
+ *    this to refund the requester and slash the agent (deadline discipline).
  */
 contract TaskRegistry {
     IUSDCEscrow public escrow;
+    IAgentRegistryT public agentRegistry;
     address public owner;
     address public bidEngine;
     address public verifierBridge;
+
+    uint256 public constant MIN_REP_TO_BID = 70;
 
     enum Status { OPEN, ASSIGNED, IN_PROGRESS, COMPLETED, SETTLED, CANCELLED }
 
@@ -52,14 +62,16 @@ contract TaskRegistry {
     event TaskAssigned(bytes32 indexed taskId, address indexed agent, uint256 bidAmount);
     event TaskSettled(bytes32 indexed taskId, address indexed agent, uint256 amount);
     event TaskCancelled(bytes32 indexed taskId);
+    event TaskTimedOut(bytes32 indexed taskId, address indexed agent);
 
     modifier onlyAuthorized() {
         require(msg.sender == bidEngine || msg.sender == verifierBridge || msg.sender == owner, "Not authorized");
         _;
     }
 
-    constructor(address _escrow) {
+    constructor(address _escrow, address _agentRegistry) {
         escrow = IUSDCEscrow(_escrow);
+        agentRegistry = IAgentRegistryT(_agentRegistry);
         owner = msg.sender;
     }
 
@@ -83,13 +95,39 @@ contract TaskRegistry {
         string calldata rubric,
         string calldata taskType
     ) external {
+        _lock(taskId, budgetUsdc, deadline, minReputation);
+        emit TaskSubmitted(taskId, msg.sender, budgetUsdc, deadline, minReputation, title, description, rubric, taskType);
+    }
+
+    /// Hire a specific agent directly (no auction). Used for user→agent direct
+    /// hire and agent→agent delegation. The agent is paid from the budget on a
+    /// passing verification, exactly like an auctioned task.
+    function submitDirectTask(
+        bytes32 taskId,
+        address agent,
+        uint256 budgetUsdc,
+        uint256 deadline,
+        string calldata title,
+        string calldata description,
+        string calldata rubric,
+        string calldata taskType
+    ) external {
+        require(agentRegistry.isOnline(agent), "Agent offline");
+        require(agentRegistry.getReputation(agent) >= MIN_REP_TO_BID, "Agent reputation below 70");
+        _lock(taskId, budgetUsdc, deadline, 0);
+        Task storage t = tasks[taskId];
+        t.assignedAgent = agent;
+        t.status = Status.ASSIGNED;
+        agentRegistry.onAssigned(agent);
+        emit TaskSubmitted(taskId, msg.sender, budgetUsdc, deadline, 0, title, description, rubric, taskType);
+        emit TaskAssigned(taskId, agent, budgetUsdc);
+    }
+
+    function _lock(bytes32 taskId, uint256 budgetUsdc, uint256 deadline, uint256 minReputation) internal {
         require(tasks[taskId].requester == address(0), "Task exists");
         require(deadline > block.timestamp, "Deadline in past");
         require(budgetUsdc > 0, "Zero budget");
-
-        // Single funds movement: escrow pulls from the requester (who approved it).
         escrow.lockFunds(taskId, msg.sender, budgetUsdc);
-
         tasks[taskId] = Task({
             taskId: taskId,
             requester: msg.sender,
@@ -100,8 +138,6 @@ contract TaskRegistry {
             status: Status.OPEN,
             createdAt: block.timestamp
         });
-
-        emit TaskSubmitted(taskId, msg.sender, budgetUsdc, deadline, minReputation, title, description, rubric, taskType);
     }
 
     function assignAgent(bytes32 taskId, address agent, uint256 bidAmount) external onlyAuthorized {
@@ -109,6 +145,7 @@ contract TaskRegistry {
         require(t.status == Status.OPEN, "Not open");
         t.assignedAgent = agent;
         t.status = Status.ASSIGNED;
+        agentRegistry.onAssigned(agent);
         emit TaskAssigned(taskId, agent, bidAmount);
     }
 
@@ -119,7 +156,6 @@ contract TaskRegistry {
     }
 
     /// Verification failed: budget was refunded + agent slashed by the bridge.
-    /// Marked CANCELLED so the UI does not show it as a successful settlement.
     function markFailed(bytes32 taskId) external onlyAuthorized {
         tasks[taskId].status = Status.CANCELLED;
         emit TaskCancelled(taskId);
@@ -133,5 +169,17 @@ contract TaskRegistry {
         t.status = Status.CANCELLED;
         escrow.refund(taskId);
         emit TaskCancelled(taskId);
+    }
+
+    /// Deadline discipline: anyone can enforce a missed deadline on an assigned,
+    /// unsettled task — refunds the requester and slashes the agent.
+    function slashOnTimeout(bytes32 taskId) external {
+        Task storage t = tasks[taskId];
+        require(t.status == Status.ASSIGNED || t.status == Status.IN_PROGRESS, "Not in progress");
+        require(block.timestamp > t.deadline, "Before deadline");
+        t.status = Status.CANCELLED;
+        escrow.refund(taskId);
+        agentRegistry.slash(t.assignedAgent, t.requester);
+        emit TaskTimedOut(taskId, t.assignedAgent);
     }
 }

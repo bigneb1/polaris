@@ -79,15 +79,18 @@ app.post("/api/verify", async (req, res) => {
       agentOutput: entry.deliverable,
     });
 
-    // 2. Sign the verdict: keccak256(taskId, passed, score) as an eth-signed message
+    // 2. On-chain attestation: hash the exact deliverable, then sign a verdict
+    //    that binds taskId + pass/fail + score + deliverableHash.
+    const deliverableHash = ethers.keccak256(ethers.toUtf8Bytes(entry.deliverable));
     const wallet = new ethers.Wallet(SIGNER_KEY, provider);
     const inner = ethers.solidityPackedKeccak256(
-      ["bytes32", "bool", "uint8"],
-      [taskId, verdict.passed, verdict.score],
+      ["bytes32", "bool", "uint8", "bytes32"],
+      [taskId, verdict.passed, verdict.score, deliverableHash],
     );
     const signature = await wallet.signMessage(ethers.getBytes(inner));
 
-    // 3. Submit on-chain → releases USDC or slashes the stake
+    // 3. Submit on-chain → releases USDC or slashes the stake, and records the
+    //    deliverable attestation in VerifierBridge.
     const bridge = new ethers.Contract(ADDR.verifierBridge, ABI.verifierBridge, wallet);
     const already = await bridge.processed(taskId);
     let txHash;
@@ -98,13 +101,14 @@ app.post("/api/verify", async (req, res) => {
         meta.requester,
         verdict.passed,
         verdict.score,
+        deliverableHash,
         signature,
       );
       const receipt = await tx.wait();
       txHash = receipt.hash;
     }
 
-    res.json({ ...verdict, txHash });
+    res.json({ ...verdict, deliverableHash, txHash });
   } catch (err) {
     console.error("verify error:", err);
     res.status(500).json({ error: err.shortMessage || err.message || "Verification failed" });

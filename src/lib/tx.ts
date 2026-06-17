@@ -121,7 +121,19 @@ export async function setAgentOnline(online: boolean, restakeUsdc = 0, owner?: A
   const hash = await writeContract(wagmiConfig, {
     address: CONTRACTS.agentRegistry,
     abi: AGENT_REGISTRY_ABI,
-    functionName: "unstake",
+    functionName: "deactivate",
+    args: [],
+  });
+  await waitForTransactionReceipt(wagmiConfig, { hash });
+  return hash;
+}
+
+/** Reclaim the full stake — only valid when the agent is offline and idle. */
+export async function withdrawStake(): Promise<Hash> {
+  const hash = await writeContract(wagmiConfig, {
+    address: CONTRACTS.agentRegistry,
+    abi: AGENT_REGISTRY_ABI,
+    functionName: "withdrawStake",
     args: [],
   });
   await waitForTransactionReceipt(wagmiConfig, { hash });

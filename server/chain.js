@@ -35,7 +35,7 @@ export const ABI = {
     "function register(bytes32,uint256,string,string)",
     "function isOnline(address) view returns (bool)",
     "function getReputation(address) view returns (uint256)",
-    "function agents(address) view returns (address wallet, bytes32 agentId, uint256 stakedUsdc, uint256 reputation, uint256 tasksCompleted, uint256 tasksFailed, bool online, bool registered)",
+    "function agents(address) view returns (address wallet, bytes32 agentId, uint256 stakedUsdc, uint256 reputation, uint256 tasksCompleted, uint256 tasksFailed, uint256 activeTasks, bool online, bool registered)",
   ],
   bidEngine: [
     "function placeBid(bytes32,uint256,uint256)",
@@ -45,7 +45,7 @@ export const ABI = {
     "event BidAwarded(bytes32 indexed taskId, address indexed winner, uint256 amount)",
   ],
   verifierBridge: [
-    "function submitVerification(bytes32,address,address,bool,uint8,bytes)",
+    "function submitVerification(bytes32,address,address,bool,uint8,bytes32,bytes)",
     "function processed(bytes32) view returns (bool)",
   ],
 };

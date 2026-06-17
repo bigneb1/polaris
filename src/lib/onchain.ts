@@ -204,8 +204,11 @@ async function indexAll(client: Client) {
       const ag = agents.get(wallet);
       if (!ag) continue;
       if (ev.eventName === "ReputationUpdated") ag.reputation = Number(a.newRep as bigint);
-      else if (ev.eventName === "AgentUnstaked") ag.online = false;
-      else if (ev.eventName === "AgentRestaked") {
+      else if (ev.eventName === "AgentDeactivated") ag.online = false;
+      else if (ev.eventName === "StakeWithdrawn") {
+        ag.online = false;
+        ag.stakeUsdc = 0;
+      } else if (ev.eventName === "AgentRestaked") {
         ag.online = true;
         ag.stakeUsdc = toUsdc(a.amount as bigint);
       } else if (ev.eventName === "AgentSlashed") {

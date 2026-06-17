@@ -6,6 +6,8 @@ interface IAgentRegistry {
     function isOnline(address w) external view returns (bool);
 }
 
+uint256 constant MIN_REP_TO_BID = 70;
+
 interface ITaskRegistry {
     function assignAgent(bytes32 taskId, address agent, uint256 bidAmount) external;
 }
@@ -53,12 +55,15 @@ contract BidEngine {
         require(agentRegistry.isOnline(msg.sender), "Agent offline");
         require(bidAmount > 0, "Zero bid");
 
+        uint256 rep = agentRegistry.getReputation(msg.sender);
+        require(rep >= MIN_REP_TO_BID, "Reputation below 70");
+
         // price: cheaper is better, capped at 100 (1 USDC bid == 100)
         uint256 priceScore = (1_000_000 * 100) / bidAmount;
         if (priceScore > 100) priceScore = 100;
 
         // reputation: 0..1000 scaled to 0..100
-        uint256 repScore = agentRegistry.getReputation(msg.sender) / 10;
+        uint256 repScore = rep / 10;
 
         // speed: <=1h is full marks, decays after
         uint256 speedScore = etaSeconds <= 3600 ? 100 : (3600 * 100) / etaSeconds;

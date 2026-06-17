@@ -20,16 +20,18 @@ interface ITaskRegistry {
 }
 
 /**
- * VerifierBridge — turns an off-chain quality verdict into on-chain settlement.
+ * VerifierBridge (V2) — turns an off-chain quality verdict into on-chain
+ * settlement, and records an on-chain ATTESTATION of the deliverable.
  *
- * HONEST TRUST MODEL: scoring is performed off-chain by the Polaris backend
- * (Claude scores the deliverable against the task rubric). The backend signs the
- * verdict with `trustedSigner`'s key and this contract verifies that ECDSA
- * signature. This is a *trusted-signer oracle*, NOT a hardware/TEE attestation —
- * a compromise of the signer key compromises settlement. Decentralizing this
- * (committee, ZK, or real TEE quote verification) is the natural next step.
+ * HONEST TRUST MODEL: scoring is performed off-chain (an LLM scores the
+ * deliverable against the task rubric). The backend signs the verdict — now
+ * including a keccak256 hash of the exact deliverable — with `trustedSigner`'s
+ * key, and this contract verifies that ECDSA signature. This is a trusted-signer
+ * oracle, NOT a hardware/TEE attestation; a signer-key compromise compromises
+ * settlement. Decentralizing it (committee / ZK / TEE) is the next step.
  *
- * `processed[taskId]` makes settlement idempotent — a verdict can be applied once.
+ * The stored Attestation (score, pass/fail, deliverable hash, agent, timestamp)
+ * is the permanent on-chain proof of what was delivered and how it was judged.
  */
 contract VerifierBridge {
     using MessageHashUtils for bytes32;
@@ -41,9 +43,18 @@ contract VerifierBridge {
     address public owner;
     uint8 public constant MIN_SCORE = 70;
 
-    mapping(bytes32 => bool) public processed;
+    struct Attestation {
+        address agent;
+        bool passed;
+        uint8 score;
+        bytes32 deliverableHash;
+        uint256 timestamp;
+    }
 
-    event VerificationSubmitted(bytes32 indexed taskId, address indexed agent, bool passed, uint8 score);
+    mapping(bytes32 => bool) public processed;
+    mapping(bytes32 => Attestation) public attestations;
+
+    event VerificationSubmitted(bytes32 indexed taskId, address indexed agent, bool passed, uint8 score, bytes32 deliverableHash);
     event TrustedSignerUpdated(address indexed signer);
 
     constructor(address _escrow, address _agentRegistry, address _taskRegistry, address _signer) {
@@ -66,24 +77,37 @@ contract VerifierBridge {
         address requester,
         bool passed,
         uint8 score,
+        bytes32 deliverableHash,
         bytes calldata signature
     ) external {
         require(!processed[taskId], "Already processed");
 
-        bytes32 digest = keccak256(abi.encodePacked(taskId, passed, score)).toEthSignedMessageHash();
+        // The signed verdict binds the score AND the exact deliverable hash.
+        bytes32 digest = keccak256(abi.encodePacked(taskId, passed, score, deliverableHash)).toEthSignedMessageHash();
         require(ECDSA.recover(digest, signature) == trustedSigner, "Bad signature");
 
         processed[taskId] = true;
-        emit VerificationSubmitted(taskId, agent, passed, score);
+        attestations[taskId] = Attestation({
+            agent: agent,
+            passed: passed,
+            score: score,
+            deliverableHash: deliverableHash,
+            timestamp: block.timestamp
+        });
+        emit VerificationSubmitted(taskId, agent, passed, score, deliverableHash);
 
         if (passed && score >= MIN_SCORE) {
             escrow.release(taskId, agent);
             agentRegistry.recordSuccess(agent, score);
             taskRegistry.markSettled(taskId);
         } else {
-            escrow.refund(taskId);            // budget back to requester
-            agentRegistry.slash(agent, requester); // penalty to requester
+            escrow.refund(taskId);
+            agentRegistry.slash(agent, requester);
             taskRegistry.markFailed(taskId);
         }
+    }
+
+    function getAttestation(bytes32 taskId) external view returns (Attestation memory) {
+        return attestations[taskId];
     }
 }

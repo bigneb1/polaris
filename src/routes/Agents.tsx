@@ -20,7 +20,7 @@ const CAPABILITIES = [
   "translation",
   "summarization",
 ];
-const MIN_STAKE = 5;
+const MIN_STAKE = 100;
 
 export default function Agents() {
   const { agents, isLoading } = useAgents();
@@ -63,7 +63,7 @@ function RegisterForm() {
   const { run, loading } = useTx();
   const [name, setName] = useState("");
   const [caps, setCaps] = useState<string[]>([]);
-  const [stake, setStake] = useState("5");
+  const [stake, setStake] = useState("100");
 
   const stakeN = parseFloat(stake) || 0;
   const valid = name.trim() && caps.length > 0 && stakeN >= MIN_STAKE;
@@ -180,7 +180,7 @@ function MyAgents({ isLoading }: { isLoading: boolean }) {
                   disabled={loading || a.slashed}
                   className="btn-ghost w-full"
                 >
-                  <Power size={14} /> {a.online ? "Unstake (go offline)" : "Restake (go online)"}
+                  <Power size={14} /> {a.online ? "Deactivate (go offline)" : "Restake (go online)"}
                 </button>
               }
             />
