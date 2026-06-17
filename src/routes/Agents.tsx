@@ -59,7 +59,7 @@ export default function Agents() {
 }
 
 function RegisterForm() {
-  const { address } = useWallet();
+  const { address, signer } = useWallet();
   const { run, loading } = useTx();
   const [name, setName] = useState("");
   const [caps, setCaps] = useState<string[]>([]);
@@ -74,7 +74,7 @@ function RegisterForm() {
   const onSubmit = async () => {
     if (!address || !valid) return;
     await run(
-      () => registerAgent({ owner: address, name: name.trim(), capabilities: caps, stakeUsdc: stakeN }),
+      () => registerAgent({ owner: address, name: name.trim(), capabilities: caps, stakeUsdc: stakeN }, signer),
       { pending: "Approving stake & registering agent…", success: "Agent registered onchain" },
     );
     setName("");
@@ -141,13 +141,13 @@ function RegisterForm() {
 }
 
 function MyAgents({ isLoading }: { isLoading: boolean }) {
-  const { address } = useWallet();
+  const { address, signer } = useWallet();
   const { agents } = useAgents();
   const { run, loading } = useTx();
   const mine = agents.filter((a) => a.wallet.toLowerCase() === address?.toLowerCase());
 
   const toggleOnline = (online: boolean) =>
-    run(() => setAgentOnline(!online, 0, address ?? undefined), {
+    run(() => setAgentOnline(!online, 0, signer), {
       pending: online ? "Taking agent offline…" : "Bringing agent online…",
       success: online ? "Agent is now OFFLINE" : "Agent is now ONLINE",
     });

@@ -227,6 +227,8 @@ async function main() {
       { name: "Atlas-Research", capabilities: ["research", "analysis", "summarization"], markup: 0.85 },
       { name: "Scribe-Writer", capabilities: ["writing", "translation"], markup: 0.9 },
       { name: "Forge-Coder", capabilities: ["code"], markup: 0.88 },
+      { name: "Nova-Analyst", capabilities: ["analysis", "research", "general"], markup: 0.82 },
+      { name: "Vega-Generalist", capabilities: ["general", "writing", "summarization"], markup: 0.8 },
     ];
     agents = wallets.slice(0, personas.length).map((address, i) => ({ ...personas[i], address, stake: 100 }));
     console.log(`Auto-mapped ${agents.length} Circle wallet(s) to personas.`);

@@ -12,7 +12,7 @@ import { shortAddr, deadlineLabel, timeAgo } from "../lib/utils";
 export default function TaskDetail() {
   const { id } = useParams();
   const { task, bids, isLoading } = useTask(id);
-  const { address } = useWallet();
+  const { address, signer } = useWallet();
   const { agents } = useAgents();
   const { run, loading } = useTx();
 
@@ -92,7 +92,7 @@ export default function TaskDetail() {
                 {bids.length > 0 && (
                   <button
                     onClick={() =>
-                      run(() => awardBid(task.taskId), { pending: "Awarding best bid…", success: "Bid awarded - agent assigned" })
+                      run(() => awardBid(task.taskId, signer), { pending: "Awarding best bid…", success: "Bid awarded - agent assigned" })
                     }
                     disabled={loading}
                     className="btn-primary !py-2"
@@ -102,7 +102,7 @@ export default function TaskDetail() {
                 )}
                 <button
                   onClick={() =>
-                    run(() => cancelTask(task.taskId), { pending: "Cancelling & refunding…", success: "Task cancelled, USDC refunded" })
+                    run(() => cancelTask(task.taskId, signer), { pending: "Cancelling & refunding…", success: "Task cancelled, USDC refunded" })
                   }
                   disabled={loading}
                   className="btn-ghost !py-2"
@@ -167,6 +167,7 @@ export default function TaskDetail() {
 }
 
 function PlaceBid({ taskId, budget }: { taskId: `0x${string}`; budget: number }) {
+  const { signer } = useWallet();
   const { run, loading } = useTx();
   const [amount, setAmount] = useState(String(budget));
   const [etaMin, setEtaMin] = useState("30");
@@ -184,7 +185,7 @@ function PlaceBid({ taskId, budget }: { taskId: `0x${string}`; budget: number })
         </label>
         <button
           onClick={() =>
-            run(() => placeBid(taskId, parseFloat(amount) || 0, (parseInt(etaMin) || 30) * 60), {
+            run(() => placeBid(taskId, parseFloat(amount) || 0, (parseInt(etaMin) || 30) * 60, signer), {
               pending: "Placing bid…",
               success: "Bid placed onchain",
             })

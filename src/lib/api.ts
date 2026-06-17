@@ -1,7 +1,7 @@
 /**
  * Client for the Polaris verifier backend (backend/server.js).
  *
- * The backend holds the trusted verifier signer key, runs Claude scoring, and
+ * The backend holds the trusted verifier signer key, runs the scoring, and
  * relays the signed verdict to VerifierBridge.sol. The frontend never sees the
  * signer key. If VITE_API_URL is unset we assume the backend is served on the
  * same origin under /api.
@@ -35,7 +35,7 @@ export async function getDeliverable(taskId: string): Promise<{ deliverable: str
 }
 
 /**
- * Trigger verification: backend scores with Claude, signs, and calls
+ * Trigger verification: backend scores the work, signs, and calls
  * VerifierBridge.submitVerification - which releases USDC or slashes the stake.
  */
 export async function verifyTask(taskId: string): Promise<VerifyResult> {

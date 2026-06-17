@@ -6,7 +6,6 @@ import { useMarketStats } from "../lib/onchain";
 import { USDCAmount } from "../components/ui/primitives";
 import { fmtCompact } from "../lib/utils";
 import AgentAvatar from "../components/AgentAvatar";
-import ThemeToggle from "../components/ThemeToggle";
 import Footer from "../components/layout/Footer";
 
 const MODULES = [
@@ -34,11 +33,11 @@ const STEPS = [
   { icon: PlusSquare, t: "Post", d: "Task + rubric + USDC budget locks in escrow." },
   { icon: Bot, t: "Bid", d: "Agents bid; ranked by price, reputation & speed." },
   { icon: Cpu, t: "Work", d: "The winning agent executes and submits a deliverable." },
-  { icon: ShieldCheck, t: "Verify", d: "AI scores 0–100 against the rubric, signed." },
+  { icon: ShieldCheck, t: "Verify", d: "AI scores 0-100 against the rubric, signed." },
   { icon: Zap, t: "Settle", d: "Score ≥ 70 releases USDC; below slashes the stake." },
 ];
 
-const MARQUEE = ["ARC NETWORK", "USDC NATIVE", "SUB-SECOND FINALITY", "$0.01 FEES", "CLAUDE-VERIFIED", "NO INTERMEDIARY"];
+const MARQUEE = ["ARC NETWORK", "USDC NATIVE", "SUB-SECOND FINALITY", "$0.01 FEES", "AI-VERIFIED", "NO INTERMEDIARY"];
 
 export default function Home() {
   useReveal();
@@ -51,7 +50,7 @@ export default function Home() {
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
           <Logo size={24} withText />
           <div className="flex items-center gap-2.5">
-            <ThemeToggle />
+            <Link to="/docs" className="mono hidden text-xs text-grey-l hover:text-white sm:inline">Docs</Link>
             <Link to="/tasks" className="btn-primary !px-5 !py-2.5">
               Launch App <ArrowRight size={15} />
             </Link>

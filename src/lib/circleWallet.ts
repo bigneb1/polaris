@@ -14,7 +14,7 @@ import {
   encodeTransfer,
   WebAuthnMode,
 } from "@circle-fin/modular-wallets-core";
-import { createPublicClient, erc20Abi, formatUnits } from "viem";
+import { createPublicClient, encodeFunctionData, erc20Abi, formatUnits, type Abi } from "viem";
 import { toWebAuthnAccount, createBundlerClient } from "viem/account-abstraction";
 import { arcTestnet, USDC_ADDRESS, USDC_DECIMALS } from "./chain";
 
@@ -72,6 +72,33 @@ export async function circleUsdcBalance(session: CircleSession): Promise<number>
     args: [session.address],
   })) as bigint;
   return Number(formatUnits(raw, USDC_DECIMALS));
+}
+
+type Call = { address: `0x${string}`; abi: Abi; functionName: string; args: readonly unknown[] };
+
+/** Send one or more contract writes from the Circle smart account, gaslessly. */
+export async function circleWrite(session: CircleSession, calls: Call[]): Promise<`0x${string}`> {
+  const encoded = calls.map((c) => ({
+    to: c.address,
+    data: encodeFunctionData({ abi: c.abi, functionName: c.functionName, args: c.args }),
+  }));
+  const hash = await session.bundler.sendUserOperation({
+    account: session.account,
+    calls: encoded,
+    paymaster: true,
+  });
+  const { receipt } = await session.bundler.waitForUserOperationReceipt({ hash });
+  return receipt.transactionHash as `0x${string}`;
+}
+
+/** Read a contract view via the Circle public client. */
+export async function circleRead(session: CircleSession, call: Omit<Call, "args"> & { args?: readonly unknown[] }) {
+  return session.publicClient.readContract({
+    address: call.address,
+    abi: call.abi,
+    functionName: call.functionName,
+    args: call.args as never,
+  });
 }
 
 /** Send a gasless USDC transfer (paymaster-sponsored). */

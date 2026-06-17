@@ -140,7 +140,7 @@ export function ProgressBar({ value, max = 100 }: { value: number; max?: number 
   );
 }
 
-/* ── Reputation bar (0–1000 scale) ────────────────────────────────────────── */
+/* ── Reputation bar (0-1000 scale) ────────────────────────────────────────── */
 export function ReputationBar({ rep }: { rep: number }) {
   const pct = Math.max(0, Math.min(100, (rep / 1000) * 100));
   const color = rep >= 700 ? "bg-green" : rep >= 400 ? "bg-blue" : "bg-amber";

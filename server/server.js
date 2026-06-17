@@ -7,12 +7,13 @@ import "dotenv/config";
 import { createGatewayMiddleware } from "@circle-fin/x402-batching/server";
 import { ADDR, ABI, provider, readTaskMeta, readAssignedAgent, requireAddresses } from "./chain.js";
 import { scoreAgentWork } from "./score.js";
+import { ucEnabled, createSession, refreshSession, initChallenge, getWallet, contractExecutionChallenge } from "./circle-user.js";
 
 /**
  * Polaris verifier backend.
  *   POST /api/deliverable      store an agent's deliverable (off-chain blob)
  *   GET  /api/deliverable/:id  fetch it
- *   POST /api/verify           score with Claude → sign verdict → settle on-chain
+ *   POST /api/verify           score with our algorithm → sign verdict → settle on-chain
  *
  * Holds the trusted verifier signer key; the frontend never sees it. The signed
  * verdict drives USDCEscrow release/slash via VerifierBridge.submitVerification.
@@ -72,7 +73,7 @@ app.post("/api/verify", async (req, res) => {
     const agent = (await readAssignedAgent(taskId)) || entry.agentWallet;
     if (!agent) return res.status(400).json({ error: "Task has no assigned agent" });
 
-    // 1. Score with Claude
+    // 1. Score with our algorithm
     const verdict = await scoreAgentWork({
       taskDescription: `${meta.title}\n\n${meta.description}`,
       qualityRubric: meta.rubric,
@@ -152,6 +153,65 @@ if (X402_SELLER) {
   }
 } else {
   console.log("x402 sub-service disabled (set X402_SELLER or VERIFIER_SIGNER_KEY to enable)");
+}
+
+// ── Circle user-controlled wallets (PIN/email) — human "extra connect" ──────
+if (ucEnabled()) {
+  app.get("/api/uc/enabled", (_req, res) => res.json({ enabled: true }));
+
+  app.post("/api/uc/session", async (_req, res) => {
+    try {
+      res.json(await createSession());
+    } catch (e) {
+      res.status(502).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/uc/refresh", async (req, res) => {
+    const { userId } = req.body ?? {};
+    if (!userId) return res.status(400).json({ error: "userId required" });
+    try {
+      res.json(await refreshSession(userId));
+    } catch (e) {
+      res.status(502).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/uc/init", async (req, res) => {
+    const { userId } = req.body ?? {};
+    if (!userId) return res.status(400).json({ error: "userId required" });
+    try {
+      res.json(await initChallenge(userId));
+    } catch (e) {
+      res.status(502).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/uc/wallet", async (req, res) => {
+    const { userId } = req.query ?? {};
+    if (!userId) return res.status(400).json({ error: "userId required" });
+    try {
+      res.json((await getWallet(userId)) ?? {});
+    } catch (e) {
+      res.status(502).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/uc/execute", async (req, res) => {
+    const { userId, walletId, contractAddress, abiFunctionSignature, abiParameters } = req.body ?? {};
+    if (!userId || !walletId || !contractAddress || !abiFunctionSignature) {
+      return res.status(400).json({ error: "userId, walletId, contractAddress, abiFunctionSignature required" });
+    }
+    try {
+      res.json(await contractExecutionChallenge(userId, walletId, contractAddress, abiFunctionSignature, abiParameters ?? []));
+    } catch (e) {
+      res.status(502).json({ error: e.message });
+    }
+  });
+
+  console.log("Circle user-controlled wallets: POST /api/uc/{session,init,execute} enabled");
+} else {
+  console.log("Circle user-controlled wallets disabled (set CIRCLE_UC_API_KEY + CIRCLE_UC_ENTITY_SECRET)");
 }
 
 app.listen(PORT, () => {

@@ -18,7 +18,7 @@ const X402_ORACLE = process.env.X402_PAY_FOR_ORACLE === "1" ? process.env.X402_O
  *   2. poll for OPEN tasks via TaskSubmitted events
  *   3. DECIDE whether to bid (capability match + reputation gate + price policy)
  *   4. place a bid, then close the auction (awardBid)
- *   5. if they win, DO the work via Claude, submit the deliverable, and trigger
+ *   5. if they win, DO the work, submit the deliverable, and trigger
  *      verification — which settles USDC on-chain
  *
  * Configure one or more agents via AGENTS_JSON (see .env.example). Each agent is

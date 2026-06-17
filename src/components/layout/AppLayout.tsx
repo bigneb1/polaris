@@ -92,11 +92,11 @@ function Sidebar({
         ))}
       </nav>
 
-      {!collapsed && (
-        <div className="mono px-5 pt-3 text-[10px] leading-relaxed text-grey">
-          Arc · USDC · sub-second finality
-        </div>
-      )}
+      {/* bottom: theme toggle + tagline */}
+      <div className={cn("mt-auto flex items-center gap-2 border-t border-border px-3 pt-4", collapsed ? "flex-col" : "justify-between")}>
+        <ThemeToggle />
+        {!collapsed && <span className="mono text-[10px] leading-tight text-grey">Arc · USDC<br />sub-second finality</span>}
+      </div>
     </aside>
   );
 }
@@ -130,7 +130,6 @@ function Topbar({
         <span className="mono hidden rounded-full border border-blue/30 bg-blue/10 px-2.5 py-1 text-[10px] uppercase tracking-widest text-blue-l md:inline">
           Arc Testnet
         </span>
-        <ThemeToggle />
         <WalletButton />
       </div>
     </header>

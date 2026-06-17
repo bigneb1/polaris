@@ -9,6 +9,11 @@ import {
   AGENT_REGISTRY_ABI,
   BID_ENGINE_ABI,
 } from "./contracts";
+import { circleWrite, type CircleSession } from "./circleWallet";
+import { ucWrite, type UcSession } from "./circleUserWallet";
+
+/** Either Circle wallet kind, or null/undefined for the injected-wallet path. */
+export type Signer = CircleSession | UcSession | null | undefined;
 
 /** Random bytes32 id for a new task. */
 export function newTaskId(): `0x${string}` {
@@ -23,32 +28,41 @@ export function agentIdFrom(name: string, wallet: string): `0x${string}` {
 
 const usdc = (amount: number | string) => parseUnits(String(amount), USDC_DECIMALS);
 
+/* A single contract write description, used for both the wagmi and Circle paths. */
+type Write = { address: Address; abi: readonly unknown[]; functionName: string; args: readonly unknown[] };
+
 /**
- * Ensure `spender` has at least `amount` USDC allowance from `owner`; approves
- * the exact amount if not. Returns the approval tx hash when one was sent.
+ * Execute a sequence of writes. With a passkey Circle session they are batched
+ * into one gasless user operation; with a user-controlled (PIN) session each is
+ * signed in turn with the PIN; otherwise each runs through the injected wallet.
  */
-export async function ensureAllowance(
-  owner: Address,
-  spender: Address,
-  amount: number,
-): Promise<Hash | null> {
-  const need = usdc(amount);
-  const current = (await readContract(wagmiConfig, {
-    address: CONTRACTS.usdc,
-    abi: ERC20_ABI,
-    functionName: "allowance",
-    args: [owner, spender],
-  })) as bigint;
-  if (current >= need) return null;
-  const hash = await writeContract(wagmiConfig, {
-    address: CONTRACTS.usdc,
-    abi: ERC20_ABI,
-    functionName: "approve",
-    args: [spender, need],
-  });
-  await waitForTransactionReceipt(wagmiConfig, { hash });
-  return hash;
+async function run(writes: Write[], signer?: Signer): Promise<Hash> {
+  if (signer && "kind" in signer && signer.kind === "uc") {
+    for (const w of writes) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await ucWrite(signer, w as any);
+    }
+    return "0x" as Hash; // PIN-signed challenges settle async; no single hash returned
+  }
+  if (signer) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return circleWrite(signer as CircleSession, writes as any);
+  }
+  let last: Hash = "0x" as Hash;
+  for (const w of writes) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    last = await writeContract(wagmiConfig, w as any);
+    await waitForTransactionReceipt(wagmiConfig, { hash: last });
+  }
+  return last;
 }
+
+const approve = (spender: Address, amount: number): Write => ({
+  address: CONTRACTS.usdc,
+  abi: ERC20_ABI,
+  functionName: "approve",
+  args: [spender, usdc(amount)],
+});
 
 export type SubmitTaskInput = {
   owner: Address;
@@ -62,119 +76,83 @@ export type SubmitTaskInput = {
   taskType: string;
 };
 
-/** Approve escrow, then submit the task (locks USDC). Returns the submit hash. */
-export async function submitTask(i: SubmitTaskInput): Promise<Hash> {
-  await ensureAllowance(i.owner, CONTRACTS.usdcEscrow, i.budgetUsdc);
-  const hash = await writeContract(wagmiConfig, {
-    address: CONTRACTS.taskRegistry,
-    abi: TASK_REGISTRY_ABI,
-    functionName: "submitTask",
-    args: [
-      i.taskId,
-      usdc(i.budgetUsdc),
-      BigInt(Math.floor(i.deadlineMs / 1000)),
-      BigInt(i.minReputation),
-      i.title,
-      i.description,
-      i.rubric,
-      i.taskType,
+/** Approve escrow + submit the task (locks USDC). */
+export async function submitTask(i: SubmitTaskInput, circle?: Signer): Promise<Hash> {
+  return run(
+    [
+      approve(CONTRACTS.usdcEscrow, i.budgetUsdc),
+      {
+        address: CONTRACTS.taskRegistry,
+        abi: TASK_REGISTRY_ABI,
+        functionName: "submitTask",
+        args: [
+          i.taskId,
+          usdc(i.budgetUsdc),
+          BigInt(Math.floor(i.deadlineMs / 1000)),
+          BigInt(i.minReputation),
+          i.title,
+          i.description,
+          i.rubric,
+          i.taskType,
+        ],
+      },
     ],
-  });
-  await waitForTransactionReceipt(wagmiConfig, { hash });
-  return hash;
+    circle,
+  );
 }
 
-export async function registerAgent(input: {
-  owner: Address;
-  name: string;
-  capabilities: string[];
-  stakeUsdc: number;
-}): Promise<Hash> {
-  await ensureAllowance(input.owner, CONTRACTS.agentRegistry, input.stakeUsdc);
-  const hash = await writeContract(wagmiConfig, {
-    address: CONTRACTS.agentRegistry,
-    abi: AGENT_REGISTRY_ABI,
-    functionName: "register",
-    args: [
-      agentIdFrom(input.name, input.owner),
-      usdc(input.stakeUsdc),
-      input.name,
-      input.capabilities.join(","),
+export async function registerAgent(
+  input: { owner: Address; name: string; capabilities: string[]; stakeUsdc: number },
+  circle?: Signer,
+): Promise<Hash> {
+  return run(
+    [
+      approve(CONTRACTS.agentRegistry, input.stakeUsdc),
+      {
+        address: CONTRACTS.agentRegistry,
+        abi: AGENT_REGISTRY_ABI,
+        functionName: "register",
+        args: [agentIdFrom(input.name, input.owner), usdc(input.stakeUsdc), input.name, input.capabilities.join(",")],
+      },
     ],
-  });
-  await waitForTransactionReceipt(wagmiConfig, { hash });
-  return hash;
+    circle,
+  );
 }
 
-export async function setAgentOnline(online: boolean, restakeUsdc = 0, owner?: Address): Promise<Hash> {
+export async function setAgentOnline(
+  online: boolean,
+  restakeUsdc = 0,
+  circle?: Signer,
+): Promise<Hash> {
   if (online) {
-    if (restakeUsdc > 0 && owner) await ensureAllowance(owner, CONTRACTS.agentRegistry, restakeUsdc);
-    const hash = await writeContract(wagmiConfig, {
-      address: CONTRACTS.agentRegistry,
-      abi: AGENT_REGISTRY_ABI,
-      functionName: "restake",
-      args: [usdc(restakeUsdc)],
-    });
-    await waitForTransactionReceipt(wagmiConfig, { hash });
-    return hash;
+    const writes: Write[] = [];
+    if (restakeUsdc > 0) writes.push(approve(CONTRACTS.agentRegistry, restakeUsdc));
+    writes.push({ address: CONTRACTS.agentRegistry, abi: AGENT_REGISTRY_ABI, functionName: "restake", args: [usdc(restakeUsdc)] });
+    return run(writes, circle);
   }
-  const hash = await writeContract(wagmiConfig, {
-    address: CONTRACTS.agentRegistry,
-    abi: AGENT_REGISTRY_ABI,
-    functionName: "deactivate",
-    args: [],
-  });
-  await waitForTransactionReceipt(wagmiConfig, { hash });
-  return hash;
+  return run([{ address: CONTRACTS.agentRegistry, abi: AGENT_REGISTRY_ABI, functionName: "deactivate", args: [] }], circle);
 }
 
 /** Reclaim the full stake - only valid when the agent is offline and idle. */
-export async function withdrawStake(): Promise<Hash> {
-  const hash = await writeContract(wagmiConfig, {
-    address: CONTRACTS.agentRegistry,
-    abi: AGENT_REGISTRY_ABI,
-    functionName: "withdrawStake",
-    args: [],
-  });
-  await waitForTransactionReceipt(wagmiConfig, { hash });
-  return hash;
+export async function withdrawStake(circle?: Signer): Promise<Hash> {
+  return run([{ address: CONTRACTS.agentRegistry, abi: AGENT_REGISTRY_ABI, functionName: "withdrawStake", args: [] }], circle);
 }
 
 export async function placeBid(
   taskId: `0x${string}`,
   bidUsdc: number,
   etaSeconds: number,
+  circle?: Signer,
 ): Promise<Hash> {
-  const hash = await writeContract(wagmiConfig, {
-    address: CONTRACTS.bidEngine,
-    abi: BID_ENGINE_ABI,
-    functionName: "placeBid",
-    args: [taskId, usdc(bidUsdc), BigInt(etaSeconds)],
-  });
-  await waitForTransactionReceipt(wagmiConfig, { hash });
-  return hash;
+  return run([{ address: CONTRACTS.bidEngine, abi: BID_ENGINE_ABI, functionName: "placeBid", args: [taskId, usdc(bidUsdc), BigInt(etaSeconds)] }], circle);
 }
 
-export async function awardBid(taskId: `0x${string}`): Promise<Hash> {
-  const hash = await writeContract(wagmiConfig, {
-    address: CONTRACTS.bidEngine,
-    abi: BID_ENGINE_ABI,
-    functionName: "awardBid",
-    args: [taskId],
-  });
-  await waitForTransactionReceipt(wagmiConfig, { hash });
-  return hash;
+export async function awardBid(taskId: `0x${string}`, circle?: Signer): Promise<Hash> {
+  return run([{ address: CONTRACTS.bidEngine, abi: BID_ENGINE_ABI, functionName: "awardBid", args: [taskId] }], circle);
 }
 
-export async function cancelTask(taskId: `0x${string}`): Promise<Hash> {
-  const hash = await writeContract(wagmiConfig, {
-    address: CONTRACTS.taskRegistry,
-    abi: TASK_REGISTRY_ABI,
-    functionName: "cancelTask",
-    args: [taskId],
-  });
-  await waitForTransactionReceipt(wagmiConfig, { hash });
-  return hash;
+export async function cancelTask(taskId: `0x${string}`, circle?: Signer): Promise<Hash> {
+  return run([{ address: CONTRACTS.taskRegistry, abi: TASK_REGISTRY_ABI, functionName: "cancelTask", args: [taskId] }], circle);
 }
 
 /** Read onchain USDC balance (human units) for an address. */

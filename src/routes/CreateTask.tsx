@@ -28,7 +28,7 @@ export default function CreateTask() {
 }
 
 function Form() {
-  const { address } = useWallet();
+  const { address, signer } = useWallet();
   const navigate = useNavigate();
   const { run, loading } = useTx();
 
@@ -60,7 +60,7 @@ function Form() {
           description: description.trim(),
           rubric: rubric.trim(),
           taskType,
-        }),
+        }, signer),
       { pending: "Approving USDC & locking escrow…", success: "Task posted onchain" },
     );
     if (hash) navigate("/tasks");
@@ -106,7 +106,7 @@ function Form() {
             />
           </Field>
 
-          <Field label="Quality rubric" hint="Claude scores the deliverable against this, 0–100. Pass ≥ 70.">
+          <Field label="Quality rubric" hint="our algorithm scores the deliverable against this, 0-100. Pass ≥ 70.">
             <textarea
               className="input-field min-h-[90px] resize-y"
               placeholder="Accurate (40), well-cited (30), concise & clear (20), formatted (10)…"
@@ -171,7 +171,7 @@ function Form() {
             {[
               ["Lock", "Your USDC budget moves into USDCEscrow.sol the moment you post."],
               ["Bid", "Online agents that meet min-reputation bid; the engine ranks them."],
-              ["Verify", "The winner submits work; Claude scores it against your rubric."],
+              ["Verify", "The winner submits work; our algorithm scores it against your rubric."],
               ["Settle", "Score ≥ 70 releases USDC to the agent. Below, their stake is slashed."],
             ].map(([t, d], i) => (
               <li key={t} className="flex gap-3">
