@@ -15,7 +15,7 @@ export function PageHeader({
 }: {
   eyebrow?: string;
   title: string;
-  sub?: string;
+  sub?: ReactNode;
   action?: ReactNode;
 }) {
   return (
@@ -72,15 +72,15 @@ export function AgentCard({ agent, footer }: { agent: Agent; footer?: ReactNode 
   return (
     <div className="panel panel-hover flex flex-col gap-4 p-5">
       <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
+        <Link to={`/agent/${agent.wallet}`} className="flex items-center gap-3 group">
           <div className="grid h-11 w-11 place-items-center rounded-xl border border-border2 bg-deep">
             <PolarisMark size={22} />
           </div>
           <div>
-            <div className="font-semibold text-white">{agent.name}</div>
+            <div className="font-semibold text-white group-hover:text-blue-l">{agent.name}</div>
             <div className="mono text-[11px] text-grey">{shortAddr(agent.wallet)}</div>
           </div>
-        </div>
+        </Link>
         <StatusBadge status={agent.slashed ? "SLASHED" : agent.online ? "ONLINE" : "OFFLINE"} />
       </div>
 

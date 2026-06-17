@@ -32,32 +32,34 @@
     radial-gradient(720px circle at 5% 108%, rgb(124 58 237 / 0.08), transparent 55%);
 }
 
+/* Dark theme — modelled on OpenRouter's site: warm near-black zinc surfaces,
+   high-contrast text, restrained borders, subtle blue/violet accent glow. */
 :root[data-theme="dark"] {
-  --c-void: 2 4 8;
-  --c-deep: 5 8 15;
-  --c-panel: 8 14 26;
-  --c-card: 12 20 36;
-  --c-border: 20 32 53;
-  --c-border2: 30 48 80;
-  --c-blue: 45 126 248;
-  --c-blue-l: 91 155 255;
-  --c-blue-d: 26 92 212;
-  --c-usdc: 39 117 202;
-  --c-usdc-l: 91 155 255;
-  --c-purple: 124 58 237;
-  --c-violet: 168 85 247;
-  --c-green: 16 185 129;
-  --c-amber: 245 158 11;
-  --c-red: 239 68 68;
-  --c-text: 240 248 255;
-  --c-text-muted: 139 168 204;
-  --c-text-faint: 61 90 122;
+  --c-void: 9 9 11;          /* zinc-950 near-black */
+  --c-deep: 14 14 17;
+  --c-panel: 20 20 23;       /* zinc-900 */
+  --c-card: 24 24 27;        /* zinc-900/800 */
+  --c-border: 39 39 42;      /* zinc-800 */
+  --c-border2: 52 52 58;     /* zinc-700 */
+  --c-blue: 96 145 255;
+  --c-blue-l: 129 168 255;
+  --c-blue-d: 59 110 230;
+  --c-usdc: 80 150 235;
+  --c-usdc-l: 129 178 255;
+  --c-purple: 139 92 246;
+  --c-violet: 167 139 250;
+  --c-green: 52 211 153;
+  --c-amber: 251 191 96;
+  --c-red: 248 113 113;
+  --c-text: 250 250 250;     /* zinc-50 */
+  --c-text-muted: 161 161 170; /* zinc-400 */
+  --c-text-faint: 113 113 122; /* zinc-500 */
 
-  --shadow-panel: 0 24px 60px -24px rgb(0 0 0 / 0.8);
-  --shadow-soft: 0 12px 36px -20px rgb(0 0 0 / 0.6);
+  --shadow-panel: 0 24px 60px -24px rgb(0 0 0 / 0.7);
+  --shadow-soft: 0 12px 36px -20px rgb(0 0 0 / 0.5);
 
-  --ambient: radial-gradient(900px circle at 78% -10%, rgb(45 126 248 / 0.14), transparent 55%),
-    radial-gradient(700px circle at 8% 110%, rgb(124 58 237 / 0.12), transparent 55%);
+  --ambient: radial-gradient(900px circle at 80% -10%, rgb(96 145 255 / 0.10), transparent 55%),
+    radial-gradient(720px circle at 6% 108%, rgb(139 92 246 / 0.09), transparent 55%);
 }
 
 * { box-sizing: border-box; }

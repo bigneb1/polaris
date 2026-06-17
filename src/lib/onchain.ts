@@ -13,6 +13,7 @@ import {
   TASK_REGISTRY_ABI,
   AGENT_REGISTRY_ABI,
   BID_ENGINE_ABI,
+  VERIFIER_BRIDGE_ABI,
   coreDeployed,
 } from "./contracts";
 import { USDC_DECIMALS } from "./chain";
@@ -98,10 +99,11 @@ function decode(log: Log, abi: readonly unknown[]) {
 /* ── Core indexer: pull all logs once, fold into domain objects ──────────────── */
 
 async function indexAll(client: Client) {
-  const [taskLogs, agentLogs, bidLogs] = await Promise.all([
+  const [taskLogs, agentLogs, bidLogs, verifierLogs] = await Promise.all([
     getLogsWindowed(client, CONTRACTS.taskRegistry, TASK_REGISTRY_ABI as unknown as AbiEvent[]),
     getLogsWindowed(client, CONTRACTS.agentRegistry, AGENT_REGISTRY_ABI as unknown as AbiEvent[]),
     getLogsWindowed(client, CONTRACTS.bidEngine, BID_ENGINE_ABI as unknown as AbiEvent[]),
+    getLogsWindowed(client, CONTRACTS.verifierBridge, VERIFIER_BRIDGE_ABI as unknown as AbiEvent[]),
   ]);
 
   const allBlocks = [...taskLogs, ...agentLogs, ...bidLogs]
@@ -147,6 +149,21 @@ async function indexAll(client: Client) {
     } else if (ev.eventName === "TaskCancelled") {
       const t = tasks.get(id);
       if (t) t.status = "CANCELLED";
+    }
+  }
+
+  /* On-chain settlement attestations (VerifierBridge.VerificationSubmitted) */
+  for (const log of verifierLogs) {
+    const ev = decode(log, VERIFIER_BRIDGE_ABI);
+    if (!ev || ev.eventName !== "VerificationSubmitted") continue;
+    const a = ev.args as unknown as Record<string, unknown>;
+    const t = tasks.get(a.taskId as `0x${string}`);
+    if (t) {
+      t.attestation = {
+        score: Number(a.score as bigint),
+        passed: a.passed as boolean,
+        deliverableHash: a.deliverableHash as `0x${string}`,
+      };
     }
   }
 
@@ -318,6 +335,17 @@ export function useTask(taskId?: string) {
 export function useAgents() {
   const q = useIndex();
   return { agents: q.data?.agents ?? [], isLoading: q.isLoading };
+}
+
+/** A single agent + every task it has been assigned (current + completed). */
+export function useAgent(wallet?: string) {
+  const q = useIndex();
+  const w = wallet?.toLowerCase();
+  const agent = q.data?.agents.find((a) => a.wallet.toLowerCase() === w);
+  const tasks = (q.data?.tasks ?? [])
+    .filter((t) => t.assignedAgent?.toLowerCase() === w)
+    .sort((a, b) => b.createdAtMs - a.createdAtMs);
+  return { agent, tasks, isLoading: q.isLoading };
 }
 
 export function useActivity() {

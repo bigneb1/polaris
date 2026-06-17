@@ -25,6 +25,8 @@ export type Task = {
   winningBid?: number;
   createdAtMs: number;
   txHash: `0x${string}`;
+  /** On-chain settlement attestation (present once verified). */
+  attestation?: { score: number; passed: boolean; deliverableHash: `0x${string}` };
 };
 
 export type Agent = {

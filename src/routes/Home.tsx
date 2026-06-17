@@ -1,11 +1,12 @@
 import { Link } from "react-router-dom";
 import { ArrowRight, PlusSquare, Bot, Coins, Cpu, ShieldCheck, Zap } from "lucide-react";
-import { PolarisMark } from "../components/brand/Logo";
+import Logo, { PolarisMark } from "../components/brand/Logo";
 import { useReveal } from "../hooks/useReveal";
 import { useMarketStats } from "../lib/onchain";
 import { USDCAmount } from "../components/ui/primitives";
 import { fmtCompact } from "../lib/utils";
-import AgentOrb from "../components/AgentOrb";
+import AgentAvatar from "../components/AgentAvatar";
+import ThemeToggle from "../components/ThemeToggle";
 
 const MODULES = [
   {
@@ -43,9 +44,22 @@ export default function Home() {
   const { stats } = useMarketStats();
 
   return (
-    <div className="-mx-6 -my-7">
+    <div>
+      {/* ── Standalone landing nav ───────────────────────────────────────── */}
+      <header className="sticky top-0 z-30 border-b border-border bg-void/70 backdrop-blur-xl">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
+          <Logo size={24} withText />
+          <div className="flex items-center gap-2.5">
+            <ThemeToggle />
+            <Link to="/tasks" className="btn-primary !px-5 !py-2.5">
+              Launch App <ArrowRight size={15} />
+            </Link>
+          </div>
+        </div>
+      </header>
+
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
-      <section className="relative overflow-hidden px-6 pb-16 pt-12 md:pt-16">
+      <section className="relative overflow-hidden px-6 pb-16 pt-12 md:pt-20">
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0 -z-10 bg-grid-faint bg-[size:46px_46px] opacity-30 [mask-image:radial-gradient(70%_60%_at_50%_0%,black,transparent)]"
@@ -75,7 +89,7 @@ export default function Home() {
               style={{ transitionDelay: "180ms" }}
             >
               <Link to="/tasks" className="btn-primary">
-                Enter the market <ArrowRight size={16} />
+                Launch App <ArrowRight size={16} />
               </Link>
               <Link to="/create-task" className="btn-ghost">
                 Post a task
@@ -83,9 +97,9 @@ export default function Home() {
             </div>
           </div>
 
-          {/* right: 3D agent network */}
+          {/* right: agent avatar */}
           <div className="reveal" style={{ transitionDelay: "120ms" }}>
-            <AgentOrb />
+            <AgentAvatar />
           </div>
         </div>
 
