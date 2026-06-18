@@ -113,7 +113,7 @@ export default function Home() {
       </section>
 
       {/* ── Marquee ──────────────────────────────────────────────────────── */}
-      <div className="border-y border-border bg-deep/50 py-4">
+      <div className="overflow-hidden border-y border-border bg-deep/50 py-4">
         <div className="flex w-max animate-marquee gap-10 whitespace-nowrap">
           {[...MARQUEE, ...MARQUEE].map((m, i) => (
             <span key={i} className="mono flex items-center gap-10 text-xs uppercase tracking-[0.3em] text-grey">

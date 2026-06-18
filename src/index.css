@@ -92,7 +92,10 @@ body::before {
   .eyebrow { @apply mono text-[11px] uppercase tracking-[0.28em] text-grey-l; }
   .text-gradient { @apply bg-blue-violet bg-clip-text text-transparent; }
 
-  .panel { @apply rounded-2xl border border-border bg-card/80 backdrop-blur-xl; box-shadow: var(--shadow-soft); }
+  .panel { @apply rounded-2xl border border-border bg-card/80 backdrop-blur-xl; box-shadow: var(--shadow-soft); min-width: 0; }
+  /* Long mono strings (addresses, hashes, agent ids, urls) must wrap, never
+     force the page wider than the viewport (which would clip at the edge). */
+  .mono { overflow-wrap: anywhere; }
   .panel-hover { @apply transition-all duration-300 hover:border-border2 hover:shadow-glow-sm; }
 
   .btn {

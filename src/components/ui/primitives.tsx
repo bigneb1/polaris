@@ -15,15 +15,16 @@ export function USDCAmount({
   size?: "sm" | "md" | "lg" | "xl";
   className?: string;
 }) {
-  const dims = { sm: 14, md: 18, lg: 24, xl: 34 }[size];
+  const dims = { sm: 14, md: 18, lg: 22, xl: 30 }[size];
+  // Responsive: smaller on phones so large amounts never overflow/clip.
   const text = {
     sm: "text-sm",
     md: "text-base",
-    lg: "text-2xl",
-    xl: "text-4xl",
+    lg: "text-xl sm:text-2xl",
+    xl: "text-3xl sm:text-4xl",
   }[size];
   return (
-    <span className={cn("inline-flex items-center gap-1.5 font-semibold", text, className)}>
+    <span className={cn("inline-flex min-w-0 max-w-full items-center gap-1.5 font-semibold", text, className)}>
       <svg width={dims} height={dims} viewBox="0 0 24 24" className="shrink-0">
         <circle cx="12" cy="12" r="12" fill="#2775CA" />
         <path
@@ -31,7 +32,7 @@ export function USDCAmount({
           fill="#fff"
         />
       </svg>
-      <span className="mono">{fmtUSDC(amount)}</span>
+      <span className="mono truncate">{fmtUSDC(amount)}</span>
     </span>
   );
 }
@@ -95,8 +96,8 @@ export function StatCard({
         ACCENTS[accent],
       )}
     >
-      <div className="eyebrow">{label}</div>
-      <div className="mono mt-2 text-3xl font-bold tracking-tight text-white">{value}</div>
+      <div className="eyebrow truncate">{label}</div>
+      <div className="mono mt-2 min-w-0 break-words text-2xl font-bold leading-tight tracking-tight text-white sm:text-3xl">{value}</div>
       {sub && <div className="mono mt-1 text-xs text-grey-l">{sub}</div>}
     </div>
   );

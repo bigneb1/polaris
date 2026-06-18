@@ -159,14 +159,14 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         </button>
       )}
 
-      <div className={cn("transition-all duration-300", collapsed ? "lg:pl-[68px]" : "lg:pl-[232px]")}>
+      <div className={cn("min-w-0 overflow-x-clip transition-all duration-300", collapsed ? "lg:pl-[68px]" : "lg:pl-[232px]")}>
         <Topbar
           collapsed={collapsed}
           onToggleCollapse={() => setCollapsed((c) => !c)}
           onOpenMobile={() => setMobileOpen(true)}
         />
         <NetworkBanner />
-        <main className="mx-auto max-w-[1320px] px-4 py-6 sm:px-6 sm:py-7">{children}</main>
+        <main className="mx-auto w-full max-w-[1320px] px-4 py-6 sm:px-6 sm:py-7">{children}</main>
         <Footer />
       </div>
     </div>

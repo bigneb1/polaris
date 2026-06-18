@@ -45,8 +45,8 @@ export default function TaskMarket() {
 
       <div className="grid gap-6 lg:grid-cols-[1.55fr_1fr]">
         {/* Task list */}
-        <div>
-          <div className="mb-4 flex gap-2">
+        <div className="min-w-0">
+          <div className="mb-4 flex flex-wrap gap-2">
             {TABS.map((t) => (
               <button
                 key={t.key}
@@ -88,7 +88,7 @@ export default function TaskMarket() {
         </div>
 
         {/* Right rail */}
-        <div className="flex flex-col gap-6">
+        <div className="flex min-w-0 flex-col gap-6">
           <Panel title="Escrow Status">
             <div className="flex items-baseline justify-between">
               <span className="mono text-xs text-grey">Total locked</span>
