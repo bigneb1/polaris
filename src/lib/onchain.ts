@@ -30,9 +30,18 @@ const ENV = (import.meta as { env?: Record<string, string> }).env ?? {};
 const FROM_BLOCK = ENV.VITE_INDEX_FROM_BLOCK ? BigInt(ENV.VITE_INDEX_FROM_BLOCK) : null;
 const LOOKBACK = BigInt(ENV.VITE_INDEX_LOOKBACK_BLOCKS || "500000");
 // Arc public RPC caps eth_getLogs at a 10,000-block range, so we must stay
-// strictly under it (9000) or every windowed query silently fails and the UI
-// shows no agents/tasks.
-const CHUNK = BigInt(ENV.VITE_INDEX_CHUNK_BLOCKS || "9000");
+// strictly under it or every windowed query silently fails and the UI shows no
+// agents/tasks. We HARD-CAP at 9000 regardless of the env value so a stale or
+// misconfigured deployment (e.g. VITE_INDEX_CHUNK_BLOCKS=10000) can't break it.
+const MAX_CHUNK = 9000n;
+const CHUNK = (() => {
+  try {
+    const v = BigInt(ENV.VITE_INDEX_CHUNK_BLOCKS || "9000");
+    return v > MAX_CHUNK || v < 1n ? MAX_CHUNK : v;
+  } catch {
+    return MAX_CHUNK;
+  }
+})();
 const REFETCH_MS = 8000;
 
 function toUsdc(raw: bigint): number {

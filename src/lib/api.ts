@@ -7,7 +7,7 @@
  * same origin under /api.
  */
 const ENV = (import.meta as { env?: Record<string, string> }).env ?? {};
-const API_URL = ENV.VITE_API_URL || "";
+const API_URL = ENV.VITE_API_URL || "https://polaris-agent-runtime-production.up.railway.app";
 
 export type VerifyResult = {
   score: number;

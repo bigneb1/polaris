@@ -12,7 +12,7 @@ import { createPublicClient, http, encodeFunctionData, erc20Abi, formatUnits, ty
 import { arcTestnet, USDC_ADDRESS, USDC_DECIMALS, ARC_RPC_URL } from "./chain";
 
 const ENV = (import.meta as { env?: Record<string, string> }).env ?? {};
-const API_URL = ENV.VITE_API_URL || "";
+const API_URL = ENV.VITE_API_URL || "https://polaris-agent-runtime-production.up.railway.app";
 const APP_ID = ENV.VITE_CIRCLE_UC_APP_ID || "";
 
 export function ucWalletEnabled(): boolean {
@@ -214,16 +214,14 @@ export async function connectEmailWallet(email: string): Promise<UcSession> {
 
   const { userToken, encryptionKey } = await loginDone;
 
-  // Ensure the Arc wallet exists (create + sign the challenge if first login).
+  // Email/social login auto-provisions the user's Arc wallet during login (no
+  // PIN). We must NOT call createWallet here: that triggers the PIN-secured path
+  // and throws "user has not set up a pin" for email users. Just poll until the
+  // auto-created wallet appears (provisioning takes a few seconds on first login).
   let wallet = await walletByToken(userToken);
-  if (!wallet) {
-    const { challengeId } = await api<{ challengeId: string }>("/api/uc/create-wallet", { userToken });
-    sdk.setAuthentication({ userToken, encryptionKey });
-    await runChallenge(sdk, challengeId);
-    for (let i = 0; i < 8 && !wallet; i++) {
-      wallet = await walletByToken(userToken);
-      if (!wallet) await new Promise((r) => setTimeout(r, 1500));
-    }
+  for (let i = 0; i < 20 && !wallet; i++) {
+    await new Promise((r) => setTimeout(r, 1500));
+    wallet = await walletByToken(userToken);
   }
   if (!wallet) throw new Error("Wallet not ready, please try again");
   return { kind: "uc", userToken, encryptionKey, walletId: wallet.walletId, address: wallet.address, email: email.trim() };

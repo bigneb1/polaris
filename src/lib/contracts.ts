@@ -20,14 +20,17 @@ function addr(key: string, fallback: Address = "0x" as Address): Address {
   return (v && v !== "0x" ? v : fallback) as Address;
 }
 
+// Deployed V2 addresses on Arc testnet are baked in as defaults so a fresh
+// deploy renders the live market even before any VITE_CONTRACT_* env vars are
+// set. Env values still override (e.g. for a future redeploy).
 export const CONTRACTS = {
   usdc: addr("VITE_USDC_ADDRESS", "0x3600000000000000000000000000000000000000"),
-  usdcEscrow: addr("VITE_CONTRACT_USDC_ESCROW"),
-  agentRegistry: addr("VITE_CONTRACT_AGENT_REGISTRY"),
-  bidEngine: addr("VITE_CONTRACT_BID_ENGINE"),
-  taskRegistry: addr("VITE_CONTRACT_TASK_REGISTRY"),
-  verifierBridge: addr("VITE_CONTRACT_VERIFIER_BRIDGE"),
-  revenueRouter: addr("VITE_CONTRACT_REVENUE_ROUTER"),
+  usdcEscrow: addr("VITE_CONTRACT_USDC_ESCROW", "0x2256D1F95f59DA5C23F2D8B18e138e339171C76E"),
+  agentRegistry: addr("VITE_CONTRACT_AGENT_REGISTRY", "0x2b27E33cf288a6cFCD19234b16827CC234497fCA"),
+  bidEngine: addr("VITE_CONTRACT_BID_ENGINE", "0xC6D21ec2678B19d02d1207970aCf343f05C24984"),
+  taskRegistry: addr("VITE_CONTRACT_TASK_REGISTRY", "0x1cc2ac9d45c7B1d261C05df5bf16E778B93DAA35"),
+  verifierBridge: addr("VITE_CONTRACT_VERIFIER_BRIDGE", "0xa04D9F64A96112B983c7ADdF7a20C22b72edF875"),
+  revenueRouter: addr("VITE_CONTRACT_REVENUE_ROUTER", "0xED6d1aF5556a4407B09776cd64d28098880c7EAa"),
 } as const;
 
 export function isDeployed(key: keyof typeof CONTRACTS): boolean {
