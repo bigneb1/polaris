@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useWallet } from "../context/WalletProvider";
 import { toast } from "sonner";
 import { CheckCircle2, ShieldCheck, Send } from "lucide-react";
@@ -48,15 +49,29 @@ export default function Settlement() {
             ) : (
               <div className="flex flex-col gap-3">
                 {settled.map((t) => (
-                  <div key={t.taskId} className="flex items-center justify-between rounded-xl border border-border bg-deep px-4 py-3">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-white">{t.title}</div>
-                      <div className="mono text-[11px] text-grey">
-                        {shortAddr(t.assignedAgent)} · #{t.ref}
+                  <Link
+                    key={t.taskId}
+                    to={`/task/${t.taskId}`}
+                    className="block rounded-xl border border-border bg-deep px-4 py-3 transition-colors hover:border-blue"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-white">{t.title}</div>
+                        <div className="mono text-[11px] text-grey">
+                          {shortAddr(t.assignedAgent)} · #{t.ref}
+                        </div>
                       </div>
+                      <USDCAmount amount={t.winningBid ?? t.budgetUsdc} size="sm" className="text-green" />
                     </div>
-                    <USDCAmount amount={t.winningBid ?? t.budgetUsdc} size="sm" className="text-green" />
-                  </div>
+                    {t.attestation && (
+                      <div className="mt-2 flex items-center gap-2">
+                        <span className="mono inline-flex items-center gap-1 rounded-md border border-green/30 bg-green/5 px-1.5 py-0.5 text-[10px] text-green">
+                          <ShieldCheck size={11} /> {t.attestation.score}/100 {t.attestation.passed ? "PASS" : "FAIL"}
+                        </span>
+                        <span className="mono truncate text-[10px] text-grey">attestation · click for details</span>
+                      </div>
+                    )}
+                  </Link>
                 ))}
               </div>
             )}

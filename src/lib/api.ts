@@ -27,6 +27,49 @@ export async function submitDeliverable(taskId: string, agentWallet: string, del
   return res.json();
 }
 
+/**
+ * Upload a cover/avatar image (data URI) for a task (by taskId) or agent (by
+ * wallet). Stored off-chain in the backend asset store and merged into the
+ * index. Best-effort: a failure here never blocks the on-chain action.
+ */
+export async function uploadAsset(id: string, dataUri: string): Promise<void> {
+  try {
+    await fetch(`${API_URL}/api/asset`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, dataUri }),
+    });
+  } catch {
+    /* ignore - image is non-critical */
+  }
+}
+
+/** Read an image file into a compressed data URI suitable for upload. */
+export function fileToDataUri(file: File, maxPx = 512): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("could not read file"));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("invalid image"));
+      img.onload = () => {
+        const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return reject(new Error("no canvas"));
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/webp", 0.82));
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 /** Fetch a stored deliverable (if any) for a task. */
 export async function getDeliverable(taskId: string): Promise<{ deliverable: string | null }> {
   const res = await fetch(`${API_URL}/api/deliverable/${taskId}`);

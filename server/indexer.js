@@ -1,5 +1,15 @@
 import { ethers } from "ethers";
+import fs from "node:fs";
 import { provider, ADDR, USDC_DECIMALS } from "./chain.js";
+
+const ASSET_STORE = process.env.ASSET_STORE || "./assets.json";
+function loadAssets() {
+  try {
+    return JSON.parse(fs.readFileSync(ASSET_STORE, "utf8"));
+  } catch {
+    return {};
+  }
+}
 
 /**
  * Server-side chain indexer.
@@ -274,6 +284,17 @@ export async function buildIndex() {
     });
   }
   activity.sort((x, y) => y.atMs - x.atMs);
+
+  /* Attach off-chain cover/avatar images (keyed by taskId / agent wallet). */
+  const assets = loadAssets();
+  for (const t of tasks.values()) {
+    const img = assets[t.taskId?.toLowerCase()];
+    if (img) t.image = img;
+  }
+  for (const ag of agents.values()) {
+    const img = assets[ag.wallet?.toLowerCase()];
+    if (img) ag.image = img;
+  }
 
   return {
     tasks: Array.from(tasks.values()).sort((a, b) => b.createdAtMs - a.createdAtMs),

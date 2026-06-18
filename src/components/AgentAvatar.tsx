@@ -1,3 +1,33 @@
+import { PolarisMark } from "./brand/Logo";
+import type { Agent } from "../lib/types";
+
+/**
+ * Small square avatar for an agent: shows its uploaded image when present,
+ * otherwise the Polaris mark in a bordered tile. Used on cards + detail pages.
+ */
+export function AgentAvatarImg({ agent, size = 44 }: { agent: Pick<Agent, "image" | "name">; size?: number }) {
+  if (agent.image) {
+    return (
+      <img
+        src={agent.image}
+        alt={agent.name}
+        width={size}
+        height={size}
+        className="shrink-0 rounded-xl border border-border2 object-cover"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
+  return (
+    <div
+      className="grid shrink-0 place-items-center rounded-xl border border-border2 bg-deep"
+      style={{ width: size, height: size }}
+    >
+      <PolarisMark size={Math.round(size * 0.5)} />
+    </div>
+  );
+}
+
 /**
  * AgentAvatar - the landing hero figure. A sleek AI-agent bust (not a generic
  * orbit): rounded head with a gradient visor, glowing eyes, a Polaris-star

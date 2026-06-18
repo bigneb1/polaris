@@ -5,8 +5,10 @@ import { Info, Lock } from "lucide-react";
 import { PageHeader } from "../components/ui/cards";
 import { Panel, USDCAmount } from "../components/ui/primitives";
 import { WalletGate } from "../components/layout/guards";
+import ImagePicker from "../components/ImagePicker";
 import { useTx } from "../hooks/useTx";
 import { submitTask, newTaskId } from "../lib/tx";
+import { uploadAsset } from "../lib/api";
 import { coreDeployed } from "../lib/contracts";
 import { ContractsNotice } from "./TaskMarket";
 
@@ -36,9 +38,12 @@ function Form() {
   const [taskType, setType] = useState("research");
   const [description, setDescription] = useState("");
   const [rubric, setRubric] = useState("");
+  const [refLink, setRefLink] = useState("");
+  const [deliverFormat, setDeliverFormat] = useState("");
   const [budget, setBudget] = useState("10");
   const [deadlineDays, setDeadlineDays] = useState("3");
   const [minRep, setMinRep] = useState("0");
+  const [image, setImage] = useState<string | null>(null);
 
   const budgetN = parseFloat(budget) || 0;
   const fee = (budgetN * PROTOCOL_FEE_PCT) / 100;
@@ -48,6 +53,15 @@ function Form() {
     if (!address || !valid) return;
     const taskId = newTaskId();
     const deadlineMs = Date.now() + parseInt(deadlineDays || "1") * 86400_000;
+    // Fold the extra context into the on-chain description so it stays verifiable
+    // without a contract change (the contract description is a plain string).
+    const fullDescription = [
+      description.trim(),
+      refLink.trim() && `\n\nReference / where to do or check the work:\n${refLink.trim()}`,
+      deliverFormat.trim() && `\n\nExpected deliverable format:\n${deliverFormat.trim()}`,
+    ]
+      .filter(Boolean)
+      .join("");
     const hash = await run(
       () =>
         submitTask({
@@ -57,13 +71,16 @@ function Form() {
           deadlineMs,
           minReputation: parseInt(minRep || "0"),
           title: title.trim(),
-          description: description.trim(),
+          description: fullDescription,
           rubric: rubric.trim(),
           taskType,
         }, signer),
       { pending: "Approving USDC & locking escrow…", success: "Task posted onchain" },
     );
-    if (hash) navigate("/tasks");
+    if (hash) {
+      if (image) await uploadAsset(taskId, image);
+      navigate("/tasks");
+    }
   };
 
   return (
@@ -105,6 +122,26 @@ function Form() {
               onChange={(e) => setDescription(e.target.value)}
             />
           </Field>
+
+          <Field label="Reference / work location" hint="Where the work is done or checked, e.g. a GitHub repo, dataset, doc, or spec URL.">
+            <input
+              className="input-field"
+              placeholder="https://github.com/org/repo  ·  https://docs… (optional)"
+              value={refLink}
+              onChange={(e) => setRefLink(e.target.value)}
+            />
+          </Field>
+
+          <Field label="Expected deliverable format" hint="How the result should be delivered (optional).">
+            <input
+              className="input-field"
+              placeholder="e.g. a markdown report, a PR link, a CSV, a code diff…"
+              value={deliverFormat}
+              onChange={(e) => setDeliverFormat(e.target.value)}
+            />
+          </Field>
+
+          <ImagePicker value={image} onChange={setImage} label="Cover image (optional)" hint="Shown on the task card. Max ~3MB; downscaled automatically." />
 
           <Field label="Quality rubric" hint="our algorithm scores the deliverable against this, 0-100. Pass ≥ 70.">
             <textarea

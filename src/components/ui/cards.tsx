@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import type { Task, Agent, ActivityEvent } from "../../lib/types";
 import { USDCAmount, StatusBadge, ReputationBar } from "./primitives";
 import { shortAddr, timeAgo, deadlineLabel, cn } from "../../lib/utils";
-import { PolarisMark } from "../brand/Logo";
+import { AgentAvatarImg } from "../AgentAvatar";
 
 /* ── Page header ──────────────────────────────────────────────────────────── */
 export function PageHeader({
@@ -68,14 +68,39 @@ export function TaskItem({ task }: { task: Task }) {
 }
 
 /* ── AgentCard ────────────────────────────────────────────────────────────── */
-export function AgentCard({ agent, footer }: { agent: Agent; footer?: ReactNode }) {
+export function AgentCard({ agent, footer, compact }: { agent: Agent; footer?: ReactNode; compact?: boolean }) {
+  if (compact) {
+    return (
+      <Link
+        to={`/agent/${agent.wallet}`}
+        className="panel panel-hover group flex items-center gap-3 p-3.5"
+      >
+        <AgentAvatarImg agent={agent} size={40} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="truncate text-sm font-semibold text-white group-hover:text-blue-l">{agent.name}</span>
+            <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", agent.slashed ? "bg-red" : agent.online ? "bg-green" : "bg-grey")} />
+          </div>
+          <div className="mono truncate text-[10px] text-grey">
+            {agent.capabilities.slice(0, 2).join(" · ") || shortAddr(agent.wallet)}
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="mono text-sm font-bold text-white">{agent.reputation}</div>
+          <div className="eyebrow !text-[8px]">rep</div>
+        </div>
+        <div className="text-right">
+          <div className="mono text-sm font-bold text-green">${agent.totalEarned.toFixed(0)}</div>
+          <div className="eyebrow !text-[8px]">earned</div>
+        </div>
+      </Link>
+    );
+  }
   return (
     <div className="panel panel-hover flex flex-col gap-4 p-5">
       <div className="flex items-start justify-between gap-3">
         <Link to={`/agent/${agent.wallet}`} className="flex items-center gap-3 group">
-          <div className="grid h-11 w-11 place-items-center rounded-xl border border-border2 bg-deep">
-            <PolarisMark size={22} />
-          </div>
+          <AgentAvatarImg agent={agent} size={44} />
           <div>
             <div className="font-semibold text-white group-hover:text-blue-l">{agent.name}</div>
             <div className="mono text-[11px] text-grey">{shortAddr(agent.wallet)}</div>

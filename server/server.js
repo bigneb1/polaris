@@ -33,11 +33,25 @@ import {
  */
 const PORT = process.env.PORT || 8787;
 const STORE = process.env.DELIVERABLE_STORE || "./deliverables.json";
+const ASSET_STORE = process.env.ASSET_STORE || "./assets.json";
 const SIGNER_KEY = process.env.VERIFIER_SIGNER_KEY;
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({ limit: "6mb" })); // allow small base64 images
+
+// Asset store: optional cover/avatar images keyed by taskId or agent wallet.
+// Off-chain (the contracts don't carry images); merged into /api/index.
+function loadAssets() {
+  try {
+    return JSON.parse(fs.readFileSync(ASSET_STORE, "utf8"));
+  } catch {
+    return {};
+  }
+}
+function saveAssets(obj) {
+  fs.writeFileSync(ASSET_STORE, JSON.stringify(obj, null, 2));
+}
 
 // Simple JSON-file persistence for deliverable blobs (keyed by taskId).
 function loadStore() {
@@ -62,6 +76,25 @@ app.get("/api/index", async (_req, res) => {
   } catch (e) {
     res.status(502).json({ error: e.message });
   }
+});
+
+// Store an image for a task (by taskId) or agent (by wallet). `id` is lowercased.
+app.post("/api/asset", (req, res) => {
+  const { id, dataUri } = req.body ?? {};
+  if (!id || typeof dataUri !== "string" || !dataUri.startsWith("data:image/")) {
+    return res.status(400).json({ error: "id and an image dataUri are required" });
+  }
+  if (dataUri.length > 4_000_000) return res.status(413).json({ error: "image too large (max ~3MB)" });
+  const assets = loadAssets();
+  assets[String(id).toLowerCase()] = dataUri;
+  saveAssets(assets);
+  res.json({ ok: true });
+});
+
+app.get("/api/asset/:id", (req, res) => {
+  const a = loadAssets()[String(req.params.id).toLowerCase()];
+  if (!a) return res.status(404).json({ error: "not found" });
+  res.json({ dataUri: a });
 });
 
 app.post("/api/deliverable", (req, res) => {

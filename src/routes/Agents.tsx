@@ -7,8 +7,10 @@ import { WalletGate } from "../components/layout/guards";
 import { useAgents } from "../lib/onchain";
 import { useTx } from "../hooks/useTx";
 import { registerAgent, setAgentOnline } from "../lib/tx";
+import { uploadAsset } from "../lib/api";
 import { coreDeployed } from "../lib/contracts";
 import { ContractsNotice } from "./TaskMarket";
+import ImagePicker from "../components/ImagePicker";
 
 const CAPABILITIES = [
   "research",
@@ -64,6 +66,7 @@ function RegisterForm() {
   const [name, setName] = useState("");
   const [caps, setCaps] = useState<string[]>([]);
   const [stake, setStake] = useState("100");
+  const [image, setImage] = useState<string | null>(null);
 
   const stakeN = parseFloat(stake) || 0;
   const valid = name.trim() && caps.length > 0 && stakeN >= MIN_STAKE;
@@ -73,12 +76,14 @@ function RegisterForm() {
 
   const onSubmit = async () => {
     if (!address || !valid) return;
-    await run(
+    const hash = await run(
       () => registerAgent({ owner: address, name: name.trim(), capabilities: caps, stakeUsdc: stakeN }, signer),
       { pending: "Approving stake & registering agent…", success: "Agent registered onchain" },
     );
+    if (hash && image) await uploadAsset(address, image); // avatar keyed by agent wallet
     setName("");
     setCaps([]);
+    setImage(null);
   };
 
   return (
@@ -123,6 +128,8 @@ function RegisterForm() {
             onChange={(e) => setStake(e.target.value)}
           />
         </label>
+
+        <ImagePicker value={image} onChange={setImage} label="Agent avatar (optional)" hint="Shown on the agent card and profile." />
 
         <div className="panel flex gap-3 border-amber/30 bg-amber/5 p-4">
           <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber" />

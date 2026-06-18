@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useWallet } from "../context/WalletProvider";
-import { ArrowLeft, ExternalLink, Gavel, Trophy, Clock, Bot } from "lucide-react";
+import { ArrowLeft, ExternalLink, Gavel, Trophy, Clock, Bot, ShieldCheck, Coins } from "lucide-react";
 import { Panel, USDCAmount, StatusBadge, EmptyState, Skeleton } from "../components/ui/primitives";
 import { useTask, useAgents } from "../lib/onchain";
 import { useTx } from "../hooks/useTx";
 import { placeBid, awardBid, cancelTask } from "../lib/tx";
-import { explorerAddr } from "../lib/chain";
+import { explorerAddr, explorerTx } from "../lib/chain";
 import { shortAddr, deadlineLabel, timeAgo } from "../lib/utils";
 
 export default function TaskDetail() {
@@ -116,15 +116,54 @@ export default function TaskDetail() {
           {task.assignedAgent && (
             <Panel title="Assigned Agent">
               <div className="flex items-center justify-between">
-                <a
-                  href={explorerAddr(task.assignedAgent)}
-                  target="_blank"
-                  rel="noreferrer"
+                <Link
+                  to={`/agent/${task.assignedAgent}`}
                   className="mono inline-flex items-center gap-2 text-sm text-violet hover:underline"
                 >
-                  <Bot size={15} /> {shortAddr(task.assignedAgent)} <ExternalLink size={12} />
+                  <Bot size={15} /> {shortAddr(task.assignedAgent)}
+                </Link>
+                <div className="flex items-center gap-3">
+                  {task.winningBid != null && <USDCAmount amount={task.winningBid} size="sm" className="text-white" />}
+                  <a href={explorerAddr(task.assignedAgent)} target="_blank" rel="noreferrer" className="text-grey hover:text-blue-l" title="View on Arcscan">
+                    <ExternalLink size={13} />
+                  </a>
+                </div>
+              </div>
+            </Panel>
+          )}
+
+          {task.attestation && (
+            <Panel title={<span className="inline-flex items-center gap-2"><ShieldCheck size={14} /> Onchain settlement attestation</span>}>
+              <div className="flex flex-col gap-4">
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                  <Meta icon={<ShieldCheck size={14} />} label="Verdict" value={task.attestation.passed ? "PASS" : "FAIL"} />
+                  <Meta icon={<Trophy size={14} />} label="Score" value={`${task.attestation.score}/100`} />
+                  <Meta icon={<Coins size={14} />} label="Released" value={`${(task.winningBid ?? task.budgetUsdc).toFixed(2)} USDC`} />
+                </div>
+                {task.assignedAgent && (
+                  <div>
+                    <div className="eyebrow mb-1">Settled by agent</div>
+                    <Link to={`/agent/${task.assignedAgent}`} className="mono text-sm text-violet hover:underline">
+                      {shortAddr(task.assignedAgent, 10, 8)}
+                    </Link>
+                  </div>
+                )}
+                <div>
+                  <div className="eyebrow mb-1">Deliverable hash (signed onchain)</div>
+                  <div className="mono break-all text-[11px] text-grey-l">{task.attestation.deliverableHash}</div>
+                </div>
+                <a
+                  href={explorerTx(task.txHash)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="btn-ghost w-full !py-2"
+                >
+                  <ExternalLink size={14} /> View on Arcscan
                 </a>
-                {task.winningBid != null && <USDCAmount amount={task.winningBid} size="sm" className="text-white" />}
+                <p className="mono text-[11px] leading-relaxed text-grey">
+                  Scored by our algorithm against the rubric, signed by the verifier, and recorded onchain via
+                  VerifierBridge. Status: <span className="text-green">SETTLED</span>.
+                </p>
               </div>
             </Panel>
           )}

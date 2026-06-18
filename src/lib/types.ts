@@ -27,6 +27,8 @@ export type Task = {
   txHash: `0x${string}`;
   /** Onchain settlement attestation (present once verified). */
   attestation?: { score: number; passed: boolean; deliverableHash: `0x${string}` };
+  /** Optional cover image (data URI), from the backend asset store. */
+  image?: string;
 };
 
 export type Agent = {
@@ -42,6 +44,8 @@ export type Agent = {
   online: boolean;
   slashed: boolean;
   createdAtMs: number;
+  /** Optional avatar image (data URI), from the backend asset store. */
+  image?: string;
 };
 
 export type Bid = {

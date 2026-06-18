@@ -6,7 +6,7 @@ import { useAgents } from "../lib/onchain";
 import { coreDeployed } from "../lib/contracts";
 import { ContractsNotice } from "./TaskMarket";
 
-const PER_PAGE = 12;
+const PER_PAGE = 18;
 type Filter = "all" | "online" | "offline";
 
 export default function Explorer() {
@@ -86,9 +86,9 @@ export default function Explorer() {
         </div>
       ) : (
         <>
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {pageItems.map((a) => (
-              <AgentCard key={a.wallet} agent={a} />
+              <AgentCard key={a.wallet} agent={a} compact />
             ))}
           </div>
           {pages > 1 && (

@@ -155,6 +155,61 @@ export async function cancelTask(taskId: `0x${string}`, circle?: Signer): Promis
   return run([{ address: CONTRACTS.taskRegistry, abi: TASK_REGISTRY_ABI, functionName: "cancelTask", args: [taskId] }], circle);
 }
 
+export type HireInput = {
+  agent: Address;
+  taskId: `0x${string}`;
+  budgetUsdc: number;
+  deadlineMs: number;
+  title: string;
+  description: string;
+  rubric: string;
+  taskType: string;
+};
+
+/** Directly hire a specific agent (no auction): approve escrow + submitDirectTask. */
+export async function hireAgent(i: HireInput, circle?: Signer): Promise<Hash> {
+  return run(
+    [
+      approve(CONTRACTS.usdcEscrow, i.budgetUsdc),
+      {
+        address: CONTRACTS.taskRegistry,
+        abi: TASK_REGISTRY_ABI,
+        functionName: "submitDirectTask",
+        args: [
+          i.taskId,
+          i.agent,
+          usdc(i.budgetUsdc),
+          BigInt(Math.floor(i.deadlineMs / 1000)),
+          i.title,
+          i.description,
+          i.rubric,
+          i.taskType,
+        ],
+      },
+    ],
+    circle,
+  );
+}
+
+/** Add to an agent's stake (approve + restake). */
+export async function addStake(amountUsdc: number, circle?: Signer): Promise<Hash> {
+  return run(
+    [
+      approve(CONTRACTS.agentRegistry, amountUsdc),
+      { address: CONTRACTS.agentRegistry, abi: AGENT_REGISTRY_ABI, functionName: "restake", args: [usdc(amountUsdc)] },
+    ],
+    circle,
+  );
+}
+
+/** Wire (transfer) USDC directly to any address. */
+export async function wireUsdc(to: Address, amountUsdc: number, circle?: Signer): Promise<Hash> {
+  return run(
+    [{ address: CONTRACTS.usdc, abi: ERC20_ABI, functionName: "transfer", args: [to, usdc(amountUsdc)] }],
+    circle,
+  );
+}
+
 /** Read onchain USDC balance (human units) for an address. */
 export async function usdcBalance(addr: Address): Promise<number> {
   const raw = (await readContract(wagmiConfig, {
