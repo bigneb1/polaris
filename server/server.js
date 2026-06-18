@@ -17,6 +17,7 @@ import {
   emailDeviceToken,
   walletByToken,
   createWalletForToken,
+  pinSetupByToken,
   contractExecutionChallengeByToken,
 } from "./circle-user.js";
 
@@ -249,6 +250,17 @@ if (ucEnabled()) {
     if (!userToken) return res.status(400).json({ error: "userToken required" });
     try {
       res.json(await createWalletForToken(userToken));
+    } catch (e) {
+      res.status(502).json({ error: e.message });
+    }
+  });
+
+  // First-login PIN setup + wallet creation for email users (by userToken).
+  app.post("/api/uc/pin-setup", async (req, res) => {
+    const { userToken } = req.body ?? {};
+    if (!userToken) return res.status(400).json({ error: "userToken required" });
+    try {
+      res.json(await pinSetupByToken(userToken));
     } catch (e) {
       res.status(502).json({ error: e.message });
     }

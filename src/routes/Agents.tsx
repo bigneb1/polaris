@@ -41,7 +41,7 @@ export default function Agents() {
         <StatCard label="Registered" value={agents.length} accent="blue" />
         <StatCard label="Online Now" value={onlineCount} accent="green" />
         <StatCard label="Avg Reputation" value={avgRep} accent="violet" />
-        <StatCard label="Min Stake" value="$5.00" accent="usdc" />
+        <StatCard label="Min Stake" value={`$${MIN_STAKE}.00`} accent="usdc" />
       </div>
 
       {!coreDeployed() ? (

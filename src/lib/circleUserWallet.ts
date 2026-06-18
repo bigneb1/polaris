@@ -214,14 +214,19 @@ export async function connectEmailWallet(email: string): Promise<UcSession> {
 
   const { userToken, encryptionKey } = await loginDone;
 
-  // Email/social login auto-provisions the user's Arc wallet during login (no
-  // PIN). We must NOT call createWallet here: that triggers the PIN-secured path
-  // and throws "user has not set up a pin" for email users. Just poll until the
-  // auto-created wallet appears (provisioning takes a few seconds on first login).
+  // User-controlled wallets are PIN-secured by design; email is just the login
+  // method. On first login the user has no wallet yet, so we run the
+  // "set PIN + create wallet" ceremony (createUserPinWithWallets). On later
+  // logins the wallet already exists and we skip straight to it.
   let wallet = await walletByToken(userToken);
-  for (let i = 0; i < 20 && !wallet; i++) {
-    await new Promise((r) => setTimeout(r, 1500));
-    wallet = await walletByToken(userToken);
+  if (!wallet) {
+    const { challengeId } = await api<{ challengeId: string }>("/api/uc/pin-setup", { userToken });
+    sdk.setAuthentication({ userToken, encryptionKey });
+    await runChallenge(sdk, challengeId); // user sets a 6-digit PIN, wallet is created
+    for (let i = 0; i < 20 && !wallet; i++) {
+      wallet = await walletByToken(userToken);
+      if (!wallet) await new Promise((r) => setTimeout(r, 1500));
+    }
   }
   if (!wallet) throw new Error("Wallet not ready, please try again");
   return { kind: "uc", userToken, encryptionKey, walletId: wallet.walletId, address: wallet.address, email: email.trim() };

@@ -219,7 +219,7 @@ function ConnectModal({ onClose, lastUsername }: { onClose: () => void; lastUser
                 onKeyDown={(e) => e.key === "Enter" && goEmail()}
               />
               <button onClick={goEmail} disabled={busy !== null || !email.trim()} className="btn-primary w-full">
-                {busy === "email" ? "Sending code…" : "Continue"}
+                {busy === "email" ? "Check your email & follow the steps…" : "Continue"}
               </button>
               <button
                 onClick={() => setView("options")}

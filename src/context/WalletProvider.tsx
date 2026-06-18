@@ -21,6 +21,19 @@ import {
  */
 const LAST_USER_KEY = "polaris-circle-username";
 const LAST_UC_KEY = "polaris-uc-email";
+const UC_SESSION_KEY = "polaris-uc-session";
+
+/** The email (UC) session is plain data, so it survives reloads in localStorage. */
+function loadUcSession(): UcSession | null {
+  try {
+    const raw = localStorage.getItem(UC_SESSION_KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw) as UcSession;
+    return s && s.kind === "uc" && s.address && s.walletId ? s : null;
+  } catch {
+    return null;
+  }
+}
 
 type Ctx = {
   address?: `0x${string}`;
@@ -50,7 +63,10 @@ const WalletCtx = createContext<Ctx | null>(null);
 export function WalletProvider({ children }: { children: ReactNode }) {
   const { address: injected } = useAccount();
   const [circle, setCircle] = useState<CircleSession | null>(null);
-  const [uc, setUc] = useState<UcSession | null>(null);
+  // Rehydrate the email session so users stay logged in across reloads until
+  // they disconnect or clear their browser. (Passkey sessions hold non-
+  // serializable signer objects, so they re-auth on demand instead.)
+  const [uc, setUc] = useState<UcSession | null>(() => loadUcSession());
   const [connecting, setConnecting] = useState(false);
   const [balance, setBalance] = useState<number | null>(null);
   const [lastUsername, setLastUsername] = useState<string | null>(() => {
@@ -93,6 +109,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       setCircle(null);
       try {
         localStorage.setItem(LAST_UC_KEY, email);
+        localStorage.setItem(UC_SESSION_KEY, JSON.stringify(session));
       } catch {
         /* ignore */
       }
@@ -134,6 +151,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     disconnect: () => {
       setCircle(null);
       setUc(null);
+      try {
+        localStorage.removeItem(UC_SESSION_KEY);
+      } catch {
+        /* ignore */
+      }
     },
     refreshBalance,
   };

@@ -97,6 +97,18 @@ export async function createWalletForToken(userToken) {
   return { challengeId: res.data.challengeId };
 }
 
+/**
+ * First-login challenge for an email user: set a PIN AND create the Arc wallet
+ * in one ceremony. User-controlled wallets are PIN-secured by design (email is
+ * the login method); this is what `createWallet` alone cannot do for a user who
+ * has no PIN yet ("user has not set up a pin").
+ */
+export async function pinSetupByToken(userToken) {
+  const c = uc();
+  const res = await c.createUserPinWithWallets({ userToken, blockchains: [BLOCKCHAIN], accountType: ACCOUNT_TYPE });
+  return { challengeId: res.data.challengeId };
+}
+
 /** Contract-execution challenge addressed by userToken (email-login users). */
 export async function contractExecutionChallengeByToken(userToken, walletId, contractAddress, abiFunctionSignature, abiParameters) {
   const c = uc();
