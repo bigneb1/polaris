@@ -20,8 +20,12 @@ import { listAgentWallets, fundWallet, execute, isLoggedIn, CIRCLE_CHAIN } from 
  *   npm run swarm:circle
  */
 const API_URL = process.env.VITE_API_URL || `http://localhost:${process.env.PORT || 8787}`;
-const POLL_MS = Number(process.env.SWARM_POLL_MS || 12000);
+const POLL_MS = Number(process.env.SWARM_POLL_MS || 30000);
 const LOOKBACK = Number(process.env.INDEX_LOOKBACK_BLOCKS || "500000");
+// The public Arc RPC has a hard daily request cap. Scanning 500k blocks every
+// tick (56 chunks x several filters x agents) exhausts it fast, which then
+// breaks the whole app's reads. Scan only a small recent window per tick.
+const SWARM_LOOKBACK = Number(process.env.SWARM_LOOKBACK_BLOCKS || "40000");
 const SETTLE_WAIT_MS = Number(process.env.CIRCLE_SETTLE_WAIT_MS || 8000);
 const usdc = (n) => ethers.parseUnits(String(n), USDC_DECIMALS);
 
@@ -127,7 +131,7 @@ class CircleAgent {
   }
 
   async fulfilWins() {
-    const logs = await queryLogsChunked(bidR, bidR.filters.BidAwarded(null, this.address));
+    const logs = await queryLogsChunked(bidR, bidR.filters.BidAwarded(null, this.address), SWARM_LOOKBACK);
     for (const lg of logs) {
       const taskId = lg.args.taskId;
       if (this.handled.has(taskId)) continue;
@@ -255,7 +259,7 @@ async function main() {
 
   const tick = async () => {
     try {
-      const submitted = await queryLogsChunked(taskReg, taskReg.filters.TaskSubmitted());
+      const submitted = await queryLogsChunked(taskReg, taskReg.filters.TaskSubmitted(), SWARM_LOOKBACK);
       for (const lg of submitted) {
         const taskId = lg.args.taskId;
         const t = await taskReg.tasks(taskId);

@@ -24,7 +24,12 @@ function loadAssets() {
  *   { tasks, agents, bids, activity }
  */
 
-const LOOKBACK = BigInt(process.env.INDEX_LOOKBACK_BLOCKS || "500000");
+// Pin the scan start to keep RPC usage tiny: the public Arc RPC has a hard daily
+// request cap. A fixed FROM_BLOCK (set to ~deploy block) means we scan a small,
+// bounded window instead of 500k blocks (which is ~56 chunks x 4 contracts per
+// build and exhausts the quota fast).
+const FROM_BLOCK = process.env.INDEX_FROM_BLOCK ? BigInt(process.env.INDEX_FROM_BLOCK) : null;
+const LOOKBACK = BigInt(process.env.INDEX_LOOKBACK_BLOCKS || "150000");
 const RAW_CHUNK = BigInt(process.env.INDEX_CHUNK_BLOCKS || "9000");
 // Arc caps eth_getLogs at a 10,000-block range; stay strictly under it.
 const CHUNK = RAW_CHUNK > 9000n || RAW_CHUNK < 1n ? 9000n : RAW_CHUNK;
@@ -70,7 +75,7 @@ async function getAllLogs(address, eventSigs) {
   const iface = new ethers.Interface(eventSigs);
   const c = new ethers.Contract(address, eventSigs, provider);
   const head = await provider.getBlockNumber();
-  const start = head > Number(LOOKBACK) ? BigInt(head) - LOOKBACK : 0n;
+  const start = FROM_BLOCK ?? (head > Number(LOOKBACK) ? BigInt(head) - LOOKBACK : 0n);
   const out = [];
   for (let from = start; from <= BigInt(head); from += CHUNK) {
     const to = from + CHUNK - 1n > BigInt(head) ? BigInt(head) : from + CHUNK - 1n;
@@ -305,15 +310,32 @@ export async function buildIndex() {
   };
 }
 
-/* Small in-process cache so frequent polls don't hammer the RPC. */
+/* In-process cache so frequent polls don't hammer the rate-limited RPC. On a
+ * build failure (e.g. RPC daily limit) we serve the last good snapshot so the
+ * app never goes blank once it has data. */
 let cache = null;
 let cacheAt = 0;
-const TTL_MS = Number(process.env.INDEX_CACHE_MS || "6000");
+const TTL_MS = Number(process.env.INDEX_CACHE_MS || "30000");
 
 export async function getIndex() {
   const now = Date.now();
   if (cache && now - cacheAt < TTL_MS) return cache;
-  cache = await buildIndex();
-  cacheAt = now;
-  return cache;
+  try {
+    const fresh = await buildIndex();
+    // Don't overwrite a populated snapshot with an empty one (transient RPC fail
+    // that returned zero logs rather than throwing).
+    if (cache && fresh.tasks.length === 0 && fresh.agents.length === 0 && cache.tasks.length > 0) {
+      cacheAt = now;
+      return cache;
+    }
+    cache = fresh;
+    cacheAt = now;
+    return cache;
+  } catch (e) {
+    if (cache) {
+      cacheAt = now; // back off; keep serving the last good snapshot
+      return { ...cache, stale: true };
+    }
+    throw e;
+  }
 }
