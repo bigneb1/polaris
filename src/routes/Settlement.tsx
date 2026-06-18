@@ -55,20 +55,20 @@ export default function Settlement() {
                     className="block rounded-xl border border-border bg-deep px-4 py-3 transition-colors hover:border-blue"
                   >
                     <div className="flex items-center justify-between gap-3">
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-medium text-white">{t.title}</div>
-                        <div className="mono text-[11px] text-grey">
+                        <div className="mono truncate text-[11px] text-grey">
                           {shortAddr(t.assignedAgent)} · #{t.ref}
                         </div>
                       </div>
-                      <USDCAmount amount={t.winningBid ?? t.budgetUsdc} size="sm" className="text-green" />
+                      <USDCAmount amount={t.winningBid ?? t.budgetUsdc} size="sm" className="shrink-0 text-green" />
                     </div>
                     {t.attestation && (
-                      <div className="mt-2 flex items-center gap-2">
-                        <span className="mono inline-flex items-center gap-1 rounded-md border border-green/30 bg-green/5 px-1.5 py-0.5 text-[10px] text-green">
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <span className="mono inline-flex shrink-0 items-center gap-1 rounded-md border border-green/30 bg-green/5 px-1.5 py-0.5 text-[10px] text-green">
                           <ShieldCheck size={11} /> {t.attestation.score}/100 {t.attestation.passed ? "PASS" : "FAIL"}
                         </span>
-                        <span className="mono truncate text-[10px] text-grey">attestation · click for details</span>
+                        <span className="mono text-[10px] text-grey">click for details</span>
                       </div>
                     )}
                   </Link>

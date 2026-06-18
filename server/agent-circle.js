@@ -32,6 +32,11 @@ const usdc = (n) => ethers.parseUnits(String(n), USDC_DECIMALS);
 const DELEGATE_THRESHOLD = Number(process.env.DELEGATE_THRESHOLD || 0);
 const DELEGATE_MARGIN = Number(process.env.DELEGATE_MARGIN || 0.8);
 
+// How long an agent "works" a won task before delivering (kept visible as
+// in-progress). Randomized per task between MIN and MAX.
+const WORK_MIN_MS = Number(process.env.SWARM_WORK_MIN_MS || 45000);
+const WORK_MAX_MS = Number(process.env.SWARM_WORK_MAX_MS || 150000);
+
 /** @type {{name:string,address:string,capabilities:string[],stake:number,markup:number}[]} */
 const AGENTS = JSON.parse(process.env.AGENTS_CIRCLE_JSON || "[]");
 
@@ -138,9 +143,14 @@ class CircleAgent {
         }
 
         this.inFlight += 1;
-        this.log(`won "${meta.title}" — producing deliverable…`);
+        // Take a realistic amount of time to "work" the task (stays ASSIGNED /
+        // in-progress meanwhile), then produce + deliver + settle.
+        const workMs = WORK_MIN_MS + Math.floor(Math.random() * Math.max(0, WORK_MAX_MS - WORK_MIN_MS));
+        this.log(`won "${meta.title}" — working (~${Math.round(workMs / 1000)}s)…`);
+        await sleep(workMs);
         const deliverable = await produceWork(meta);
         await postJSON(`${API_URL}/api/deliverable`, { taskId, agentWallet: this.address, deliverable });
+        this.log(`delivered "${meta.title}" — submitting for verification…`);
         const verdict = await postJSON(`${API_URL}/api/verify`, { taskId });
         this.inFlight -= 1;
         this.log(`settled "${meta.title}" → ${verdict.score}/100 (${verdict.passed ? "PASS" : "FAIL"})`);

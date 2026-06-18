@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useWallet } from "../context/WalletProvider";
-import { ArrowLeft, ExternalLink, Gavel, Trophy, Clock, Bot, ShieldCheck, Coins } from "lucide-react";
+import { ArrowLeft, ExternalLink, Gavel, Trophy, Clock, Bot, ShieldCheck, Coins, FileText, Lock } from "lucide-react";
 import { Panel, USDCAmount, StatusBadge, EmptyState, Skeleton } from "../components/ui/primitives";
 import { useTask, useAgents } from "../lib/onchain";
 import { useTx } from "../hooks/useTx";
 import { placeBid, awardBid, cancelTask } from "../lib/tx";
+import { getDeliverable } from "../lib/api";
 import { explorerAddr, explorerTx } from "../lib/chain";
 import { shortAddr, deadlineLabel, timeAgo } from "../lib/utils";
 
@@ -167,6 +168,10 @@ export default function TaskDetail() {
               </div>
             </Panel>
           )}
+
+          {isRequester && (task.assignedAgent || task.status === "SETTLED") && (
+            <DeliverablePanel taskId={task.taskId} agent={task.assignedAgent} />
+          )}
         </div>
 
         {/* Right: bids + place bid */}
@@ -245,5 +250,78 @@ function Meta({ icon, label, value }: { icon: React.ReactNode; label: string; va
       <div className="eyebrow mb-1.5 flex items-center gap-1.5">{icon} {label}</div>
       <div className="mono text-sm font-semibold text-white">{value}</div>
     </div>
+  );
+}
+
+/**
+ * The agent's actual work output, visible only to the task owner. Polls while the
+ * assigned agent is still working, then renders the delivered summary/analysis/code.
+ */
+function DeliverablePanel({ taskId, agent }: { taskId: `0x${string}`; agent?: `0x${string}` }) {
+  const [text, setText] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        const { deliverable } = await getDeliverable(taskId);
+        if (!alive) return;
+        if (deliverable) {
+          setText(deliverable);
+          setLoading(false);
+          return;
+        }
+      } catch {
+        /* ignore */
+      }
+      if (alive) {
+        setLoading(false);
+        timer = setTimeout(poll, 10000); // keep checking while the agent works
+      }
+    };
+    poll();
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [taskId]);
+
+  return (
+    <Panel
+      title={
+        <span className="inline-flex items-center gap-2">
+          <FileText size={14} /> Agent deliverable
+          <span className="mono inline-flex items-center gap-1 rounded-md border border-border bg-deep px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-grey">
+            <Lock size={9} /> owner only
+          </span>
+        </span>
+      }
+    >
+      {loading ? (
+        <Skeleton className="h-32" />
+      ) : text ? (
+        <div className="flex flex-col gap-3">
+          {agent && (
+            <div className="mono text-[11px] text-grey">
+              delivered by{" "}
+              <Link to={`/agent/${agent}`} className="text-violet hover:underline">{shortAddr(agent)}</Link>
+            </div>
+          )}
+          <div className="max-h-[480px] overflow-y-auto rounded-xl border border-border bg-deep p-4">
+            <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed text-grey-l">{text}</pre>
+          </div>
+          <p className="mono text-[11px] text-grey">
+            This is the work the agent produced for your task. Only you (the requester) can see it.
+          </p>
+        </div>
+      ) : (
+        <EmptyState
+          title="Agent is working…"
+          message="The assigned agent is producing your deliverable. It appears here the moment it's submitted (this page checks automatically)."
+        />
+      )}
+    </Panel>
   );
 }

@@ -35,33 +35,62 @@ export type CircleSession = {
   publicClient: ReturnType<typeof createPublicClient>;
 };
 
+// Cache the passkey credential + username so the session can be rebuilt on
+// reload WITHOUT another passkey prompt. The credential is plain data
+// ({id, publicKey}); signing a tx still requires the passkey at that moment.
+const CRED_KEY = "polaris-passkey-credential";
+
+type Credential = Parameters<typeof toWebAuthnAccount>[0]["credential"];
+
+function cacheCredential(username: string, credential: Credential) {
+  try {
+    localStorage.setItem(CRED_KEY, JSON.stringify({ username, credential }));
+  } catch {
+    /* ignore */
+  }
+}
+export function clearCachedCredential() {
+  try {
+    localStorage.removeItem(CRED_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+async function buildSession(username: string, credential: Credential): Promise<CircleSession> {
+  const modularTransport = toModularTransport(`${CLIENT_URL}/${CHAIN_PATH}`, CLIENT_KEY);
+  const publicClient = createPublicClient({ chain: arcTestnet, transport: modularTransport });
+  const account = await toCircleSmartAccount({ client: publicClient, owner: toWebAuthnAccount({ credential }) });
+  const bundler = createBundlerClient({ account, chain: arcTestnet, transport: modularTransport });
+  return { address: account.address as `0x${string}`, username, bundler, account, publicClient };
+}
+
 function makeConnect(mode: WebAuthnMode) {
   return async (username: string): Promise<CircleSession> => {
     if (!circleEnabled()) throw new Error("Circle wallet not configured (set VITE_CIRCLE_CLIENT_KEY/URL).");
-
     const passkeyTransport = toPasskeyTransport(CLIENT_URL, CLIENT_KEY);
     const credential = await toWebAuthnCredential({ transport: passkeyTransport, mode, username });
-
-    const modularTransport = toModularTransport(`${CLIENT_URL}/${CHAIN_PATH}`, CLIENT_KEY);
-    const publicClient = createPublicClient({ chain: arcTestnet, transport: modularTransport });
-
-    const account = await toCircleSmartAccount({
-      client: publicClient,
-      owner: toWebAuthnAccount({ credential }),
-    });
-
-    const bundler = createBundlerClient({
-      account,
-      chain: arcTestnet,
-      transport: modularTransport,
-    });
-
-    return { address: account.address as `0x${string}`, username, bundler, account, publicClient };
+    cacheCredential(username, credential as Credential);
+    return buildSession(username, credential as Credential);
   };
 }
 
 export const registerCircleWallet = makeConnect(WebAuthnMode.Register);
 export const loginCircleWallet = makeConnect(WebAuthnMode.Login);
+
+/** Rebuild the passkey session from the cached credential (no prompt). */
+export async function restoreCircleWallet(): Promise<CircleSession | null> {
+  if (!circleEnabled()) return null;
+  try {
+    const raw = localStorage.getItem(CRED_KEY);
+    if (!raw) return null;
+    const { username, credential } = JSON.parse(raw);
+    if (!username || !credential) return null;
+    return await buildSession(username, credential as Credential);
+  } catch {
+    return null;
+  }
+}
 
 /** USDC balance (human units) for the connected smart account. */
 export async function circleUsdcBalance(session: CircleSession): Promise<number> {

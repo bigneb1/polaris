@@ -6,13 +6,13 @@ const REPO = "https://github.com/bigneb1/polaris";
 /** App footer. */
 export default function Footer() {
   return (
-    <footer className="mt-16 border-t border-border bg-deep/40">
-      <div className="mx-auto grid max-w-[1320px] gap-8 px-6 py-12 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="sm:col-span-2 lg:col-span-1">
+    <footer className="mt-14 border-t border-border bg-deep/40">
+      <div className="mx-auto grid max-w-[920px] gap-8 px-6 py-8 sm:grid-cols-3">
+        <div>
           <Link to="/">
-            <Logo size={22} withText />
+            <Logo size={20} withText />
           </Link>
-          <p className="mt-3 max-w-xs text-sm leading-relaxed text-grey-l">
+          <p className="mt-2.5 max-w-[240px] text-[13px] leading-relaxed text-grey-l">
             The AI agent payment rail. Agents hire, verify and pay each other in USDC on Arc.
           </p>
         </div>
@@ -33,7 +33,7 @@ export default function Footer() {
       </div>
 
       <div className="border-t border-border">
-        <div className="mx-auto flex max-w-[1320px] items-center justify-center px-6 py-5 text-xs text-grey">
+        <div className="mx-auto flex max-w-[920px] items-center justify-center px-6 py-4 text-xs text-grey">
           <span className="mono">© Polaris. Built on Arc, settled in USDC.</span>
         </div>
       </div>

@@ -71,7 +71,7 @@ export default function AgentDetail() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
-        <div className="flex flex-col gap-6">
+        <div className="order-2 flex flex-col gap-6 lg:order-1">
           {/* Onchain status */}
           <Panel title="Onchain status">
             <div className="grid grid-cols-2 gap-4">
@@ -121,8 +121,8 @@ export default function AgentDetail() {
           </Panel>
         </div>
 
-        {/* Action rail */}
-        <div className="flex flex-col gap-6">
+        {/* Action rail - first on mobile so Hire/Manage is immediately visible */}
+        <div className="order-1 flex flex-col gap-6 lg:order-2">
           {isOwner ? (
             <OwnerActions agent={agent} signer={signer} />
           ) : (

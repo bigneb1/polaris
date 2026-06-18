@@ -4,6 +4,8 @@ import {
   circleEnabled,
   registerCircleWallet,
   loginCircleWallet,
+  restoreCircleWallet,
+  clearCachedCredential,
   circleUsdcBalance,
   type CircleSession,
 } from "../lib/circleWallet";
@@ -119,6 +121,23 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // Restore a passkey session from the cached credential on load (no prompt), so
+  // passkey logins persist across refresh like the email session does. Skipped
+  // if an email session is already active.
+  useEffect(() => {
+    if (uc) return;
+    let alive = true;
+    restoreCircleWallet()
+      .then((s) => {
+        if (alive && s) setCircle((cur) => cur ?? s);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const refreshBalance = useCallback(() => {
     if (circle) circleUsdcBalance(circle).then(setBalance).catch(() => setBalance(null));
     else if (uc) ucUsdcBalance(uc).then(setBalance).catch(() => setBalance(null));
@@ -151,6 +170,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     disconnect: () => {
       setCircle(null);
       setUc(null);
+      clearCachedCredential();
       try {
         localStorage.removeItem(UC_SESSION_KEY);
       } catch {

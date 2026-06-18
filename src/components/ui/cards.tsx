@@ -44,25 +44,27 @@ export function TaskItem({ task }: { task: Task }) {
   return (
     <Link
       to={`/task/${task.taskId}`}
-      className="panel panel-hover group flex items-center gap-4 px-5 py-4"
+      className="panel panel-hover group block overflow-hidden px-4 py-3.5 sm:px-5 sm:py-4"
     >
-      <span className={cn("h-2.5 w-2.5 shrink-0 rounded-full", STATUS_DOT[task.status] ?? "bg-grey")} />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <h4 className="truncate font-semibold text-white">{task.title}</h4>
+      {/* Row 1: dot + title (truncates) + status */}
+      <div className="flex items-center gap-3">
+        <span className={cn("h-2.5 w-2.5 shrink-0 rounded-full", STATUS_DOT[task.status] ?? "bg-grey")} />
+        <h4 className="min-w-0 flex-1 truncate font-semibold text-white">{task.title}</h4>
+        <StatusBadge status={task.status} />
+        <ArrowUpRight size={16} className="hidden shrink-0 text-grey transition-colors group-hover:text-blue-l sm:block" />
+      </div>
+      {/* Row 2: meta (wraps) + budget */}
+      <div className="mt-2 flex items-end justify-between gap-3 pl-5">
+        <div className="mono flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-grey">
           <span className="mono text-[10px] text-grey">#{task.ref}</span>
-        </div>
-        <div className="mono mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-grey">
           <span className="uppercase tracking-wider text-grey-l">{task.taskType}</span>
           <span>·</span>
           <span>{deadlineLabel(task.deadlineMs)}</span>
           <span>·</span>
           <span>min rep {task.minReputation}</span>
         </div>
+        <USDCAmount amount={task.budgetUsdc} size="md" className="shrink-0 text-white" />
       </div>
-      <USDCAmount amount={task.budgetUsdc} size="md" className="text-white" />
-      <StatusBadge status={task.status} />
-      <ArrowUpRight size={16} className="text-grey transition-colors group-hover:text-blue-l" />
     </Link>
   );
 }
