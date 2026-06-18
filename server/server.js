@@ -7,6 +7,7 @@ import "dotenv/config";
 import { createGatewayMiddleware } from "@circle-fin/x402-batching/server";
 import { ADDR, ABI, provider, readTaskMeta, readAssignedAgent, requireAddresses } from "./chain.js";
 import { scoreAgentWork } from "./score.js";
+import { getIndex } from "./indexer.js";
 import {
   ucEnabled,
   createSession,
@@ -51,6 +52,17 @@ function saveStore(obj) {
 }
 
 app.get("/health", (_req, res) => res.json({ ok: true, signer: signerAddress() }));
+
+// Server-side chain index (tasks/agents/bids/activity) so the browser doesn't
+// have to make hundreds of eth_getLogs calls against the public RPC. Chain
+// stays the source of truth; this is a reliable read cache.
+app.get("/api/index", async (_req, res) => {
+  try {
+    res.json(await getIndex());
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
 
 app.post("/api/deliverable", (req, res) => {
   const { taskId, agentWallet, deliverable } = req.body ?? {};
