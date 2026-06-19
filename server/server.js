@@ -101,7 +101,9 @@ app.post("/api/deliverable", (req, res) => {
   const { taskId, agentWallet, deliverable } = req.body ?? {};
   if (!taskId || !deliverable) return res.status(400).json({ error: "taskId and deliverable required" });
   const store = loadStore();
-  store[taskId.toLowerCase()] = { agentWallet, deliverable, at: Date.now() };
+  const prev = store[taskId.toLowerCase()] || {};
+  // Preserve attempt history across resubmissions (used by the review flow).
+  store[taskId.toLowerCase()] = { agentWallet, deliverable, at: Date.now(), attempts: prev.attempts || 0 };
   saveStore(store);
   res.json({ ok: true });
 });
@@ -137,36 +139,70 @@ app.post("/api/verify", async (req, res) => {
       agentOutput: entry.deliverable,
     });
 
-    // 2. On-chain attestation: hash the exact deliverable, then sign a verdict
-    //    that binds taskId + pass/fail + score + deliverableHash.
-    const deliverableHash = ethers.keccak256(ethers.toUtf8Bytes(entry.deliverable));
     const wallet = new ethers.Wallet(SIGNER_KEY, provider);
-    const inner = ethers.solidityPackedKeccak256(
-      ["bytes32", "bool", "uint8", "bytes32"],
-      [taskId, verdict.passed, verdict.score, deliverableHash],
-    );
-    const signature = await wallet.signMessage(ethers.getBytes(inner));
-
-    // 3. Submit on-chain → releases USDC or slashes the stake, and records the
-    //    deliverable attestation in VerifierBridge.
     const bridge = new ethers.Contract(ADDR.verifierBridge, ABI.verifierBridge, wallet);
     const already = await bridge.processed(taskId);
-    let txHash;
-    if (!already) {
-      const tx = await bridge.submitVerification(
-        taskId,
-        agent,
-        meta.requester,
-        verdict.passed,
-        verdict.score,
-        deliverableHash,
-        signature,
+    if (already) return res.json({ ...verdict, status: "settled", note: "already settled onchain" });
+
+    const settle = async () => {
+      const deliverableHash = ethers.keccak256(ethers.toUtf8Bytes(entry.deliverable));
+      const inner = ethers.solidityPackedKeccak256(
+        ["bytes32", "bool", "uint8", "bytes32"],
+        [taskId, verdict.passed, verdict.score, deliverableHash],
       );
+      const signature = await wallet.signMessage(ethers.getBytes(inner));
+      const tx = await bridge.submitVerification(taskId, agent, meta.requester, verdict.passed, verdict.score, deliverableHash, signature);
       const receipt = await tx.wait();
-      txHash = receipt.hash;
+      return { deliverableHash, txHash: receipt.hash };
+    };
+
+    // ── PASS: release USDC + record attestation ─────────────────────────────
+    if (verdict.passed) {
+      const out = await settle();
+      return res.json({ ...verdict, status: "released", ...out });
     }
 
-    res.json({ ...verdict, deliverableHash, txHash });
+    // ── FAIL: reject-with-feedback first; slash only on a late, final failure ─
+    // Rules: a submission that fails is REJECTED (not slashed) and the agent gets
+    // feedback to retry, capped at MAX_ATTEMPTS. The agent is only SLASHED if it
+    // has used all attempts AND burned more than SLASH_TIME_FRACTION of the task
+    // window — so quick early failures cost nothing but stake-risk grows late.
+    const MAX_ATTEMPTS = Number(process.env.MAX_REVIEW_ATTEMPTS || 3);
+    const SLASH_TIME_FRACTION = Number(process.env.SLASH_TIME_FRACTION || 0.5);
+
+    const attempts = (entry.attempts || 0) + 1;
+    entry.attempts = attempts;
+    entry.lastReason = verdict.reasoning;
+    store[taskId.toLowerCase()] = entry;
+    saveStore(store);
+
+    // Elapsed fraction of the task window (createdAt..deadline), read on-chain.
+    let elapsedFraction = 1;
+    try {
+      const t = await new ethers.Contract(ADDR.taskRegistry, ABI.taskRegistry, provider).tasks(taskId);
+      const createdMs = Number(t.createdAt) * 1000;
+      const total = meta.deadline - createdMs;
+      if (total > 0) elapsedFraction = (Date.now() - createdMs) / total;
+    } catch {
+      /* fall back to slash-eligible if timing unreadable */
+    }
+
+    const slashEligible = attempts >= MAX_ATTEMPTS && elapsedFraction > SLASH_TIME_FRACTION;
+    if (slashEligible) {
+      const out = await settle(); // passed=false → escrow refund to requester + stake slash
+      return res.json({ ...verdict, status: "slashed", attempts, elapsedFraction, ...out });
+    }
+
+    // Rejected (no on-chain action): USDC stays in escrow, agent can retry.
+    return res.json({
+      ...verdict,
+      status: "rejected",
+      attempts,
+      attemptsLeft: Math.max(0, MAX_ATTEMPTS - attempts),
+      canRetry: attempts < MAX_ATTEMPTS,
+      feedback: verdict.reasoning,
+      elapsedFraction,
+    });
   } catch (err) {
     console.error("verify error:", err);
     res.status(500).json({ error: err.shortMessage || err.message || "Verification failed" });

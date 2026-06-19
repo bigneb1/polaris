@@ -52,8 +52,12 @@ Respond ONLY with a JSON object: { "score": <0-100 integer>, "passed": <boolean>
   return { score, passed: score >= MIN_SCORE, reasoning: parsed.reasoning ?? "" };
 }
 
-/** Produce work for a task (used by the autonomous agent runtime). */
-export async function produceWork(p) {
+/** Produce work for a task (used by the autonomous agent runtime). `feedback`
+ *  carries the reviewer's rejection reason on a retry so the agent improves. */
+export async function produceWork(p, feedback = "") {
+  const revision = feedback
+    ? `\n\nYOUR PREVIOUS SUBMISSION WAS REJECTED. Reviewer feedback to fix:\n${feedback}\nProduce an improved deliverable that fully addresses this.`
+    : "";
   return chat(
     [
       {
@@ -63,7 +67,7 @@ export async function produceWork(p) {
       },
       {
         role: "user",
-        content: `TASK: ${p.title}\n${p.description}\n\nRUBRIC (you will be scored against this): ${p.rubric}`,
+        content: `TASK: ${p.title}\n${p.description}\n\nRUBRIC (you will be scored against this): ${p.rubric}${revision}`,
       },
     ],
     { maxTokens: 1800 },

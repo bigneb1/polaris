@@ -7,7 +7,7 @@ import { PageHeader } from "../components/ui/cards";
 import { StatCard, Panel, EmptyState, Skeleton, USDCAmount, StatusBadge, ProgressBar } from "../components/ui/primitives";
 import { WalletGate } from "../components/layout/guards";
 import { useTasks, useAgents } from "../lib/onchain";
-import { submitDeliverable, verifyTask } from "../lib/api";
+import { submitDeliverable, verifyTask, type VerifyResult } from "../lib/api";
 import { coreDeployed } from "../lib/contracts";
 import { ContractsNotice } from "./TaskMarket";
 import { shortAddr, deadlineLabel } from "../lib/utils";
@@ -122,7 +122,7 @@ function SettlementRow({ task }: { task: Task }) {
   const { address } = useWallet();
   const [deliverable, setDeliverable] = useState("");
   const [phase, setPhase] = useState<"idle" | "submitting" | "scoring" | "done">("idle");
-  const [result, setResult] = useState<{ score: number; passed: boolean; reasoning: string } | null>(null);
+  const [result, setResult] = useState<VerifyResult | null>(null);
 
   const onSettle = async () => {
     if (!deliverable.trim() || !address) return;
@@ -130,16 +130,17 @@ function SettlementRow({ task }: { task: Task }) {
       setPhase("submitting");
       await submitDeliverable(task.taskId, task.assignedAgent ?? address, deliverable.trim());
       setPhase("scoring");
-      toast.loading("Our algorithm is scoring the deliverable…", { id: task.taskId });
+      toast.loading("Reviewing the deliverable against the rubric…", { id: task.taskId });
       const r = await verifyTask(task.taskId);
       setResult(r);
       setPhase("done");
-      toast.success(`Scored ${r.score}/100 · ${r.passed ? "PASSED - USDC released" : "FAILED - stake slashed"}`, {
-        id: task.taskId,
-      });
+      const st = r.status ?? (r.passed ? "released" : "rejected");
+      if (st === "released") toast.success(`Scored ${r.score}/100 · PASSED — USDC released`, { id: task.taskId });
+      else if (st === "slashed") toast.error(`Scored ${r.score}/100 · FAILED — stake slashed`, { id: task.taskId });
+      else toast(`Scored ${r.score}/100 · Rejected — revise & resubmit`, { id: task.taskId });
     } catch (e) {
       setPhase("idle");
-      toast.error(humanizeError(e, "Settlement failed. Please try again."), { id: task.taskId });
+      toast.error(humanizeError(e, "Review failed. Please try again."), { id: task.taskId });
     }
   };
 
@@ -159,14 +160,41 @@ function SettlementRow({ task }: { task: Task }) {
       </div>
 
       {phase === "done" && result ? (
-        <div className="rounded-lg border border-border bg-card p-3">
-          <div className="mb-2 flex items-center justify-between">
-            <span className="mono text-sm text-white">Score {result.score}/100</span>
-            <StatusBadge status={result.passed ? "SETTLED" : "SLASHED"} />
-          </div>
-          <ProgressBar value={result.score} />
-          <p className="mono mt-2 text-[11px] leading-relaxed text-grey-l">{result.reasoning}</p>
-        </div>
+        (() => {
+          const st = result.status ?? (result.passed ? "released" : "rejected");
+          return (
+            <div className="rounded-lg border border-border bg-card p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="mono text-sm text-white">Score {result.score}/100</span>
+                {st === "released" ? (
+                  <StatusBadge status="SETTLED" />
+                ) : st === "slashed" ? (
+                  <StatusBadge status="SLASHED" />
+                ) : (
+                  <span className="mono rounded-md border border-amber/40 bg-amber/10 px-2 py-0.5 text-[10px] uppercase tracking-wider text-amber">
+                    Rejected
+                  </span>
+                )}
+              </div>
+              <ProgressBar value={result.score} />
+              <p className="mono mt-2 text-[11px] leading-relaxed text-grey-l">{result.feedback || result.reasoning}</p>
+              {st === "released" && <p className="mono mt-1 text-[11px] text-green">USDC released to the agent.</p>}
+              {st === "slashed" && <p className="mono mt-1 text-[11px] text-red">Final failure past the halfway mark — stake slashed, requester refunded.</p>}
+              {st === "rejected" && (
+                <div className="mt-2">
+                  <p className="mono text-[11px] text-amber">
+                    Not slashed. {result.canRetry ? `Revise using the feedback and resubmit (${result.attemptsLeft ?? 0} ${result.attemptsLeft === 1 ? "try" : "tries"} left).` : "No attempts left; the task awaits its deadline."}
+                  </p>
+                  {result.canRetry && (
+                    <button onClick={() => { setPhase("idle"); setResult(null); }} className="btn-ghost mt-2 !py-2 w-full">
+                      Revise & resubmit
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()
       ) : (
         <>
           <textarea

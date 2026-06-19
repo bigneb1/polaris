@@ -40,6 +40,15 @@ const DELEGATE_MARGIN = Number(process.env.DELEGATE_MARGIN || 0.8);
 // in-progress). Randomized per task between MIN and MAX.
 const WORK_MIN_MS = Number(process.env.SWARM_WORK_MIN_MS || 45000);
 const WORK_MAX_MS = Number(process.env.SWARM_WORK_MAX_MS || 150000);
+// Review retries: a rejected submission is revised with feedback and resubmitted.
+const MAX_ATTEMPTS = Number(process.env.MAX_REVIEW_ATTEMPTS || 3);
+const REVISE_MS = Number(process.env.SWARM_REVISE_MS || 15000);
+// Live bidding window: agents bid as soon as they see a task; the auction is
+// awarded (best bid wins) only after ~10% of the task duration so competitors
+// have time to bid. Clamped to keep it sane.
+const BID_WINDOW_FRACTION = Number(process.env.BID_WINDOW_FRACTION || 0.1);
+const BID_WINDOW_MIN_MS = Number(process.env.BID_WINDOW_MIN_MS || 30000);
+const BID_WINDOW_MAX_MS = Number(process.env.BID_WINDOW_MAX_MS || 300000);
 
 /** @type {{name:string,address:string,capabilities:string[],stake:number,markup:number}[]} */
 const AGENTS = JSON.parse(process.env.AGENTS_CIRCLE_JSON || "[]");
@@ -123,10 +132,23 @@ class CircleAgent {
     try {
       await execute(this.address, ADDR.bidEngine, "placeBid(bytes32,uint256,uint256)", [taskId, usdc(bidAmount), 1800]);
       this.log(`bid ${bidAmount} USDC on "${meta.title}"`);
-      await sleep(SETTLE_WAIT_MS);
-      await execute(this.address, ADDR.bidEngine, "awardBid(bytes32)", [taskId]);
+      // Live bidding window: don't award immediately. Wait ~BID_WINDOW_FRACTION of
+      // the remaining task time (clamped) so competitors can bid, THEN close the
+      // auction. awardBid picks the best bid + is idempotent (auctionClosed guard),
+      // so whichever agent fires first just finalizes the winner.
+      const remaining = Math.max(0, meta.deadline - Date.now());
+      const windowMs = Math.min(BID_WINDOW_MAX_MS, Math.max(BID_WINDOW_MIN_MS, Math.floor(remaining * BID_WINDOW_FRACTION)));
+      setTimeout(async () => {
+        try {
+          if (await bidR.auctionClosed(taskId)) return;
+          await execute(this.address, ADDR.bidEngine, "awardBid(bytes32)", [taskId]);
+          this.log(`bidding closed for "${meta.title}" — best bid awarded`);
+        } catch {
+          /* another agent likely closed it first */
+        }
+      }, windowMs);
     } catch (e) {
-      this.log("bid/award skipped:", e.message);
+      this.log("bid skipped:", e.message);
     }
   }
 
@@ -148,16 +170,37 @@ class CircleAgent {
 
         this.inFlight += 1;
         // Take a realistic amount of time to "work" the task (stays ASSIGNED /
-        // in-progress meanwhile), then produce + deliver + settle.
+        // in-progress meanwhile), then produce + deliver + review.
         const workMs = WORK_MIN_MS + Math.floor(Math.random() * Math.max(0, WORK_MAX_MS - WORK_MIN_MS));
         this.log(`won "${meta.title}" — working (~${Math.round(workMs / 1000)}s)…`);
         await sleep(workMs);
-        const deliverable = await produceWork(meta);
-        await postJSON(`${API_URL}/api/deliverable`, { taskId, agentWallet: this.address, deliverable });
-        this.log(`delivered "${meta.title}" — submitting for verification…`);
-        const verdict = await postJSON(`${API_URL}/api/verify`, { taskId });
+
+        // Submit → review. On rejection, revise with the reviewer's feedback and
+        // resubmit, up to MAX_ATTEMPTS. A pass releases USDC; a late final fail slashes.
+        let feedback = "";
+        let result = null;
+        for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+          const deliverable = await produceWork(meta, feedback);
+          await postJSON(`${API_URL}/api/deliverable`, { taskId, agentWallet: this.address, deliverable });
+          result = await postJSON(`${API_URL}/api/verify`, { taskId });
+          if (result.status === "released") {
+            this.log(`PASS "${meta.title}" ${result.score}/100 → USDC released`);
+            break;
+          }
+          if (result.status === "slashed") {
+            this.log(`SLASHED "${meta.title}" ${result.score}/100 (attempt ${attempt}, late final fail)`);
+            break;
+          }
+          // rejected
+          feedback = result.feedback || result.reasoning || "";
+          this.log(`rejected "${meta.title}" ${result.score}/100 (attempt ${attempt}/${MAX_ATTEMPTS}): ${String(feedback).slice(0, 90)}`);
+          if (!result.canRetry) {
+            this.log(`no retries left for "${meta.title}" — leaving for deadline timeout`);
+            break;
+          }
+          await sleep(REVISE_MS);
+        }
         this.inFlight -= 1;
-        this.log(`settled "${meta.title}" → ${verdict.score}/100 (${verdict.passed ? "PASS" : "FAIL"})`);
       } catch (e) {
         this.handled.delete(taskId);
         if (this.inFlight > 0) this.inFlight -= 1;

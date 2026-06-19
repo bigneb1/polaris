@@ -14,6 +14,12 @@ export type VerifyResult = {
   passed: boolean;
   reasoning: string;
   txHash?: string;
+  /** released = USDC paid; rejected = sub-70, retry with feedback; slashed = late final fail. */
+  status?: "released" | "rejected" | "slashed" | "settled";
+  attempts?: number;
+  attemptsLeft?: number;
+  canRetry?: boolean;
+  feedback?: string;
 };
 
 /** Store a deliverable for a task (kept off-chain; only its score goes onchain). */
