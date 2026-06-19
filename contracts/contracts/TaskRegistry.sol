@@ -49,6 +49,7 @@ contract TaskRegistry {
         address assignedAgent;
         Status status;
         uint256 createdAt;
+        uint256 winningBid; // amount the assigned agent is paid on success
     }
 
     mapping(bytes32 => Task) public tasks;
@@ -124,6 +125,7 @@ contract TaskRegistry {
         Task storage t = tasks[taskId];
         t.assignedAgent = agent;
         t.status = Status.ASSIGNED;
+        t.winningBid = budgetUsdc; // direct hire pays the full budget
         agentRegistry.onAssigned(agent);
         emit TaskSubmitted(taskId, msg.sender, budgetUsdc, deadline, 0, title, description, rubric, taskType);
         emit TaskAssigned(taskId, agent, budgetUsdc);
@@ -142,7 +144,8 @@ contract TaskRegistry {
             minReputation: minReputation,
             assignedAgent: address(0),
             status: Status.OPEN,
-            createdAt: block.timestamp
+            createdAt: block.timestamp,
+            winningBid: 0
         });
     }
 
@@ -151,8 +154,15 @@ contract TaskRegistry {
         require(t.status == Status.OPEN, "Not open");
         t.assignedAgent = agent;
         t.status = Status.ASSIGNED;
+        t.winningBid = bidAmount;
         agentRegistry.onAssigned(agent);
         emit TaskAssigned(taskId, agent, bidAmount);
+    }
+
+    /// The amount the assigned agent is paid on success (winning bid). Used by
+    /// the VerifierBridge to pay the agent and refund the requester the remainder.
+    function winningBidOf(bytes32 taskId) external view returns (uint256) {
+        return tasks[taskId].winningBid;
     }
 
     function markSettled(bytes32 taskId) external onlyAuthorized {
@@ -177,6 +187,7 @@ contract TaskRegistry {
         address agent = t.assignedAgent;
         t.assignedAgent = address(0);
         t.status = Status.OPEN;
+        t.winningBid = 0;
         if (agent != address(0)) agentRegistry.onUnassigned(agent);
         if (bidEngine != address(0)) IBidEngineT(bidEngine).reopenAuction(taskId);
         emit TaskReopened(taskId);

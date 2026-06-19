@@ -76,13 +76,16 @@ describe("Polaris V2", function () {
     ).to.be.revertedWith("Below min stake (100 USDC)");
   });
 
-  it("pass path: settles, pays agent, records attestation + reputation", async () => {
+  it("pass path: pays agent the winning bid, refunds requester the rest", async () => {
     await register();
-    await postAndWin();
-    const before = await usdc.balanceOf(agent.address);
+    await postAndWin(USDC(20), USDC(18)); // budget 20, winning bid 18
+    const agentBefore = await usdc.balanceOf(agent.address);
+    const reqBefore = await usdc.balanceOf(requester.address);
     await verifier.submitVerification(taskId, agent.address, requester.address, true, 92, HASH, await sign(true, 92));
 
-    expect(await usdc.balanceOf(agent.address)).to.equal(before + USDC(20));
+    // Agent gets its bid (18); requester is refunded budget − bid (2).
+    expect(await usdc.balanceOf(agent.address)).to.equal(agentBefore + USDC(18));
+    expect(await usdc.balanceOf(requester.address)).to.equal(reqBefore + USDC(2));
     const t = await taskReg.tasks(taskId);
     expect(t.status).to.equal(4); // SETTLED
     const a = await agentReg.agents(agent.address);

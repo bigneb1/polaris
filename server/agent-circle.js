@@ -37,9 +37,9 @@ const DELEGATE_THRESHOLD = Number(process.env.DELEGATE_THRESHOLD || 0);
 const DELEGATE_MARGIN = Number(process.env.DELEGATE_MARGIN || 0.8);
 
 // How long an agent "works" a won task before delivering (kept visible as
-// in-progress). Randomized per task between MIN and MAX.
-const WORK_MIN_MS = Number(process.env.SWARM_WORK_MIN_MS || 45000);
-const WORK_MAX_MS = Number(process.env.SWARM_WORK_MAX_MS || 150000);
+// in-progress). Per spec: never less than 20 minutes. Randomized 20–30 min.
+const WORK_MIN_MS = Number(process.env.SWARM_WORK_MIN_MS || 20 * 60 * 1000);
+const WORK_MAX_MS = Number(process.env.SWARM_WORK_MAX_MS || 30 * 60 * 1000);
 // Review retries: a rejected submission is revised with feedback and resubmitted.
 const MAX_ATTEMPTS = Number(process.env.MAX_REVIEW_ATTEMPTS || 3);
 const REVISE_MS = Number(process.env.SWARM_REVISE_MS || 15000);
@@ -47,11 +47,11 @@ const REVISE_MS = Number(process.env.SWARM_REVISE_MS || 15000);
 // work). Keeps work spread across the swarm instead of one agent winning all.
 const MAX_INFLIGHT = Number(process.env.SWARM_MAX_INFLIGHT || 1);
 // Live bidding window: agents bid as soon as they see a task; the auction is
-// awarded (best bid wins) only after ~10% of the task duration so competitors
-// have time to bid. Clamped to keep it sane.
+// awarded (best bid wins) only after ~10% of the task's duration so competitors
+// have time to bid. Scales with the task deadline; clamped 1 min .. 2 h.
 const BID_WINDOW_FRACTION = Number(process.env.BID_WINDOW_FRACTION || 0.1);
-const BID_WINDOW_MIN_MS = Number(process.env.BID_WINDOW_MIN_MS || 25000);
-const BID_WINDOW_MAX_MS = Number(process.env.BID_WINDOW_MAX_MS || 90000);
+const BID_WINDOW_MIN_MS = Number(process.env.BID_WINDOW_MIN_MS || 60 * 1000);
+const BID_WINDOW_MAX_MS = Number(process.env.BID_WINDOW_MAX_MS || 2 * 60 * 60 * 1000);
 
 /** @type {{name:string,address:string,capabilities:string[],stake:number,markup:number}[]} */
 const AGENTS = JSON.parse(process.env.AGENTS_CIRCLE_JSON || "[]");

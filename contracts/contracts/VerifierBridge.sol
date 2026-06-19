@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
 interface IUSDCEscrow {
     function release(bytes32 taskId, address agent) external;
+    function releaseSplit(bytes32 taskId, address agent, uint256 agentAmount) external;
     function refund(bytes32 taskId) external;
 }
 
@@ -17,6 +18,7 @@ interface IAgentRegistry {
 interface ITaskRegistry {
     function markSettled(bytes32 taskId) external;
     function markFailed(bytes32 taskId) external;
+    function winningBidOf(bytes32 taskId) external view returns (uint256);
 }
 
 /**
@@ -97,7 +99,9 @@ contract VerifierBridge {
         emit VerificationSubmitted(taskId, agent, passed, score, deliverableHash);
 
         if (passed && score >= MIN_SCORE) {
-            escrow.release(taskId, agent);
+            // Pay the agent its winning bid; the requester is refunded the rest
+            // of the budget. (Falls back to full payout if no bid was recorded.)
+            escrow.releaseSplit(taskId, agent, taskRegistry.winningBidOf(taskId));
             agentRegistry.recordSuccess(agent, score);
             taskRegistry.markSettled(taskId);
         } else {

@@ -70,6 +70,25 @@ contract USDCEscrow is ReentrancyGuard {
         emit FundsReleased(taskId, agent, amount);
     }
 
+    /// Pay the agent `agentAmount` (the winning bid) and refund the remainder of
+    /// the locked budget to the requester. On a passing verification the requester
+    /// gets back (budget − winning bid) instead of paying the full budget.
+    function releaseSplit(bytes32 taskId, address agent, uint256 agentAmount) external onlyAuthorized nonReentrant {
+        require(!resolved[taskId], "Already resolved");
+        uint256 amount = taskEscrow[taskId];
+        require(amount > 0, "Nothing escrowed");
+        resolved[taskId] = true;
+        taskEscrow[taskId] = 0;
+        uint256 pay = (agentAmount == 0 || agentAmount > amount) ? amount : agentAmount;
+        require(usdc.transfer(agent, pay), "Agent transfer failed");
+        emit FundsReleased(taskId, agent, pay);
+        if (amount > pay) {
+            address requester = taskRequester[taskId];
+            require(usdc.transfer(requester, amount - pay), "Refund failed");
+            emit FundsRefunded(taskId, requester, amount - pay);
+        }
+    }
+
     /// Refund the budget to the requester (failed verification or cancellation).
     function refund(bytes32 taskId) external onlyAuthorized nonReentrant {
         require(!resolved[taskId], "Already resolved");

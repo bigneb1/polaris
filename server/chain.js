@@ -27,7 +27,7 @@ export const ABI = {
     "function balanceOf(address) view returns (uint256)",
   ],
   taskRegistry: [
-    "function tasks(bytes32) view returns (bytes32 taskId, address requester, uint256 budgetUsdc, uint256 deadline, uint256 minReputation, address assignedAgent, uint8 status, uint256 createdAt)",
+    "function tasks(bytes32) view returns (bytes32 taskId, address requester, uint256 budgetUsdc, uint256 deadline, uint256 minReputation, address assignedAgent, uint8 status, uint256 createdAt, uint256 winningBid)",
     "function reopenTask(bytes32 taskId)",
     "event TaskSubmitted(bytes32 indexed taskId, address indexed requester, uint256 budgetUsdc, uint256 deadline, uint256 minReputation, string title, string description, string rubric, string taskType)",
     "event TaskAssigned(bytes32 indexed taskId, address indexed agent, uint256 bidAmount)",
