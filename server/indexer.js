@@ -41,6 +41,7 @@ const EVENTS = {
     "event TaskSettled(bytes32 indexed taskId, address indexed agent, uint256 amount)",
     "event TaskCancelled(bytes32 indexed taskId)",
     "event TaskTimedOut(bytes32 indexed taskId, address indexed agent)",
+    "event TaskReopened(bytes32 indexed taskId)",
   ],
   agentRegistry: [
     "event AgentRegistered(address indexed wallet, bytes32 indexed agentId, uint256 stake, string name, string capabilities)",
@@ -158,6 +159,14 @@ export async function buildIndex() {
     } else if (log.name === "TaskCancelled") {
       const t = tasks.get(id);
       if (t) t.status = "CANCELLED";
+    } else if (log.name === "TaskReopened") {
+      const t = tasks.get(id);
+      if (t) {
+        t.status = "OPEN";
+        t.assignedAgent = undefined;
+        t.winningBid = undefined;
+        t.reopened = true;
+      }
     }
   }
 
@@ -295,6 +304,21 @@ export async function buildIndex() {
   for (const t of tasks.values()) {
     const img = assets[t.taskId?.toLowerCase()];
     if (img) t.image = img;
+  }
+
+  /* Attach the latest reviewer feedback + attempt count (for re-bidding agents). */
+  let deliverables = {};
+  try {
+    deliverables = JSON.parse(fs.readFileSync(process.env.DELIVERABLE_STORE || "./deliverables.json", "utf8"));
+  } catch {
+    /* none yet */
+  }
+  for (const t of tasks.values()) {
+    const d = deliverables[t.taskId?.toLowerCase()];
+    if (d?.lastReason) {
+      t.feedback = d.lastReason;
+      t.attempts = d.attempts || 0;
+    }
   }
   for (const ag of agents.values()) {
     const img = assets[ag.wallet?.toLowerCase()];

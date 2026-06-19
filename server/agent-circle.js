@@ -47,8 +47,8 @@ const REVISE_MS = Number(process.env.SWARM_REVISE_MS || 15000);
 // awarded (best bid wins) only after ~10% of the task duration so competitors
 // have time to bid. Clamped to keep it sane.
 const BID_WINDOW_FRACTION = Number(process.env.BID_WINDOW_FRACTION || 0.1);
-const BID_WINDOW_MIN_MS = Number(process.env.BID_WINDOW_MIN_MS || 30000);
-const BID_WINDOW_MAX_MS = Number(process.env.BID_WINDOW_MAX_MS || 300000);
+const BID_WINDOW_MIN_MS = Number(process.env.BID_WINDOW_MIN_MS || 25000);
+const BID_WINDOW_MAX_MS = Number(process.env.BID_WINDOW_MAX_MS || 90000);
 
 /** @type {{name:string,address:string,capabilities:string[],stake:number,markup:number}[]} */
 const AGENTS = JSON.parse(process.env.AGENTS_CIRCLE_JSON || "[]");
@@ -152,60 +152,42 @@ class CircleAgent {
     }
   }
 
-  async fulfilWins() {
-    const logs = await queryLogsChunked(bidR, bidR.filters.BidAwarded(null, this.address), SWARM_LOOKBACK);
-    for (const lg of logs) {
-      const taskId = lg.args.taskId;
-      if (this.handled.has(taskId)) continue;
-      this.handled.add(taskId);
-      try {
-        const meta = await readTaskMeta(taskId);
-        if (!meta) continue;
-
-        // Delegate if over capacity and a peer can take it.
-        if (DELEGATE_THRESHOLD > 0 && this.inFlight >= DELEGATE_THRESHOLD) {
-          const peer = SWARM.find((a) => a !== this && a.cfg && a.wants(meta) && a.address !== this.address);
-          if (peer && (await this.delegate(taskId, meta, peer))) continue;
-        }
-
-        this.inFlight += 1;
-        // Take a realistic amount of time to "work" the task (stays ASSIGNED /
-        // in-progress meanwhile), then produce + deliver + review.
-        const workMs = WORK_MIN_MS + Math.floor(Math.random() * Math.max(0, WORK_MAX_MS - WORK_MIN_MS));
-        this.log(`won "${meta.title}" — working (~${Math.round(workMs / 1000)}s)…`);
-        await sleep(workMs);
-
-        // Submit → review. On rejection, revise with the reviewer's feedback and
-        // resubmit, up to MAX_ATTEMPTS. A pass releases USDC; a late final fail slashes.
-        let feedback = "";
-        let result = null;
-        for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-          const deliverable = await produceWork(meta, feedback);
-          await postJSON(`${API_URL}/api/deliverable`, { taskId, agentWallet: this.address, deliverable });
-          result = await postJSON(`${API_URL}/api/verify`, { taskId });
-          if (result.status === "released") {
-            this.log(`PASS "${meta.title}" ${result.score}/100 → USDC released`);
-            break;
-          }
-          if (result.status === "slashed") {
-            this.log(`SLASHED "${meta.title}" ${result.score}/100 (attempt ${attempt}, late final fail)`);
-            break;
-          }
-          // rejected
-          feedback = result.feedback || result.reasoning || "";
-          this.log(`rejected "${meta.title}" ${result.score}/100 (attempt ${attempt}/${MAX_ATTEMPTS}): ${String(feedback).slice(0, 90)}`);
-          if (!result.canRetry) {
-            this.log(`no retries left for "${meta.title}" — leaving for deadline timeout`);
-            break;
-          }
-          await sleep(REVISE_MS);
-        }
-        this.inFlight -= 1;
-      } catch (e) {
-        this.handled.delete(taskId);
-        if (this.inFlight > 0) this.inFlight -= 1;
-        this.log("fulfil error:", e.message);
+  /** Work a task this agent has been assigned (driven by the backend index). */
+  async fulfil(taskId, meta) {
+    if (this.handled.has(taskId)) return;
+    this.handled.add(taskId);
+    try {
+      // Delegate if over capacity and a peer can take it.
+      if (DELEGATE_THRESHOLD > 0 && this.inFlight >= DELEGATE_THRESHOLD) {
+        const peer = SWARM.find((a) => a !== this && a.cfg && a.wants(meta) && a.address !== this.address);
+        if (peer && (await this.delegate(taskId, meta, peer))) return;
       }
+
+      this.inFlight += 1;
+      // Take a realistic amount of time to "work" the task (stays ASSIGNED /
+      // in-progress meanwhile), then produce + deliver + review. Reviewer feedback
+      // from a prior rejection (meta.feedback) is folded into the work so re-bids improve.
+      const workMs = WORK_MIN_MS + Math.floor(Math.random() * Math.max(0, WORK_MAX_MS - WORK_MIN_MS));
+      this.log(`won "${meta.title}" — working (~${Math.round(workMs / 1000)}s)…`);
+      await sleep(workMs);
+
+      const deliverable = await produceWork(meta, meta.feedback || "");
+      await postJSON(`${API_URL}/api/deliverable`, { taskId, agentWallet: this.address, deliverable });
+      const result = await postJSON(`${API_URL}/api/verify`, { taskId });
+      if (result.status === "released") {
+        this.log(`PASS "${meta.title}" ${result.score}/100 → USDC released`);
+      } else if (result.status === "slashed") {
+        this.log(`SLASHED "${meta.title}" ${result.score}/100 (late final fail)`);
+      } else {
+        // rejected: the backend reopened the task to the market; we'll re-bid (or
+        // a competitor will) on a later tick, now with reviewer feedback attached.
+        this.log(`rejected "${meta.title}" ${result.score}/100${result.reopened ? " → returned to market" : ""}: ${String(result.feedback || "").slice(0, 90)}`);
+      }
+      this.inFlight -= 1;
+    } catch (e) {
+      this.handled.delete(taskId);
+      if (this.inFlight > 0) this.inFlight -= 1;
+      this.log("fulfil error:", e.message);
     }
   }
 
@@ -300,19 +282,52 @@ async function main() {
   console.log(`Polaris Circle swarm: ${swarm.length} agent(s) on ${CIRCLE_CHAIN}`);
   for (const a of swarm) await a.ensureRegistered();
 
+  // Discovery is driven by the backend index (which folds ALL tasks/agents from
+  // chain logs) instead of the swarm doing its own heavy getLogs every tick —
+  // this is far lighter on the RPC and lets the swarm see tasks of any age.
+  const normalize = (t) => ({
+    taskId: t.taskId,
+    title: t.title,
+    description: t.description,
+    rubric: t.rubric,
+    taskType: t.taskType || "general",
+    budgetUsdc: t.budgetUsdc,
+    minReputation: t.minReputation || 0,
+    deadline: t.deadlineMs, // ms
+    feedback: t.feedback || "", // reviewer feedback from a prior rejection
+  });
+
+  // Track each task's last-seen status so we can detect a reopen (ASSIGNED→OPEN)
+  // and let agents bid again on it.
+  const lastStatus = new Map();
+
   const tick = async () => {
     try {
-      const submitted = await queryLogsChunked(taskReg, taskReg.filters.TaskSubmitted(), SWARM_LOOKBACK);
-      for (const lg of submitted) {
-        const taskId = lg.args.taskId;
-        const t = await taskReg.tasks(taskId);
-        if (Number(t.status) !== 0) continue;
-        if (t.deadline * 1000n < BigInt(Date.now())) continue;
-        const meta = await readTaskMeta(taskId);
-        if (!meta) continue;
-        for (const a of swarm) if (a.wants(meta)) await a.bidOn(taskId, meta);
+      const res = await fetch(`${API_URL}/api/index`);
+      const index = await res.json();
+      const tasks = index.tasks || [];
+      const now = Date.now();
+      for (const t of tasks) {
+        const meta = normalize(t);
+        // Reopened? clear every agent's seen/handled for this task so it's biddable again.
+        const prev = lastStatus.get(t.taskId);
+        if (t.status === "OPEN" && (prev === "ASSIGNED" || prev === "IN_PROGRESS")) {
+          for (const a of swarm) {
+            a.seen.delete(t.taskId);
+            a.handled.delete(t.taskId);
+          }
+        }
+        lastStatus.set(t.taskId, t.status);
+
+        if (t.status === "OPEN") {
+          if (meta.deadline < now) continue;
+          for (const a of swarm) if (a.wants(meta)) await a.bidOn(meta.taskId, meta);
+        } else if (t.status === "ASSIGNED" || t.status === "IN_PROGRESS") {
+          const winner = (t.assignedAgent || "").toLowerCase();
+          const a = swarm.find((x) => x.address.toLowerCase() === winner);
+          if (a) await a.fulfil(meta.taskId, meta);
+        }
       }
-      for (const a of swarm) await a.fulfilWins();
       await resolveDelegations();
     } catch (e) {
       console.error("tick error:", e.message);

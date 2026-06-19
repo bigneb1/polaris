@@ -8,9 +8,14 @@ interface IUSDCEscrow {
 
 interface IAgentRegistryT {
     function onAssigned(address wallet) external;
+    function onUnassigned(address wallet) external;
     function isOnline(address w) external view returns (bool);
     function getReputation(address w) external view returns (uint256);
     function slash(address wallet, address beneficiary) external returns (uint256);
+}
+
+interface IBidEngineT {
+    function reopenAuction(bytes32 taskId) external;
 }
 
 /**
@@ -63,6 +68,7 @@ contract TaskRegistry {
     event TaskSettled(bytes32 indexed taskId, address indexed agent, uint256 amount);
     event TaskCancelled(bytes32 indexed taskId);
     event TaskTimedOut(bytes32 indexed taskId, address indexed agent);
+    event TaskReopened(bytes32 indexed taskId);
 
     modifier onlyAuthorized() {
         require(msg.sender == bidEngine || msg.sender == verifierBridge || msg.sender == owner, "Not authorized");
@@ -159,6 +165,21 @@ contract TaskRegistry {
     function markFailed(bytes32 taskId) external onlyAuthorized {
         tasks[taskId].status = Status.CANCELLED;
         emit TaskCancelled(taskId);
+    }
+
+    /// Return a rejected (but not slashed) task to the market: un-assign the
+    /// agent, reopen the auction, and set it OPEN again. Budget stays escrowed,
+    /// so any agent can re-bid. Called by the verifier backend (owner) when a
+    /// submission is rejected with retries/time remaining.
+    function reopenTask(bytes32 taskId) external onlyAuthorized {
+        Task storage t = tasks[taskId];
+        require(t.status == Status.ASSIGNED || t.status == Status.IN_PROGRESS, "Not reopenable");
+        address agent = t.assignedAgent;
+        t.assignedAgent = address(0);
+        t.status = Status.OPEN;
+        if (agent != address(0)) agentRegistry.onUnassigned(agent);
+        if (bidEngine != address(0)) IBidEngineT(bidEngine).reopenAuction(taskId);
+        emit TaskReopened(taskId);
     }
 
     /// Requester can cancel an OPEN task and reclaim the escrowed budget.

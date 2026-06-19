@@ -137,6 +137,13 @@ contract AgentRegistry is ReentrancyGuard {
         emit TaskAssignedToAgent(wallet, a.activeTasks);
     }
 
+    /// A task this agent held was reopened/returned to the market — free the slot.
+    function onUnassigned(address wallet) external onlyAuthorized {
+        Agent storage a = agents[wallet];
+        if (a.activeTasks > 0) a.activeTasks -= 1;
+        emit TaskAssignedToAgent(wallet, a.activeTasks);
+    }
+
     function recordSuccess(address wallet, uint8 score) external onlyAuthorized {
         Agent storage a = agents[wallet];
         require(a.registered, "Unknown agent");

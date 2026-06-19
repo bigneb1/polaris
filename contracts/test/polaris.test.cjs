@@ -143,4 +143,36 @@ describe("Polaris V2", function () {
     await verifier.submitVerification(taskId, agent.address, requester.address, true, 88, HASH, await sign(true, 88));
     expect(await usdc.balanceOf(agent.address)).to.equal(before + USDC(15));
   });
+
+  it("reopenTask returns a rejected task to the market (un-assign, reopen auction, re-bid)", async () => {
+    await register();
+    await postAndWin(); // ASSIGNED to agent, auction closed, activeTasks=1
+    expect((await taskReg.tasks(taskId)).status).to.equal(1);
+    expect((await agentReg.agents(agent.address)).activeTasks).to.equal(1);
+    expect(await bidEngine.auctionClosed(taskId)).to.equal(true);
+
+    const escrowBefore = await usdc.balanceOf(await escrow.getAddress());
+    await expect(taskReg.reopenTask(taskId)).to.emit(taskReg, "TaskReopened");
+
+    const t = await taskReg.tasks(taskId);
+    expect(t.status).to.equal(0); // OPEN
+    expect(t.assignedAgent).to.equal(ethers.ZeroAddress);
+    expect((await agentReg.agents(agent.address)).activeTasks).to.equal(0);
+    expect(await bidEngine.auctionClosed(taskId)).to.equal(false);
+    expect(await bidEngine.bidCount(taskId)).to.equal(0);
+    expect(await usdc.balanceOf(await escrow.getAddress())).to.equal(escrowBefore); // budget still locked
+
+    // Re-biddable + re-awardable after reopen.
+    await bidEngine.connect(agent).placeBid(taskId, USDC(17), 1800);
+    await bidEngine.awardBid(taskId);
+    expect((await taskReg.tasks(taskId)).assignedAgent).to.equal(agent.address);
+  });
+
+  it("reopenTask reverts when the task is not assigned", async () => {
+    await register();
+    await usdc.connect(requester).approve(await escrow.getAddress(), USDC(20));
+    const deadline = (await ethers.provider.getBlock("latest")).timestamp + 3600;
+    await taskReg.connect(requester).submitTask(taskId, USDC(20), deadline, 0, "T", "D", "R", "research");
+    await expect(taskReg.reopenTask(taskId)).to.be.revertedWith("Not reopenable");
+  });
 });

@@ -193,13 +193,27 @@ app.post("/api/verify", async (req, res) => {
       return res.json({ ...verdict, status: "slashed", attempts, elapsedFraction, ...out });
     }
 
-    // Rejected (no on-chain action): USDC stays in escrow, agent can retry.
+    // Rejected: return the task to the market (reopen) so any agent can re-bid,
+    // unless the deadline has passed (then leave it for slashOnTimeout). USDC
+    // stays escrowed; the agent is NOT slashed.
+    let reopened = false;
+    if (meta.deadline > Date.now()) {
+      try {
+        const tr = new ethers.Contract(ADDR.taskRegistry, ABI.taskRegistry, wallet);
+        const tx = await tr.reopenTask(taskId);
+        await tx.wait();
+        reopened = true;
+      } catch (e) {
+        console.error("reopenTask failed:", e.shortMessage || e.message);
+      }
+    }
     return res.json({
       ...verdict,
       status: "rejected",
       attempts,
       attemptsLeft: Math.max(0, MAX_ATTEMPTS - attempts),
       canRetry: attempts < MAX_ATTEMPTS,
+      reopened,
       feedback: verdict.reasoning,
       elapsedFraction,
     });

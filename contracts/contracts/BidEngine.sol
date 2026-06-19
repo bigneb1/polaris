@@ -98,4 +98,12 @@ contract BidEngine {
     function bidCount(bytes32 taskId) external view returns (uint256) {
         return bids[taskId].length;
     }
+
+    /// Reset the auction so a reopened task can take fresh bids. Only the
+    /// TaskRegistry (which owns task lifecycle) may call this.
+    function reopenAuction(bytes32 taskId) external {
+        require(msg.sender == address(taskRegistry), "Only taskRegistry");
+        auctionClosed[taskId] = false;
+        delete bids[taskId];
+    }
 }
