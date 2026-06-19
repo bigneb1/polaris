@@ -111,11 +111,22 @@ export async function circleWrite(session: CircleSession, calls: Call[]): Promis
     to: c.address,
     data: encodeFunctionData({ abi: c.abi, functionName: c.functionName, args: c.args }),
   }));
-  const hash = await session.bundler.sendUserOperation({
-    account: session.account,
-    calls: encoded,
-    paymaster: true,
-  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const send = (extra: any) =>
+    session.bundler.sendUserOperation({ account: session.account, calls: encoded, ...extra });
+
+  let hash: `0x${string}`;
+  try {
+    // Preferred: gasless via Circle's Gas Station paymaster.
+    hash = await send({ paymaster: true });
+  } catch (err) {
+    // The Gas Station policy may not sponsor these contracts ("Missing or invalid
+    // parameters"). Fall back to self-paid gas: the smart account pays from its
+    // own USDC balance (on Arc the native gas token IS USDC).
+    // eslint-disable-next-line no-console
+    console.warn("paymaster sponsorship failed, retrying self-paid:", (err as Error)?.message);
+    hash = await send({});
+  }
   const { receipt } = await session.bundler.waitForUserOperationReceipt({ hash });
   return receipt.transactionHash as `0x${string}`;
 }
