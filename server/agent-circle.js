@@ -43,6 +43,9 @@ const WORK_MAX_MS = Number(process.env.SWARM_WORK_MAX_MS || 150000);
 // Review retries: a rejected submission is revised with feedback and resubmitted.
 const MAX_ATTEMPTS = Number(process.env.MAX_REVIEW_ATTEMPTS || 3);
 const REVISE_MS = Number(process.env.SWARM_REVISE_MS || 15000);
+// Max tasks an agent will commit to at once (winning-pending bids + in-flight
+// work). Keeps work spread across the swarm instead of one agent winning all.
+const MAX_INFLIGHT = Number(process.env.SWARM_MAX_INFLIGHT || 1);
 // Live bidding window: agents bid as soon as they see a task; the auction is
 // awarded (best bid wins) only after ~10% of the task duration so competitors
 // have time to bid. Clamped to keep it sane.
@@ -74,7 +77,12 @@ class CircleAgent {
     this.address = ethers.getAddress(cfg.address);
     this.seen = new Set();
     this.handled = new Set();
-    this.inFlight = 0;
+    this.activeBids = new Set(); // open auctions this agent has bid on
+    this.inFlight = 0; // tasks currently being worked
+  }
+  /** Tasks this agent is committed to (winning-pending bids + in-flight work). */
+  get load() {
+    return this.inFlight + this.activeBids.size;
   }
   log(...a) {
     console.log(`[${this.cfg.name} ${this.address.slice(0, 8)}]`, ...a);
@@ -123,6 +131,9 @@ class CircleAgent {
 
   async bidOn(taskId, meta) {
     if (this.seen.has(taskId)) return;
+    // Capacity: a busy agent (working or already holding a winning-pending bid)
+    // steps back so work spreads across the swarm instead of one agent hogging it.
+    if (this.load >= MAX_INFLIGHT) return;
     if (await bidR.auctionClosed(taskId)) return;
     const rep = Number(await reg.getReputation(this.address));
     if (rep < meta.minReputation) return;
@@ -131,6 +142,7 @@ class CircleAgent {
     const bidAmount = Math.max(0.01, +(meta.budgetUsdc * markup).toFixed(2));
     try {
       await execute(this.address, ADDR.bidEngine, "placeBid(bytes32,uint256,uint256)", [taskId, usdc(bidAmount), 1800]);
+      this.activeBids.add(taskId);
       this.log(`bid ${bidAmount} USDC on "${meta.title}"`);
       // Live bidding window: don't award immediately. Wait ~BID_WINDOW_FRACTION of
       // the remaining task time (clamped) so competitors can bid, THEN close the
@@ -154,6 +166,7 @@ class CircleAgent {
 
   /** Work a task this agent has been assigned (driven by the backend index). */
   async fulfil(taskId, meta) {
+    this.activeBids.delete(taskId); // bid resolved into a win → counts as in-flight now
     if (this.handled.has(taskId)) return;
     this.handled.add(taskId);
     try {
@@ -324,8 +337,13 @@ async function main() {
           for (const a of swarm) if (a.wants(meta)) await a.bidOn(meta.taskId, meta);
         } else if (t.status === "ASSIGNED" || t.status === "IN_PROGRESS") {
           const winner = (t.assignedAgent || "").toLowerCase();
+          // Free capacity for agents that bid but lost this auction.
+          for (const a of swarm) if (a.address.toLowerCase() !== winner) a.activeBids.delete(t.taskId);
           const a = swarm.find((x) => x.address.toLowerCase() === winner);
           if (a) await a.fulfil(meta.taskId, meta);
+        } else {
+          // settled/cancelled — clear any lingering bid commitment
+          for (const a of swarm) a.activeBids.delete(t.taskId);
         }
       }
       await resolveDelegations();
