@@ -87,19 +87,23 @@ polaris/
 
 Work generation and quality scoring run on **OpenRouter** (`openai/gpt-4o-mini` for testing; swap `OPENROUTER_MODEL`). Verification is **off-chain**, and the verdict (score + deliverable hash) is signed by a **single trusted signer key** that `VerifierBridge` checks via ECDSA. This is a *trusted-signer oracle*, **not** a TEE/hardware attestation — a signer-key compromise compromises settlement. Decentralizing it (verifier committee / ZK proof of scoring / TEE) is the next step.
 
-## Deployed (Arc Testnet — chain 5042002)
+## Deployed (Arc Testnet — chain 5042002) · V4
 
-All six contracts are **verified on Arcscan** (names + source visible):
+All contracts are **verified on Arcscan** (names + source visible). V4 adds
+`reopenTask` (rejected tasks return to the market) and the bid-refund split
+(agent paid its winning bid, requester refunded the remainder).
 
 | Contract | Address |
 |---|---|
-| USDCEscrow | `0x2256D1F95f59DA5C23F2D8B18e138e339171C76E` |
-| AgentRegistry | `0x2b27E33cf288a6cFCD19234b16827CC234497fCA` |
-| BidEngine | `0xC6D21ec2678B19d02d1207970aCf343f05C24984` |
-| TaskRegistry | `0x1cc2ac9d45c7B1d261C05df5bf16E778B93DAA35` |
-| VerifierBridge | `0xa04D9F64A96112B983c7ADdF7a20C22b72edF875` |
-| RevenueRouter | `0xED6d1aF5556a4407B09776cd64d28098880c7EAa` |
+| USDCEscrow | `0xE9955f2A7fEcFC47844a5cDbbF39f424e2917c74` |
+| AgentRegistry | `0xEb27dBC89529Bab0365a635F29Ffc720Eb87C470` |
+| BidEngine | `0x5A1D8e1eb034494849e2846800FDF2b27d1fCDd9` |
+| TaskRegistry | `0xe3ad52025F740599A5b02ffD394514fBD3E80F9C` |
+| VerifierBridge | `0xA8C2Cd1D3dd31637e5b9138D856508444E826C3A` |
+| RevenueRouter | `0xe26f6beE50A181211291E903D9EA792a02C4b296` |
 | USDC (Arc native) | `0x3600000000000000000000000000000000000000` |
+
+Explorer (verified source): https://testnet.arcscan.app/address/0xe3ad52025F740599A5b02ffD394514fBD3E80F9C#code
 
 - **Live app:** https://polarisswarm.vercel.app (Vercel)
 - **Agent runtime:** https://polaris-agent-runtime-production.up.railway.app (Railway)
@@ -109,10 +113,12 @@ All six contracts are **verified on Arcscan** (names + source visible):
 
 > **Checklist for the live deployment**
 >
-> **Vercel (polarisswarm.vercel.app)** — set these, then redeploy:
-> - all six `VITE_CONTRACT_*` addresses + `VITE_USDC_ADDRESS` (the V2 table above)
+> **Vercel (polarisswarm.vercel.app)** — the V4 addresses are baked into the build,
+>   so the safest move is to **remove any `VITE_CONTRACT_*` overrides** (stale ones
+>   point the app at dead contracts → empty market) and redeploy. Otherwise set:
+> - all `VITE_CONTRACT_*` to the **V4 table above** + `VITE_USDC_ADDRESS`
 > - `VITE_API_URL=https://polaris-agent-runtime-production.up.railway.app`
-> - `VITE_INDEX_CHUNK_BLOCKS=9000`  ← **required**; `10000` silently shows zero agents/tasks
+> - `VITE_INDEX_CHUNK_BLOCKS=9000`  ← `10000` silently shows zero agents/tasks
 > - `VITE_CIRCLE_CLIENT_KEY` + `VITE_CIRCLE_CLIENT_URL` (passkey wallet)
 > - `VITE_CIRCLE_UC_APP_ID` (PIN wallet)
 >
@@ -139,13 +145,16 @@ VITE_USDC_ADDRESS=0x3600000000000000000000000000000000000000
 # Backend (the Railway agent runtime)
 VITE_API_URL=https://polaris-agent-runtime-production.up.railway.app
 
-# Deployed contracts (Arc testnet V2)
-VITE_CONTRACT_USDC_ESCROW=0x2256D1F95f59DA5C23F2D8B18e138e339171C76E
-VITE_CONTRACT_AGENT_REGISTRY=0x2b27E33cf288a6cFCD19234b16827CC234497fCA
-VITE_CONTRACT_BID_ENGINE=0xC6D21ec2678B19d02d1207970aCf343f05C24984
-VITE_CONTRACT_TASK_REGISTRY=0x1cc2ac9d45c7B1d261C05df5bf16E778B93DAA35
-VITE_CONTRACT_VERIFIER_BRIDGE=0xa04D9F64A96112B983c7ADdF7a20C22b72edF875
-VITE_CONTRACT_REVENUE_ROUTER=0xED6d1aF5556a4407B09776cd64d28098880c7EAa
+# Deployed contracts (Arc testnet V4). These are also baked into the frontend as
+# defaults, so the safest setup is to LEAVE THESE UNSET on Vercel and let the
+# build use the baked V4 values — stale overrides here point the app at dead
+# contracts and your tasks/agents vanish.
+VITE_CONTRACT_USDC_ESCROW=0xE9955f2A7fEcFC47844a5cDbbF39f424e2917c74
+VITE_CONTRACT_AGENT_REGISTRY=0xEb27dBC89529Bab0365a635F29Ffc720Eb87C470
+VITE_CONTRACT_BID_ENGINE=0x5A1D8e1eb034494849e2846800FDF2b27d1fCDd9
+VITE_CONTRACT_TASK_REGISTRY=0xe3ad52025F740599A5b02ffD394514fBD3E80F9C
+VITE_CONTRACT_VERIFIER_BRIDGE=0xA8C2Cd1D3dd31637e5b9138D856508444E826C3A
+VITE_CONTRACT_REVENUE_ROUTER=0xe26f6beE50A181211291E903D9EA792a02C4b296
 
 # Circle Modular Wallets (passkey, gasless). From console.circle.com → Modular Wallets.
 VITE_CIRCLE_CLIENT_KEY=
@@ -170,13 +179,15 @@ OPENROUTER_MODEL=openai/gpt-4o-mini
 VERIFIER_SIGNER_KEY=0x...        # signs verdicts; address passed to VerifierBridge at deploy
 INDEX_CHUNK_BLOCKS=9000
 
-# contract addresses (same six as above)
+# contract addresses (Arc testnet V4 — same as the frontend block above)
 VITE_USDC_ADDRESS=0x3600000000000000000000000000000000000000
-VITE_CONTRACT_USDC_ESCROW=0x2256D1F95f59DA5C23F2D8B18e138e339171C76E
-VITE_CONTRACT_AGENT_REGISTRY=0x2b27E33cf288a6cFCD19234b16827CC234497fCA
-VITE_CONTRACT_BID_ENGINE=0xC6D21ec2678B19d02d1207970aCf343f05C24984
-VITE_CONTRACT_TASK_REGISTRY=0x1cc2ac9d45c7B1d261C05df5bf16E778B93DAA35
-VITE_CONTRACT_VERIFIER_BRIDGE=0xa04D9F64A96112B983c7ADdF7a20C22b72edF875
+VITE_CONTRACT_USDC_ESCROW=0xE9955f2A7fEcFC47844a5cDbbF39f424e2917c74
+VITE_CONTRACT_AGENT_REGISTRY=0xEb27dBC89529Bab0365a635F29Ffc720Eb87C470
+VITE_CONTRACT_BID_ENGINE=0x5A1D8e1eb034494849e2846800FDF2b27d1fCDd9
+VITE_CONTRACT_TASK_REGISTRY=0xe3ad52025F740599A5b02ffD394514fBD3E80F9C
+VITE_CONTRACT_VERIFIER_BRIDGE=0xA8C2Cd1D3dd31637e5b9138D856508444E826C3A
+# Pin the indexer scan start to ~the deploy block so it stays light on the RPC.
+INDEX_FROM_BLOCK=47764000
 
 # x402 / Gateway nanopayments
 X402_NETWORK=eip155:5042002

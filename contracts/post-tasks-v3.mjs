@@ -7,8 +7,8 @@ const env = Object.fromEntries(
 const RPC = env.ARC_RPC_URL || "https://rpc.testnet.arc.network";
 const pk = env.DEPLOYER_PRIVATE_KEY || env.PRIVATE_KEY;
 const USDC = "0x3600000000000000000000000000000000000000";
-const ESCROW = "0x1b891E652f74cF7d58060e250dD08A1E42B8ece1";
-const TASKREG = "0x51d7b1fC88A9c1590C647A9B37fc9EC8Ea421fba";
+const ESCROW = "0xE9955f2A7fEcFC47844a5cDbbF39f424e2917c74";
+const TASKREG = "0xe3ad52025F740599A5b02ffD394514fBD3E80F9C";
 
 const p = new ethers.JsonRpcProvider(RPC, 5042002);
 const w = new ethers.Wallet(pk, p);
