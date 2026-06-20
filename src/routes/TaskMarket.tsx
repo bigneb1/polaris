@@ -46,21 +46,30 @@ export default function TaskMarket() {
       <div className="grid gap-6 lg:grid-cols-[1.55fr_1fr]">
         {/* Task list */}
         <div className="min-w-0">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold text-white">
+              Tasks <span className="mono text-grey">({tasks.length} total)</span>
+            </h2>
+            <span className="mono text-[11px] text-grey">{filtered.length} shown</span>
+          </div>
           <div className="mb-4 flex flex-wrap gap-2">
-            {TABS.map((t) => (
-              <button
-                key={t.key}
-                onClick={() => setTab(t.key)}
-                className={cn(
-                  "mono rounded-lg border px-3.5 py-2 text-xs uppercase tracking-wider transition-colors",
-                  tab === t.key
-                    ? "border-blue/50 bg-blue/10 text-blue-l"
-                    : "border-border bg-card text-grey hover:text-grey-l",
-                )}
-              >
-                {t.label}
-              </button>
-            ))}
+            {TABS.map((t) => {
+              const count = t.key === "ALL" ? tasks.length : tasks.filter((x) => x.status === t.key).length;
+              return (
+                <button
+                  key={t.key}
+                  onClick={() => setTab(t.key)}
+                  className={cn(
+                    "mono rounded-lg border px-3.5 py-2 text-xs uppercase tracking-wider transition-colors",
+                    tab === t.key
+                      ? "border-blue/50 bg-blue/10 text-blue-l"
+                      : "border-border bg-card text-grey hover:text-grey-l",
+                  )}
+                >
+                  {t.label} <span className="opacity-70">{count}</span>
+                </button>
+              );
+            })}
           </div>
 
           <div className="flex flex-col gap-3">

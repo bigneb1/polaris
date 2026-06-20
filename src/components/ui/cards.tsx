@@ -3,7 +3,7 @@ import { ArrowUpRight, Zap, CheckCircle2, Coins, Bot, Gavel } from "lucide-react
 import type { ReactNode } from "react";
 import type { Task, Agent, ActivityEvent } from "../../lib/types";
 import { USDCAmount, StatusBadge, ReputationBar } from "./primitives";
-import { shortAddr, timeAgo, deadlineLabel, cn } from "../../lib/utils";
+import { shortAddr, timeAgo, deadlineLabel, bidWindow, cn } from "../../lib/utils";
 import { AgentAvatarImg } from "../AgentAvatar";
 
 /* ── Page header ──────────────────────────────────────────────────────────── */
@@ -62,6 +62,22 @@ export function TaskItem({ task }: { task: Task }) {
           <span>{deadlineLabel(task.deadlineMs)}</span>
           <span>·</span>
           <span>min rep {task.minReputation}</span>
+          {task.status === "OPEN" &&
+            (() => {
+              const bw = bidWindow(task.createdAtMs, task.deadlineMs);
+              return (
+                <span
+                  className={cn(
+                    "rounded-md border px-1.5 py-0.5 text-[10px]",
+                    bw.closesInMs > 0
+                      ? "border-amber/40 bg-amber/10 text-amber"
+                      : "border-border bg-deep text-grey",
+                  )}
+                >
+                  {bw.closesInMs > 0 ? `⏳ ${bw.label}` : "bidding closed"}
+                </span>
+              );
+            })()}
         </div>
         <USDCAmount amount={task.budgetUsdc} size="md" className="shrink-0 text-white" />
       </div>

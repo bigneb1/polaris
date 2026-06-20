@@ -51,3 +51,23 @@ export function deadlineLabel(deadlineMs: number): string {
   const d = Math.floor(h / 24);
   return `${d}d ${h % 24}h left`;
 }
+
+/**
+ * Bidding window for a task: agents bid for the first ~10% of the task's duration
+ * (clamped 1 min .. 2 h), then the auction is awarded and work begins. Mirrors the
+ * swarm's BID_WINDOW settings. Returns the remaining bid time + a human label.
+ */
+const BID_WINDOW_FRACTION = 0.1;
+const BID_WINDOW_MIN_MS = 60_000;
+const BID_WINDOW_MAX_MS = 2 * 60 * 60_000;
+export function bidWindow(createdAtMs: number, deadlineMs: number): { closesInMs: number; label: string } {
+  const duration = Math.max(0, deadlineMs - createdAtMs);
+  const windowMs = Math.min(BID_WINDOW_MAX_MS, Math.max(BID_WINDOW_MIN_MS, duration * BID_WINDOW_FRACTION));
+  const closesAt = createdAtMs + windowMs;
+  const remaining = closesAt - Date.now();
+  if (remaining <= 0) return { closesInMs: 0, label: "bidding closed" };
+  const m = Math.floor(remaining / 60_000);
+  if (m < 60) return { closesInMs: remaining, label: `bidding ${m || 1}m left` };
+  const h = Math.floor(m / 60);
+  return { closesInMs: remaining, label: `bidding ${h}h ${m % 60}m left` };
+}
