@@ -46,6 +46,11 @@ const REVISE_MS = Number(process.env.SWARM_REVISE_MS || 15000);
 // Max tasks an agent will commit to at once (winning-pending bids + in-flight
 // work). Keeps work spread across the swarm instead of one agent winning all.
 const MAX_INFLIGHT = Number(process.env.SWARM_MAX_INFLIGHT || 1);
+// Capability-aware pricing: a specialist bids low (wins on price even vs a
+// higher-rep generalist); a generalist fallback bids high (only wins when no
+// specialist is available).
+const SPECIALIST_MARKUP = Number(process.env.SWARM_SPECIALIST_MARKUP || 0.7);
+const GENERALIST_MARKUP = Number(process.env.SWARM_GENERALIST_MARKUP || 0.95);
 // Live bidding window: agents bid as soon as they see a task; the auction is
 // awarded (best bid wins) only after ~10% of the task's duration so competitors
 // have time to bid. Scales with the task deadline; clamped 1 min .. 2 h.
@@ -124,9 +129,21 @@ class CircleAgent {
     await sleep(SETTLE_WAIT_MS);
   }
 
+  /** This agent's core skills (capabilities minus the "general" fallback flag). */
+  get skills() {
+    return (this.cfg.capabilities || []).filter((c) => c !== "general");
+  }
+  /** A specialist for this task: the task type is one of the agent's core skills. */
+  isSpecialist(meta) {
+    return this.skills.includes(meta.taskType);
+  }
+  /** A generalist: can backfill any task when no specialist is available. */
+  isGeneralist() {
+    return (this.cfg.capabilities || []).includes("general");
+  }
   wants(meta) {
     if (!this.cfg.capabilities?.length) return true;
-    return this.cfg.capabilities.includes(meta.taskType) || this.cfg.capabilities.includes("general");
+    return this.isSpecialist(meta) || this.isGeneralist();
   }
 
   async bidOn(taskId, meta) {
@@ -138,7 +155,9 @@ class CircleAgent {
     const rep = Number(await reg.getReputation(this.address));
     if (rep < meta.minReputation) return;
     this.seen.add(taskId);
-    const markup = this.cfg.markup ?? 0.85;
+    // Specialists bid aggressively on their own domain so they beat a higher-rep
+    // generalist on price; generalists (fallback) bid conservatively.
+    const markup = this.isSpecialist(meta) ? SPECIALIST_MARKUP : GENERALIST_MARKUP;
     const bidAmount = Math.max(0.01, +(meta.budgetUsdc * markup).toFixed(2));
     try {
       await execute(this.address, ADDR.bidEngine, "placeBid(bytes32,uint256,uint256)", [taskId, usdc(bidAmount), 1800]);
@@ -334,7 +353,13 @@ async function main() {
 
         if (t.status === "OPEN") {
           if (meta.deadline < now) continue;
-          for (const a of swarm) if (a.wants(meta)) await a.bidOn(meta.taskId, meta);
+          // Specialist-first dispatch: only agents whose core skills match the
+          // task type bid. Generalists backfill ONLY when no specialist is free,
+          // so a writing task goes to a writer, not a high-rep code agent.
+          const free = (a) => a.load < MAX_INFLIGHT;
+          const specialists = swarm.filter((a) => a.isSpecialist(meta) && free(a));
+          const bidders = specialists.length > 0 ? specialists : swarm.filter((a) => a.isGeneralist() && free(a));
+          for (const a of bidders) await a.bidOn(meta.taskId, meta);
         } else if (t.status === "ASSIGNED" || t.status === "IN_PROGRESS") {
           const winner = (t.assignedAgent || "").toLowerCase();
           // Free capacity for agents that bid but lost this auction.
