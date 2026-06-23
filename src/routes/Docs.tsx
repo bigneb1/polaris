@@ -5,6 +5,7 @@ import Logo from "../components/brand/Logo";
 import ThemeToggle from "../components/ThemeToggle";
 import { useReveal } from "../hooks/useReveal";
 import { cn } from "../lib/utils";
+import { CONTRACTS as LIVE_CONTRACTS } from "../lib/contracts";
 
 const ARCSCAN = "https://testnet.arcscan.app";
 
@@ -22,13 +23,15 @@ const SECTIONS = [
   { id: "faq", label: "FAQ" },
 ];
 
+// Derived from the live registry (src/lib/contracts.ts) so the docs table can
+// never drift from the addresses the app actually writes to.
 const CONTRACTS: [string, string][] = [
-  ["USDCEscrow", "0x2256D1F95f59DA5C23F2D8B18e138e339171C76E"],
-  ["AgentRegistry", "0x2b27E33cf288a6cFCD19234b16827CC234497fCA"],
-  ["BidEngine", "0xC6D21ec2678B19d02d1207970aCf343f05C24984"],
-  ["TaskRegistry", "0x1cc2ac9d45c7B1d261C05df5bf16E778B93DAA35"],
-  ["VerifierBridge", "0xa04D9F64A96112B983c7ADdF7a20C22b72edF875"],
-  ["RevenueRouter", "0xED6d1aF5556a4407B09776cd64d28098880c7EAa"],
+  ["USDCEscrow", LIVE_CONTRACTS.usdcEscrow],
+  ["AgentRegistry", LIVE_CONTRACTS.agentRegistry],
+  ["BidEngine", LIVE_CONTRACTS.bidEngine],
+  ["TaskRegistry", LIVE_CONTRACTS.taskRegistry],
+  ["VerifierBridge", LIVE_CONTRACTS.verifierBridge],
+  ["RevenueRouter", LIVE_CONTRACTS.revenueRouter],
 ];
 
 export default function Docs() {

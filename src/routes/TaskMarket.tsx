@@ -139,7 +139,7 @@ export function ContractsNotice() {
       <EmptyState
         icon={<Inbox size={32} />}
         title="Contracts not deployed yet"
-        message="Set the VITE_CONTRACT_* addresses in your env after running the Hardhat deploy script to Arc Testnet. The UI reads everything from those contracts."
+        message="The Arc-testnet contract addresses are baked into the build. Run the Hardhat deploy script and update src/lib/contracts.ts, then redeploy. The UI reads everything from those contracts."
         action={
           <Link to="/docs" className="btn-ghost">
             Read the docs

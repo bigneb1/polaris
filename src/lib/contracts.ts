@@ -3,38 +3,30 @@ import { parseAbi, type Address } from "viem";
 /**
  * POLARIS CONTRACT REGISTRY (Arc Network)
  *
- * Addresses are read from Vite env (VITE_CONTRACT_*) so the same build promotes
- * across deployments. They default to "0x" (undeployed) until the Hardhat deploy
- * script fills them in - the UI surfaces a "contracts not deployed" state rather
- * than throwing when they are absent.
+ * Current Arc-testnet (V4) addresses are HARDCODED here — deliberately NOT read
+ * from Vite env (VITE_CONTRACT_*). A stale env override (e.g. an old V2/V3 address
+ * left on the deploy host) silently points the app at a dead contract: writes go
+ * to a contract the indexer doesn't read, so created tasks/agents "vanish". The
+ * frontend is rebuilt on every contract change, so the source of truth is this
+ * file, not the deployment env.
  *
  * Design note: task & agent metadata (title, description, rubric, capabilities)
  * is emitted as strings inside events, so the chain-indexing layer (onchain.ts)
  * can reconstruct the full UI from logs alone - no off-chain database. Only the
  * unbounded deliverable blob lives in the backend, keyed by taskId.
  */
-const e = (import.meta as { env?: Record<string, string> }).env ?? {};
+export const CONTRACTS: Record<string, Address> = {
+  usdc: "0x3600000000000000000000000000000000000000",
+  usdcEscrow: "0xE9955f2A7fEcFC47844a5cDbbF39f424e2917c74",
+  agentRegistry: "0xEb27dBC89529Bab0365a635F29Ffc720Eb87C470",
+  bidEngine: "0x5A1D8e1eb034494849e2846800FDF2b27d1fCDd9",
+  taskRegistry: "0xe3ad52025F740599A5b02ffD394514fBD3E80F9C",
+  verifierBridge: "0xA8C2Cd1D3dd31637e5b9138D856508444E826C3A",
+  revenueRouter: "0xe26f6beE50A181211291E903D9EA792a02C4b296",
+};
 
-function addr(key: string, fallback: Address = "0x" as Address): Address {
-  const v = e[key];
-  return (v && v !== "0x" ? v : fallback) as Address;
-}
-
-// Deployed V2 addresses on Arc testnet are baked in as defaults so a fresh
-// deploy renders the live market even before any VITE_CONTRACT_* env vars are
-// set. Env values still override (e.g. for a future redeploy).
-export const CONTRACTS = {
-  usdc: addr("VITE_USDC_ADDRESS", "0x3600000000000000000000000000000000000000"),
-  usdcEscrow: addr("VITE_CONTRACT_USDC_ESCROW", "0xE9955f2A7fEcFC47844a5cDbbF39f424e2917c74"),
-  agentRegistry: addr("VITE_CONTRACT_AGENT_REGISTRY", "0xEb27dBC89529Bab0365a635F29Ffc720Eb87C470"),
-  bidEngine: addr("VITE_CONTRACT_BID_ENGINE", "0x5A1D8e1eb034494849e2846800FDF2b27d1fCDd9"),
-  taskRegistry: addr("VITE_CONTRACT_TASK_REGISTRY", "0xe3ad52025F740599A5b02ffD394514fBD3E80F9C"),
-  verifierBridge: addr("VITE_CONTRACT_VERIFIER_BRIDGE", "0xA8C2Cd1D3dd31637e5b9138D856508444E826C3A"),
-  revenueRouter: addr("VITE_CONTRACT_REVENUE_ROUTER", "0xe26f6beE50A181211291E903D9EA792a02C4b296"),
-} as const;
-
-export function isDeployed(key: keyof typeof CONTRACTS): boolean {
-  return CONTRACTS[key] !== "0x";
+export function isDeployed(key: string): boolean {
+  return !!CONTRACTS[key] && CONTRACTS[key] !== "0x";
 }
 
 /** True once the core trio needed to render the market is live. */
