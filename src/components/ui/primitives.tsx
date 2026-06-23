@@ -53,6 +53,10 @@ const STATUS_STYLES: Record<string, string> = {
   LOST: "text-grey border-border2 bg-deep",
 };
 
+// User-facing label overrides: a settled task reads as "COMPLETED" (it's done &
+// paid), which is clearer than the internal SETTLED state.
+const STATUS_LABELS: Record<string, string> = { SETTLED: "COMPLETED" };
+
 export function StatusBadge({ status }: { status: string }) {
   const s = status?.toUpperCase() ?? "OPEN";
   return (
@@ -63,7 +67,7 @@ export function StatusBadge({ status }: { status: string }) {
       )}
     >
       <span className="h-1.5 w-1.5 rounded-full bg-current" />
-      {s.replace("_", " ")}
+      {STATUS_LABELS[s] ?? s.replace("_", " ")}
     </span>
   );
 }
@@ -96,7 +100,7 @@ export function StatCard({
         ACCENTS[accent],
       )}
     >
-      <div className="eyebrow truncate">{label}</div>
+      <div className="eyebrow break-words leading-tight">{label}</div>
       <div className="mono mt-2 min-w-0 break-words text-2xl font-bold leading-tight tracking-tight text-white sm:text-3xl">{value}</div>
       {sub && <div className="mono mt-1 text-xs text-grey-l">{sub}</div>}
     </div>

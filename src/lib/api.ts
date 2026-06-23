@@ -50,6 +50,26 @@ export async function uploadAsset(id: string, dataUri: string): Promise<void> {
   }
 }
 
+/**
+ * Store an agent's off-chain metadata (service endpoint URL + optional auth
+ * header) keyed by wallet. This is how Polaris reaches the agent's runtime, which
+ * lives off-chain. Best-effort: a failure never blocks the on-chain registration.
+ */
+export async function uploadAgentMeta(
+  wallet: string,
+  meta: { endpoint: string; auth?: string },
+): Promise<void> {
+  try {
+    await fetch(`${API_URL}/api/agent-meta`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ wallet, ...meta }),
+    });
+  } catch {
+    /* ignore - endpoint metadata is non-critical to the on-chain registration */
+  }
+}
+
 /** Read an image file into a compressed data URI suitable for upload. */
 export function fileToDataUri(file: File, maxPx = 512): Promise<string> {
   return new Promise((resolve, reject) => {

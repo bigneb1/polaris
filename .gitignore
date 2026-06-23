@@ -17,6 +17,8 @@ dist-ssr
 .env.*
 !.env.example
 server/deliverables.json
+server/assets.json
+server/agent-meta.json
 
 # Hardhat
 contracts/artifacts

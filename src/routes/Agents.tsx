@@ -7,7 +7,7 @@ import { WalletGate } from "../components/layout/guards";
 import { useAgents } from "../lib/onchain";
 import { useTx } from "../hooks/useTx";
 import { registerAgent, setAgentOnline } from "../lib/tx";
-import { uploadAsset } from "../lib/api";
+import { uploadAsset, uploadAgentMeta } from "../lib/api";
 import { coreDeployed } from "../lib/contracts";
 import { ContractsNotice } from "./TaskMarket";
 import ImagePicker from "../components/ImagePicker";
@@ -66,10 +66,13 @@ function RegisterForm() {
   const [name, setName] = useState("");
   const [caps, setCaps] = useState<string[]>([]);
   const [stake, setStake] = useState("100");
+  const [endpoint, setEndpoint] = useState("");
+  const [auth, setAuth] = useState("");
   const [image, setImage] = useState<string | null>(null);
 
   const stakeN = parseFloat(stake) || 0;
-  const valid = name.trim() && caps.length > 0 && stakeN >= MIN_STAKE;
+  const endpointOk = !endpoint.trim() || /^https?:\/\//i.test(endpoint.trim());
+  const valid = name.trim() && caps.length > 0 && stakeN >= MIN_STAKE && endpointOk;
 
   const toggle = (c: string) =>
     setCaps((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]));
@@ -80,9 +83,14 @@ function RegisterForm() {
       () => registerAgent({ owner: address, name: name.trim(), capabilities: caps, stakeUsdc: stakeN }, signer),
       { pending: "Approving stake & registering agent…", success: "Agent registered onchain" },
     );
-    if (hash && image) await uploadAsset(address, image); // avatar keyed by agent wallet
+    if (hash) {
+      if (image) await uploadAsset(address, image); // avatar keyed by agent wallet
+      if (endpoint.trim()) await uploadAgentMeta(address, { endpoint: endpoint.trim(), auth: auth.trim() || undefined });
+    }
     setName("");
     setCaps([]);
+    setEndpoint("");
+    setAuth("");
     setImage(null);
   };
 
@@ -126,6 +134,31 @@ function RegisterForm() {
             className="input-field"
             value={stake}
             onChange={(e) => setStake(e.target.value)}
+          />
+        </label>
+
+        <label className="block">
+          <div className="eyebrow mb-2">Service endpoint URL (optional)</div>
+          <input
+            className="input-field"
+            placeholder="https://my-agent.example.com/polaris/task"
+            value={endpoint}
+            onChange={(e) => setEndpoint(e.target.value)}
+          />
+          <div className="mono mt-1.5 text-[11px] text-grey">
+            Where your agent's runtime lives. Polaris POSTs the task here when your agent wins, and reads the
+            deliverable back. Your wallet still signs & settles on Arc. Leave blank to run the agent manually.
+          </div>
+          {!endpointOk && <div className="mono mt-1 text-[11px] text-red">Must start with http:// or https://</div>}
+        </label>
+
+        <label className="block">
+          <div className="eyebrow mb-2">Endpoint auth header (optional)</div>
+          <input
+            className="input-field"
+            placeholder="Bearer sk-… (sent as Authorization header)"
+            value={auth}
+            onChange={(e) => setAuth(e.target.value)}
           />
         </label>
 

@@ -7,7 +7,7 @@ import { StatCard, Panel, EmptyState, USDCAmount } from "../components/ui/primit
 import { WalletGate } from "../components/layout/guards";
 import { useTasks, useAgents } from "../lib/onchain";
 import { usdcBalance } from "../lib/tx";
-import { cn } from "../lib/utils";
+import { cn, isDone } from "../lib/utils";
 
 type Tab = "tasks" | "agents" | "earnings";
 
@@ -33,7 +33,7 @@ function Dashboard() {
   const myAgents = agents.filter((a) => a.wallet.toLowerCase() === address?.toLowerCase());
   const earned = myAgents.reduce((s, a) => s + a.totalEarned, 0);
   const spent = myTasks
-    .filter((t) => t.status === "SETTLED")
+    .filter(isDone)
     .reduce((s, t) => s + (t.winningBid ?? t.budgetUsdc), 0);
 
   useEffect(() => {
@@ -131,7 +131,7 @@ function Dashboard() {
             </div>
             <div className="hairline my-4" />
             <div className="mono text-xs text-grey">
-              Across {myTasks.filter((t) => t.status === "SETTLED").length} settled task(s).
+              Across {myTasks.filter(isDone).length} settled task(s).
             </div>
           </Panel>
         </div>

@@ -1,14 +1,14 @@
 import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, ShieldCheck, Clock, FileCheck2, Plus, Power, Banknote, Send, Briefcase } from "lucide-react";
+import { ArrowLeft, ShieldCheck, Clock, FileCheck2, Plus, Power, Banknote, Briefcase, Globe } from "lucide-react";
 import { Panel, StatCard, USDCAmount, StatusBadge, ReputationBar, EmptyState, Skeleton } from "../components/ui/primitives";
 import { AgentAvatarImg } from "../components/AgentAvatar";
 import { useWallet } from "../context/WalletProvider";
 import { useTx } from "../hooks/useTx";
 import { useAgent } from "../lib/onchain";
-import { addStake, withdrawStake, setAgentOnline, hireAgent, wireUsdc, newTaskId } from "../lib/tx";
+import { addStake, withdrawStake, setAgentOnline, hireAgent, newTaskId } from "../lib/tx";
 import { explorerAddr } from "../lib/chain";
-import { shortAddr, timeAgo, deadlineLabel } from "../lib/utils";
+import { shortAddr, timeAgo, deadlineLabel, fmtDate, isDone } from "../lib/utils";
 import type { Task } from "../lib/types";
 
 /**
@@ -35,10 +35,12 @@ export default function AgentDetail() {
     );
 
   const isOwner = address?.toLowerCase() === agent.wallet.toLowerCase();
-  const active = tasks.filter((t) => t.status === "ASSIGNED" || t.status === "IN_PROGRESS");
-  const done = tasks.filter((t) => t.status === "SETTLED");
+  const active = tasks.filter((t) => !isDone(t) && (t.status === "ASSIGNED" || t.status === "IN_PROGRESS"));
+  const done = tasks.filter(isDone);
   const attested = done.filter((t) => t.attestation);
-  const endpoint = `https://agents.polaris.app/${agent.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+  // Real off-chain service endpoint provided at registration (where the agent's
+  // runtime is reached). Falls back to "not provided" when none was set.
+  const endpoint = agent.endpoint?.trim() || null;
 
   return (
     <div>
@@ -47,16 +49,17 @@ export default function AgentDetail() {
       </Link>
 
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-        <div className="flex items-center gap-4">
+        <div className="flex min-w-0 items-center gap-4">
           <AgentAvatarImg agent={agent} size={64} />
-          <div>
-            <div className="eyebrow mb-1">{agent.capabilities[0] ?? "Agent"}</div>
-            <h1 className="text-3xl font-bold tracking-tightest text-white">{agent.name}</h1>
+          <div className="min-w-0">
+            <div className="eyebrow mb-1 truncate">{agent.capabilities[0] ?? "Agent"}</div>
+            <h1 className="break-words text-2xl font-bold tracking-tightest text-white sm:text-3xl">{agent.name}</h1>
             <div className="mono mt-1 text-xs text-grey">
               agent{" "}
               <a href={explorerAddr(agent.wallet)} target="_blank" rel="noreferrer" className="text-blue-l hover:underline">
                 {shortAddr(agent.wallet, 8, 6)}
-              </a>
+              </a>{" "}
+              · joined {fmtDate(agent.createdAtMs)}
             </div>
           </div>
         </div>
@@ -99,7 +102,12 @@ export default function AgentDetail() {
                 <span className="text-xs text-grey">No capabilities listed.</span>
               )}
             </div>
-            <Field label="Endpoint" value={endpoint} mono />
+            <div className="eyebrow mb-1 flex items-center gap-1.5"><Globe size={12} /> Service endpoint</div>
+            {endpoint ? (
+              <a href={endpoint} target="_blank" rel="noreferrer" className="mono break-all text-[11px] text-blue-l hover:underline">{endpoint}</a>
+            ) : (
+              <div className="mono text-[11px] text-grey">not provided — set it when registering so Polaris can reach this agent's runtime</div>
+            )}
             <div className="mt-3"><Field label="Metadata" value={`arc://agents/${agent.agentId.slice(0, 18)}…`} mono /></div>
           </Panel>
 
@@ -176,11 +184,10 @@ function OwnerActions({ agent, signer }: { agent: import("../lib/types").Agent; 
 
 function VisitorActions({ agent, signer, canAct }: { agent: import("../lib/types").Agent; signer: ReturnType<typeof useWallet>["signer"]; canAct: boolean }) {
   const { run, loading } = useTx();
-  const [mode, setMode] = useState<null | "hire" | "wire">(null);
+  const [mode, setMode] = useState<null | "hire">(null);
   const [budget, setBudget] = useState("10");
   const [title, setTitle] = useState("");
   const [brief, setBrief] = useState("");
-  const [wireAmt, setWireAmt] = useState("5");
 
   const doHire = () =>
     run(
@@ -204,7 +211,7 @@ function VisitorActions({ agent, signer, canAct }: { agent: import("../lib/types
   return (
     <Panel title={<span className="inline-flex items-center gap-2"><Briefcase size={14} /> Hire {agent.name}</span>}>
       {!canAct ? (
-        <EmptyState title="Connect a wallet" message="Connect to hire this agent or wire it USDC." />
+        <EmptyState title="Connect a wallet" message="Connect to hire this agent." />
       ) : mode === "hire" ? (
         <div className="flex flex-col gap-3">
           <input className="input-field" placeholder="Task title" value={title} onChange={(e) => setTitle(e.target.value)} />
@@ -214,26 +221,10 @@ function VisitorActions({ agent, signer, canAct }: { agent: import("../lib/types
           <button onClick={doHire} disabled={loading} className="btn-primary w-full">Lock USDC & hire</button>
           <button onClick={() => setMode(null)} className="mono text-xs text-grey hover:text-grey-l">Cancel</button>
         </div>
-      ) : mode === "wire" ? (
-        <div className="flex flex-col gap-3">
-          <label className="block"><div className="eyebrow mb-2">Amount (USDC)</div>
-            <input type="number" className="input-field" value={wireAmt} onChange={(e) => setWireAmt(e.target.value)} /></label>
-          <button
-            onClick={() => run(() => wireUsdc(agent.wallet, parseFloat(wireAmt) || 0, signer), { pending: "Wiring USDC…", success: "USDC sent" }).then((h) => h && setMode(null))}
-            disabled={loading}
-            className="btn-primary w-full"
-          >
-            Wire {wireAmt} USDC
-          </button>
-          <button onClick={() => setMode(null)} className="mono text-xs text-grey hover:text-grey-l">Cancel</button>
-        </div>
       ) : (
         <div className="flex flex-col gap-3">
           <button onClick={() => setMode("hire")} disabled={!agent.online} className="btn-primary w-full">
             <Briefcase size={15} /> Hire directly
-          </button>
-          <button onClick={() => setMode("wire")} className="btn-ghost w-full">
-            <Send size={15} /> Wire USDC
           </button>
           {!agent.online && <p className="mono text-[11px] text-grey">Agent is offline - it must be online to be hired.</p>}
         </div>

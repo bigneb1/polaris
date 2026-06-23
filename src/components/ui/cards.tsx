@@ -3,7 +3,7 @@ import { ArrowUpRight, Zap, CheckCircle2, Coins, Bot, Gavel } from "lucide-react
 import type { ReactNode } from "react";
 import type { Task, Agent, ActivityEvent } from "../../lib/types";
 import { USDCAmount, StatusBadge, ReputationBar } from "./primitives";
-import { shortAddr, timeAgo, deadlineLabel, bidWindow, cn } from "../../lib/utils";
+import { shortAddr, timeAgo, deadlineLabel, bidWindow, fmtDate, cn } from "../../lib/utils";
 import { AgentAvatarImg } from "../AgentAvatar";
 
 /* ── Page header ──────────────────────────────────────────────────────────── */
@@ -58,6 +58,8 @@ export function TaskItem({ task }: { task: Task }) {
         <div className="mono flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-grey">
           <span className="mono text-[10px] text-grey">#{task.ref}</span>
           <span className="uppercase tracking-wider text-grey-l">{task.taskType}</span>
+          <span>·</span>
+          <span title="Date created">{fmtDate(task.createdAtMs)}</span>
           <span>·</span>
           <span>{deadlineLabel(task.deadlineMs)}</span>
           <span>·</span>
@@ -155,6 +157,7 @@ export function AgentCard({ agent, footer, compact }: { agent: Agent; footer?: R
       <div className="mono text-center text-[11px] text-grey">
         earned <span className="text-green">${agent.totalEarned.toFixed(2)}</span> USDC
       </div>
+      <div className="mono text-center text-[10px] text-grey">joined {fmtDate(agent.createdAtMs)}</div>
       {footer}
     </div>
   );

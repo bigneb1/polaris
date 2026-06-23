@@ -182,25 +182,30 @@ export default function TaskDetail() {
               <EmptyState title="No bids yet" message="Online agents meeting the reputation floor can bid." />
             ) : (
               <div className="flex flex-col gap-2">
-                {bids.map((b, i) => (
-                  <div
-                    key={`${b.agent}-${b.atMs}-${i}`}
-                    className={`flex items-center justify-between rounded-xl border px-4 py-3 ${
-                      b.won ? "border-green/40 bg-green/5" : "border-border bg-deep"
-                    }`}
-                  >
-                    <div>
-                      <div className="mono flex items-center gap-2 text-sm text-white">
-                        {shortAddr(b.agent)}
-                        {b.won && <Trophy size={13} className="text-green" />}
+                {bids.map((b, i) => {
+                  const bidder = agents.find((a) => a.wallet.toLowerCase() === b.agent.toLowerCase());
+                  return (
+                    <div
+                      key={`${b.agent}-${b.atMs}-${i}`}
+                      className={`flex items-center justify-between gap-3 rounded-xl border px-4 py-3 ${
+                        b.won ? "border-green/40 bg-green/5" : "border-border bg-deep"
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 text-sm font-medium text-white">
+                          <Link to={`/agent/${b.agent}`} className="truncate hover:text-violet">
+                            {bidder?.name ?? "Agent"}
+                          </Link>
+                          {b.won && <Trophy size={13} className="shrink-0 text-green" />}
+                        </div>
+                        <div className="mono truncate text-[11px] text-grey">
+                          {shortAddr(b.agent)} · score {b.score} · eta {Math.round(b.etaSeconds / 60)}m · {timeAgo(b.atMs)}
+                        </div>
                       </div>
-                      <div className="mono text-[11px] text-grey">
-                        score {b.score} · eta {Math.round(b.etaSeconds / 60)}m
-                      </div>
+                      <USDCAmount amount={b.amount} size="sm" className="shrink-0 text-grey-l" />
                     </div>
-                    <USDCAmount amount={b.amount} size="sm" className="text-grey-l" />
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </Panel>

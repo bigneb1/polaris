@@ -24,6 +24,8 @@ export type Task = {
   assignedAgent?: Address;
   winningBid?: number;
   createdAtMs: number;
+  /** When the task settled/completed (present once done). */
+  settledAtMs?: number;
   txHash: `0x${string}`;
   /** Onchain settlement attestation (present once verified). */
   attestation?: { score: number; passed: boolean; deliverableHash: `0x${string}` };
@@ -46,6 +48,8 @@ export type Agent = {
   createdAtMs: number;
   /** Optional avatar image (data URI), from the backend asset store. */
   image?: string;
+  /** Off-chain service endpoint (HTTPS webhook) where the agent's runtime is reached. */
+  endpoint?: string;
 };
 
 export type Bid = {

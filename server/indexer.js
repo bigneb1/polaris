@@ -3,9 +3,17 @@ import fs from "node:fs";
 import { provider, ADDR, USDC_DECIMALS } from "./chain.js";
 
 const ASSET_STORE = process.env.ASSET_STORE || "./assets.json";
+const AGENT_META_STORE = process.env.AGENT_META_STORE || "./agent-meta.json";
 function loadAssets() {
   try {
     return JSON.parse(fs.readFileSync(ASSET_STORE, "utf8"));
+  } catch {
+    return {};
+  }
+}
+function loadAgentMeta() {
+  try {
+    return JSON.parse(fs.readFileSync(AGENT_META_STORE, "utf8"));
   } catch {
     return {};
   }
@@ -97,20 +105,29 @@ async function getAllLogs(address, eventSigs) {
   return out;
 }
 
+// Persistent block->timestamp cache. A block's time never changes, so caching it
+// across builds means each refresh only resolves blocks it hasn't seen — this is
+// what keeps a task's "created" date correct even for older tasks (the previous
+// last-400-blocks cap left older items stamped with Date.now()).
+const blockTimeCache = new Map();
 async function blockTimes(blocks) {
-  const uniq = Array.from(new Set(blocks)).slice(-400);
-  const map = new Map();
-  await Promise.all(
-    uniq.map(async (bn) => {
-      try {
-        const blk = await provider.getBlock(bn);
-        if (blk) map.set(bn, Number(blk.timestamp) * 1000);
-      } catch {
-        /* ignore */
-      }
-    }),
-  );
-  return map;
+  const missing = Array.from(new Set(blocks)).filter((bn) => bn != null && !blockTimeCache.has(bn));
+  // Resolve missing blocks in bounded-concurrency batches so a first run over a
+  // wide window doesn't fire thousands of RPC calls at once.
+  const BATCH = 40;
+  for (let i = 0; i < missing.length; i += BATCH) {
+    await Promise.all(
+      missing.slice(i, i + BATCH).map(async (bn) => {
+        try {
+          const blk = await provider.getBlock(bn);
+          if (blk) blockTimeCache.set(bn, Number(blk.timestamp) * 1000);
+        } catch {
+          /* leave uncached; a later refresh retries */
+        }
+      }),
+    );
+  }
+  return blockTimeCache;
 }
 
 export async function buildIndex() {
@@ -121,7 +138,7 @@ export async function buildIndex() {
     getAllLogs(ADDR.verifierBridge, EVENTS.verifierBridge),
   ]);
 
-  const allBlocks = [...taskLogs, ...agentLogs, ...bidLogs].map((l) => l.blockNumber).filter((b) => b != null);
+  const allBlocks = [...taskLogs, ...agentLogs, ...bidLogs, ...verifierLogs].map((l) => l.blockNumber).filter((b) => b != null);
   const times = await blockTimes(allBlocks);
   const tsOf = (log) => times.get(log.blockNumber) ?? Date.now();
 
@@ -155,10 +172,18 @@ export async function buildIndex() {
       }
     } else if (log.name === "TaskSettled") {
       const t = tasks.get(id);
-      if (t) t.status = "SETTLED";
+      if (t) {
+        t.status = "SETTLED";
+        t.settledAtMs = tsOf(log);
+      }
     } else if (log.name === "TaskCancelled") {
       const t = tasks.get(id);
       if (t) t.status = "CANCELLED";
+    } else if (log.name === "TaskTimedOut") {
+      // Agent missed the deadline; escrow refunds the requester. Treat as cancelled
+      // so the task doesn't hang forever in ASSIGNED.
+      const t = tasks.get(id);
+      if (t && t.status !== "SETTLED") t.status = "CANCELLED";
     } else if (log.name === "TaskReopened") {
       const t = tasks.get(id);
       if (t) {
@@ -170,12 +195,19 @@ export async function buildIndex() {
     }
   }
 
-  /* Onchain settlement attestations */
+  /* Onchain settlement attestations. A passing attestation is the on-chain proof
+   * of completion, so force the task to SETTLED even if the TaskSettled event was
+   * missed/lagged — otherwise a verified task is absent from the Settlement page. */
   for (const log of verifierLogs) {
     if (log.name !== "VerificationSubmitted") continue;
     const a = log.args;
     const t = tasks.get(a.taskId);
-    if (t) t.attestation = { score: Number(a.score), passed: a.passed, deliverableHash: a.deliverableHash };
+    if (!t) continue;
+    t.attestation = { score: Number(a.score), passed: a.passed, deliverableHash: a.deliverableHash };
+    if (a.passed && t.status !== "SETTLED" && t.status !== "CANCELLED") {
+      t.status = "SETTLED";
+      t.settledAtMs = t.settledAtMs ?? tsOf(log);
+    }
   }
 
   /* Bids */
@@ -271,7 +303,7 @@ export async function buildIndex() {
         amountUsdc: t.winningBid ?? t.budgetUsdc,
         wallet: t.assignedAgent,
         txHash: t.txHash,
-        atMs: t.createdAtMs + 1,
+        atMs: t.settledAtMs ?? t.createdAtMs + 1,
       });
     }
   }
@@ -320,9 +352,12 @@ export async function buildIndex() {
       t.attempts = d.attempts || 0;
     }
   }
+  const agentMeta = loadAgentMeta();
   for (const ag of agents.values()) {
     const img = assets[ag.wallet?.toLowerCase()];
     if (img) ag.image = img;
+    const meta = agentMeta[ag.wallet?.toLowerCase()];
+    if (meta?.endpoint) ag.endpoint = meta.endpoint;
   }
 
   return {

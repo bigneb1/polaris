@@ -43,20 +43,24 @@ const WORK_MAX_MS = Number(process.env.SWARM_WORK_MAX_MS || 30 * 60 * 1000);
 // Review retries: a rejected submission is revised with feedback and resubmitted.
 const MAX_ATTEMPTS = Number(process.env.MAX_REVIEW_ATTEMPTS || 3);
 const REVISE_MS = Number(process.env.SWARM_REVISE_MS || 15000);
-// Max tasks an agent will commit to at once (winning-pending bids + in-flight
-// work). Keeps work spread across the swarm instead of one agent winning all.
+// Work capacity: how many tasks an agent actually WORKS at once. Kept at 1 so an
+// agent finishes one job before starting the next (realistic, avoids missed
+// deadlines). Winning a 2nd auction while busy → delegate to a free peer or defer.
 const MAX_INFLIGHT = Number(process.env.SWARM_MAX_INFLIGHT || 1);
+// Bid capacity: how many OPEN auctions an agent may have a live bid in at once.
+// Decoupled from work so each task draws bids from several agents (a bid is cheap;
+// only the won job ties up work capacity). This is what gives tasks many bidders.
+const MAX_BIDS = Number(process.env.SWARM_MAX_BIDS || 3);
 // Capability-aware pricing: a specialist bids low (wins on price even vs a
 // higher-rep generalist); a generalist fallback bids high (only wins when no
 // specialist is available).
 const SPECIALIST_MARKUP = Number(process.env.SWARM_SPECIALIST_MARKUP || 0.7);
 const GENERALIST_MARKUP = Number(process.env.SWARM_GENERALIST_MARKUP || 0.95);
-// Live bidding window: agents bid as soon as they see a task; the auction is
-// awarded (best bid wins) only after ~10% of the task's duration so competitors
-// have time to bid. Scales with the task deadline; clamped 1 min .. 2 h.
-const BID_WINDOW_FRACTION = Number(process.env.BID_WINDOW_FRACTION || 0.1);
-const BID_WINDOW_MIN_MS = Number(process.env.BID_WINDOW_MIN_MS || 60 * 1000);
-const BID_WINDOW_MAX_MS = Number(process.env.BID_WINDOW_MAX_MS || 2 * 60 * 60 * 1000);
+// Live bidding window: agents bid as they see a task; the auction is awarded
+// (best bid wins) only after a fixed 20 minutes so competitors — including agents
+// that were busy and only just freed up — have time to bid. Clamped to the time
+// left before the deadline.
+const BID_WINDOW_MS = Number(process.env.BID_WINDOW_MS || 20 * 60 * 1000);
 
 /** @type {{name:string,address:string,capabilities:string[],stake:number,markup:number}[]} */
 const AGENTS = JSON.parse(process.env.AGENTS_CIRCLE_JSON || "[]");
@@ -148,9 +152,10 @@ class CircleAgent {
 
   async bidOn(taskId, meta) {
     if (this.seen.has(taskId)) return;
-    // Capacity: a busy agent (working or already holding a winning-pending bid)
-    // steps back so work spreads across the swarm instead of one agent hogging it.
-    if (this.load >= MAX_INFLIGHT) return;
+    // Bid capacity (not work capacity): an agent can have live bids in several
+    // open auctions at once. It only stops bidding when it's already holding
+    // MAX_BIDS live bids — winning ties up work capacity, bidding does not.
+    if (this.activeBids.size >= MAX_BIDS) return;
     if (await bidR.auctionClosed(taskId)) return;
     const rep = Number(await reg.getReputation(this.address));
     if (rep < meta.minReputation) return;
@@ -163,12 +168,13 @@ class CircleAgent {
       await execute(this.address, ADDR.bidEngine, "placeBid(bytes32,uint256,uint256)", [taskId, usdc(bidAmount), 1800]);
       this.activeBids.add(taskId);
       this.log(`bid ${bidAmount} USDC on "${meta.title}"`);
-      // Live bidding window: don't award immediately. Wait ~BID_WINDOW_FRACTION of
-      // the remaining task time (clamped) so competitors can bid, THEN close the
-      // auction. awardBid picks the best bid + is idempotent (auctionClosed guard),
-      // so whichever agent fires first just finalizes the winner.
+      // Live bidding window: don't award immediately. Wait a fixed 20 minutes
+      // (clamped to the time left) so competitors — including agents that were busy
+      // and just freed up — can bid, THEN close the auction. awardBid picks the best
+      // bid + is idempotent (auctionClosed guard), so whichever agent fires first
+      // just finalizes the winner.
       const remaining = Math.max(0, meta.deadline - Date.now());
-      const windowMs = Math.min(BID_WINDOW_MAX_MS, Math.max(BID_WINDOW_MIN_MS, Math.floor(remaining * BID_WINDOW_FRACTION)));
+      const windowMs = Math.min(BID_WINDOW_MS, remaining);
       setTimeout(async () => {
         try {
           if (await bidR.auctionClosed(taskId)) return;
@@ -185,16 +191,22 @@ class CircleAgent {
 
   /** Work a task this agent has been assigned (driven by the backend index). */
   async fulfil(taskId, meta) {
-    this.activeBids.delete(taskId); // bid resolved into a win → counts as in-flight now
+    this.activeBids.delete(taskId); // bid resolved into a win → no longer a live bid
     if (this.handled.has(taskId)) return;
+
+    // Already at work capacity (won a 2nd auction while busy): hand it to a free
+    // peer; if none is free, DEFER — leave it unhandled so a later tick runs it
+    // once this agent frees up. Never work two jobs concurrently.
+    if (this.inFlight >= MAX_INFLIGHT) {
+      const peer = SWARM.find((a) => a !== this && a.cfg && a.wants(meta) && a.inFlight < MAX_INFLIGHT);
+      if (peer && (await this.delegate(taskId, meta, peer))) {
+        this.handled.add(taskId);
+      }
+      return; // delegated (handled) or deferred (retried next tick)
+    }
+
     this.handled.add(taskId);
     try {
-      // Delegate if over capacity and a peer can take it.
-      if (DELEGATE_THRESHOLD > 0 && this.inFlight >= DELEGATE_THRESHOLD) {
-        const peer = SWARM.find((a) => a !== this && a.cfg && a.wants(meta) && a.address !== this.address);
-        if (peer && (await this.delegate(taskId, meta, peer))) return;
-      }
-
       this.inFlight += 1;
       // Take a realistic amount of time to "work" the task (stays ASSIGNED /
       // in-progress meanwhile), then produce + deliver + review. Reviewer feedback
@@ -353,13 +365,12 @@ async function main() {
 
         if (t.status === "OPEN") {
           if (meta.deadline < now) continue;
-          // Specialist-first dispatch: only agents whose core skills match the
-          // task type bid. Generalists backfill ONLY when no specialist is free,
-          // so a writing task goes to a writer, not a high-rep code agent.
-          const free = (a) => a.load < MAX_INFLIGHT;
-          const specialists = swarm.filter((a) => a.isSpecialist(meta) && free(a));
-          const bidders = specialists.length > 0 ? specialists : swarm.filter((a) => a.isGeneralist() && free(a));
-          for (const a of bidders) await a.bidOn(meta.taskId, meta);
+          // Open dispatch: every capable agent with spare bid capacity bids, so a
+          // task draws multiple bids and none go unbid. Specialists still win because
+          // they price lower (SPECIALIST_MARKUP < GENERALIST_MARKUP); a busy agent
+          // (at work capacity) simply re-bids on a later tick once it frees up.
+          const canBid = (a) => a.wants(meta) && a.activeBids.size < MAX_BIDS;
+          for (const a of swarm.filter(canBid)) await a.bidOn(meta.taskId, meta);
         } else if (t.status === "ASSIGNED" || t.status === "IN_PROGRESS") {
           const winner = (t.assignedAgent || "").toLowerCase();
           // Free capacity for agents that bid but lost this auction.

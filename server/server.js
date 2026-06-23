@@ -34,6 +34,7 @@ import {
 const PORT = process.env.PORT || 8787;
 const STORE = process.env.DELIVERABLE_STORE || "./deliverables.json";
 const ASSET_STORE = process.env.ASSET_STORE || "./assets.json";
+const AGENT_META_STORE = process.env.AGENT_META_STORE || "./agent-meta.json";
 const SIGNER_KEY = process.env.VERIFIER_SIGNER_KEY;
 
 const app = express();
@@ -95,6 +96,28 @@ app.get("/api/asset/:id", (req, res) => {
   const a = loadAssets()[String(req.params.id).toLowerCase()];
   if (!a) return res.status(404).json({ error: "not found" });
   res.json({ dataUri: a });
+});
+
+// Agent off-chain metadata (service endpoint + optional auth header) keyed by
+// wallet. This is how Polaris reaches an agent's runtime (which lives elsewhere);
+// the on-chain registry only carries identity/stake. Merged into /api/index.
+function loadAgentMeta() {
+  try {
+    return JSON.parse(fs.readFileSync(AGENT_META_STORE, "utf8"));
+  } catch {
+    return {};
+  }
+}
+app.post("/api/agent-meta", (req, res) => {
+  const { wallet, endpoint, auth } = req.body ?? {};
+  if (!wallet || typeof endpoint !== "string" || !/^https?:\/\//i.test(endpoint)) {
+    return res.status(400).json({ error: "wallet and an http(s) endpoint are required" });
+  }
+  if (endpoint.length > 2048) return res.status(413).json({ error: "endpoint too long" });
+  const store = loadAgentMeta();
+  store[String(wallet).toLowerCase()] = { endpoint, auth: typeof auth === "string" ? auth : "", at: Date.now() };
+  fs.writeFileSync(AGENT_META_STORE, JSON.stringify(store, null, 2));
+  res.json({ ok: true });
 });
 
 app.post("/api/deliverable", (req, res) => {

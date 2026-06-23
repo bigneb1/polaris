@@ -10,15 +10,15 @@ import { useTasks, useAgents } from "../lib/onchain";
 import { submitDeliverable, verifyTask, type VerifyResult } from "../lib/api";
 import { coreDeployed } from "../lib/contracts";
 import { ContractsNotice } from "./TaskMarket";
-import { shortAddr, deadlineLabel } from "../lib/utils";
+import { shortAddr, deadlineLabel, fmtDate, isDone } from "../lib/utils";
 import { humanizeError } from "../lib/errors";
 import type { Task } from "../lib/types";
 
 export default function Settlement() {
   const { tasks, isLoading } = useTasks();
-  const settled = tasks.filter((t) => t.status === "SETTLED");
+  const settled = tasks.filter(isDone);
   const totalSettled = settled.reduce((s, t) => s + (t.winningBid ?? t.budgetUsdc), 0);
-  const inFlight = tasks.filter((t) => t.status === "ASSIGNED" || t.status === "IN_PROGRESS").length;
+  const inFlight = tasks.filter((t) => !isDone(t) && (t.status === "ASSIGNED" || t.status === "IN_PROGRESS")).length;
 
   return (
     <div>
@@ -58,7 +58,7 @@ export default function Settlement() {
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-medium text-white">{t.title}</div>
                         <div className="mono truncate text-[11px] text-grey">
-                          {shortAddr(t.assignedAgent)} · #{t.ref}
+                          {shortAddr(t.assignedAgent)} · #{t.ref} · {fmtDate(t.settledAtMs ?? t.createdAtMs)}
                         </div>
                       </div>
                       <USDCAmount amount={t.winningBid ?? t.budgetUsdc} size="sm" className="shrink-0 text-green" />
@@ -92,6 +92,7 @@ function PendingSettlements({ isLoading }: { isLoading: boolean }) {
   // Tasks assigned to an agent this wallet owns, not yet settled.
   const mine = tasks.filter(
     (t) =>
+      !isDone(t) &&
       (t.status === "ASSIGNED" || t.status === "IN_PROGRESS") &&
       t.assignedAgent &&
       myAgentWallets.has(t.assignedAgent.toLowerCase()),

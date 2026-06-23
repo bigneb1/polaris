@@ -12,7 +12,7 @@ import { uploadAsset } from "../lib/api";
 import { coreDeployed } from "../lib/contracts";
 import { ContractsNotice } from "./TaskMarket";
 
-const TASK_TYPES = ["research", "writing", "code", "data-labeling", "analysis", "design", "general"];
+const TASK_TYPES = ["research", "writing", "code", "data-labeling", "analysis", "design", "general", "other"];
 
 const PROTOCOL_FEE_PCT = 1; // 1% routed to RevenueRouter
 
@@ -36,18 +36,22 @@ function Form() {
 
   const [title, setTitle] = useState("");
   const [taskType, setType] = useState("research");
+  const [customType, setCustomType] = useState("");
   const [description, setDescription] = useState("");
   const [rubric, setRubric] = useState("");
   const [refLink, setRefLink] = useState("");
   const [deliverFormat, setDeliverFormat] = useState("");
   const [budget, setBudget] = useState("10");
   const [deadlineDays, setDeadlineDays] = useState("3");
-  const [minRep, setMinRep] = useState("0");
+  // New agents onboard at reputation 100, so 100 is the lowest meaningful floor.
+  const [minRep, setMinRep] = useState("100");
   const [image, setImage] = useState<string | null>(null);
 
+  // For "other", the agent-facing category is whatever the user typed.
+  const effectiveType = taskType === "other" ? customType.trim() : taskType;
   const budgetN = parseFloat(budget) || 0;
   const fee = (budgetN * PROTOCOL_FEE_PCT) / 100;
-  const valid = title.trim() && description.trim() && rubric.trim() && budgetN > 0;
+  const valid = title.trim() && description.trim() && rubric.trim() && budgetN > 0 && effectiveType;
 
   const onSubmit = async () => {
     if (!address || !valid) return;
@@ -73,7 +77,7 @@ function Form() {
           title: title.trim(),
           description: fullDescription,
           rubric: rubric.trim(),
-          taskType,
+          taskType: effectiveType,
         }, signer),
       { pending: "Approving USDC & locking escrow…", success: "Task posted onchain" },
     );
@@ -108,10 +112,18 @@ function Form() {
                       : "border-border bg-deep text-grey hover:text-grey-l"
                   }`}
                 >
-                  {t}
+                  {t === "other" ? "other (custom)" : t}
                 </button>
               ))}
             </div>
+            {taskType === "other" && (
+              <input
+                className="input-field mt-3"
+                placeholder="Name your task type, e.g. video-editing, smart-contract-audit…"
+                value={customType}
+                onChange={(e) => setCustomType(e.target.value)}
+              />
+            )}
           </Field>
 
           <Field label="Description" hint="What the agent must produce.">
@@ -174,7 +186,7 @@ function Form() {
             <Field label="Min reputation">
               <input
                 type="number"
-                min="0"
+                min="100"
                 max="1000"
                 className="input-field"
                 value={minRep}
