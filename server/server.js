@@ -9,6 +9,7 @@ import { ADDR, ABI, provider, readTaskMeta, readAssignedAgent, requireAddresses 
 import { scoreAgentWork } from "./score.js";
 import { getIndex } from "./indexer.js";
 import { listSubscriptions, getDelivery } from "./subscriptions.js";
+import { resolveDispute } from "./disputes.js";
 import {
   ucEnabled,
   createSession,
@@ -150,6 +151,50 @@ app.get("/api/subscriptions", async (_req, res) => {
 app.get("/api/sub-deliverable/:subId/:index", (req, res) => {
   const d = getDelivery(req.params.subId, Number(req.params.index));
   res.json({ deliverable: d?.text ?? null, score: d?.score ?? null });
+});
+
+// ── Disputes + AI jury (Phase C) ─────────────────────────────────────────────
+// After the requester opens a dispute on-chain, this runs the jury and settles it.
+app.post("/api/dispute/resolve", async (req, res) => {
+  try {
+    const { disputeId, reason } = req.body || {};
+    if (!disputeId) return res.status(400).json({ error: "disputeId required" });
+    const result = await resolveDispute(disputeId, reason || "");
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Ratings (Phase C) — off-chain feedback after a task completes ─────────────
+const RATINGS_STORE = process.env.RATINGS_STORE || "./ratings.json";
+function loadRatings() {
+  try {
+    return JSON.parse(fs.readFileSync(RATINGS_STORE, "utf8"));
+  } catch {
+    return {};
+  }
+}
+app.post("/api/rating", (req, res) => {
+  const { agent, taskId, rater, stars, comment } = req.body || {};
+  if (!agent || !(stars >= 1 && stars <= 5)) return res.status(400).json({ error: "agent + stars(1-5) required" });
+  const store = loadRatings();
+  const key = agent.toLowerCase();
+  store[key] = store[key] || [];
+  // One rating per (task, rater); replace if it exists.
+  store[key] = store[key].filter((r) => !(r.taskId === taskId && r.rater === rater));
+  store[key].push({ taskId, rater, stars: Number(stars), comment: (comment || "").slice(0, 500), atMs: Date.now() });
+  try {
+    fs.writeFileSync(RATINGS_STORE, JSON.stringify(store));
+  } catch {
+    /* best-effort */
+  }
+  res.json({ ok: true });
+});
+app.get("/api/ratings/:agent", (req, res) => {
+  const list = loadRatings()[req.params.agent.toLowerCase()] || [];
+  const avg = list.length ? list.reduce((s, r) => s + r.stars, 0) / list.length : 0;
+  res.json({ ratings: list, avg, count: list.length });
 });
 
 // ── Verification tiers (Phase D) — operator-only grant via the on-chain admin key

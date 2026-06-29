@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useWallet } from "../context/WalletProvider";
-import { ArrowLeft, ExternalLink, Gavel, Trophy, Clock, Bot, ShieldCheck, Coins, FileText, Lock, X } from "lucide-react";
+import { ArrowLeft, ExternalLink, Gavel, Trophy, Clock, Bot, ShieldCheck, Coins, FileText, Lock, X, Scale, CheckCircle2, XCircle } from "lucide-react";
 import { Panel, USDCAmount, StatusBadge, EmptyState, Skeleton } from "../components/ui/primitives";
 import { AgentAvatarImg } from "../components/AgentAvatar";
+import DisputeModal from "../components/DisputeModal";
 import type { Agent, Bid } from "../lib/types";
 import { useTask, useAgents } from "../lib/onchain";
 import { useTx } from "../hooks/useTx";
@@ -19,6 +20,7 @@ export default function TaskDetail() {
   const { agents } = useAgents();
   const { run, loading } = useTx();
   const [awardOpen, setAwardOpen] = useState(false);
+  const [disputeOpen, setDisputeOpen] = useState(false);
 
   if (isLoading) return <Skeleton className="h-96 w-full" />;
   if (!task)
@@ -169,6 +171,42 @@ export default function TaskDetail() {
           {isRequester && (task.assignedAgent || task.status === "SETTLED") && (
             <DeliverablePanel taskId={task.taskId} agent={task.assignedAgent} />
           )}
+
+          {/* Dispute (Phase C) — status if disputed, else a control for the requester */}
+          {task.dispute ? (
+            <Panel title={<span className="inline-flex items-center gap-2"><Scale size={14} /> Dispute</span>}>
+              <div className="flex flex-col gap-3">
+                <div className={`inline-flex w-fit items-center gap-2 rounded-md border px-2.5 py-1 text-xs font-semibold ${
+                  task.dispute.status === "UPHELD" ? "border-green/40 bg-green/5 text-green"
+                  : task.dispute.status === "REJECTED" ? "border-red/40 bg-red/5 text-red"
+                  : "border-amber-400/40 bg-amber-400/10 text-amber-300"
+                }`}>
+                  {task.dispute.status === "UPHELD" ? <CheckCircle2 size={13} /> : task.dispute.status === "REJECTED" ? <XCircle size={13} /> : <Scale size={13} />}
+                  {task.dispute.status === "OPEN" ? "Under jury review" : `Dispute ${task.dispute.status.toLowerCase()}`}
+                </div>
+                <div>
+                  <div className="eyebrow mb-1">Complaint</div>
+                  <p className="text-sm leading-relaxed text-grey-l">{task.dispute.reason || "—"}</p>
+                </div>
+                {task.dispute.juryNote && (
+                  <div className="rounded-xl border border-border bg-deep p-3">
+                    <div className="eyebrow mb-1">AI jury verdict</div>
+                    <p className="text-sm leading-relaxed text-grey-l">{task.dispute.juryNote}</p>
+                  </div>
+                )}
+              </div>
+            </Panel>
+          ) : (
+            isRequester && task.status === "SETTLED" && task.assignedAgent && (
+              <div className="panel flex flex-wrap items-center justify-between gap-3 p-4">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-white">Not satisfied with the work?</div>
+                  <div className="mono text-[11px] text-grey">Stake a bond and let the AI jury re-judge it.</div>
+                </div>
+                <button onClick={() => setDisputeOpen(true)} className="btn-ghost btn-sm"><Scale size={13} /> Dispute</button>
+              </div>
+            )
+          )}
         </div>
 
         {/* Right: bids + place bid */}
@@ -224,6 +262,8 @@ export default function TaskDetail() {
           }
         />
       )}
+
+      {disputeOpen && <DisputeModal task={task} onClose={() => setDisputeOpen(false)} />}
     </div>
   );
 }

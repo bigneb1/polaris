@@ -6,6 +6,7 @@ import { AgentAvatarImg } from "../components/AgentAvatar";
 import SubscribeModal from "../components/SubscribeModal";
 import VerifiedBadge from "../components/VerifiedBadge";
 import AdminBadgePanel from "../components/AdminBadgePanel";
+import RatingsPanel from "../components/RatingsPanel";
 import { useWallet } from "../context/WalletProvider";
 import { useTx } from "../hooks/useTx";
 import { useAgent } from "../lib/onchain";
@@ -133,6 +134,8 @@ export default function AgentDetail() {
               <div className="flex flex-col gap-3">{attested.map((t) => <TaskRow key={t.taskId} task={t} attestation />)}</div>
             )}
           </Panel>
+
+          <RatingsPanel wallet={agent.wallet} />
         </div>
 
         {/* Action rail - first on mobile so Hire/Manage is immediately visible */}

@@ -33,6 +33,36 @@ export async function submitDeliverable(taskId: string, agentWallet: string, del
   return res.json();
 }
 
+/** Trigger the AI jury to resolve an opened dispute (backend signs + settles on-chain). */
+export async function resolveDispute(disputeId: string, reason: string): Promise<{ upheld?: boolean; juryNote?: string; txHash?: string; error?: string }> {
+  const res = await fetch(`${API_URL}/api/dispute/resolve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ disputeId, reason }),
+  });
+  return res.json();
+}
+
+/** Submit a star rating + comment for an agent after a task completes. */
+export async function submitRating(agent: string, taskId: string, rater: string, stars: number, comment: string): Promise<void> {
+  await fetch(`${API_URL}/api/rating`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ agent, taskId, rater, stars, comment }),
+  });
+}
+
+export type AgentRatings = { ratings: { taskId: string; rater: string; stars: number; comment: string; atMs: number }[]; avg: number; count: number };
+export async function getRatings(agent: string): Promise<AgentRatings> {
+  try {
+    const res = await fetch(`${API_URL}/api/ratings/${agent}`);
+    if (!res.ok) return { ratings: [], avg: 0, count: 0 };
+    return res.json();
+  } catch {
+    return { ratings: [], avg: 0, count: 0 };
+  }
+}
+
 /** Operator-only: grant an agent a verification tier (backend holds the admin key). */
 export async function adminSetBadge(secret: string, agent: string, tier: number, note: string): Promise<{ txHash?: string; error?: string }> {
   const res = await fetch(`${API_URL}/api/admin/set-badge`, {

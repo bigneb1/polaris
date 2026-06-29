@@ -70,6 +70,10 @@ const EVENTS = {
   agentBadges: [
     "event BadgeSet(address indexed agent, uint8 tier, string note)",
   ],
+  disputeManager: [
+    "event DisputeOpened(bytes32 indexed disputeId, bytes32 indexed taskId, address indexed requester, address agent, uint256 bond, string reason)",
+    "event DisputeResolved(bytes32 indexed disputeId, bool upheld, string juryNote)",
+  ],
 };
 
 const toUsdc = (raw) => Number(ethers.formatUnits(raw, USDC_DECIMALS));
@@ -134,12 +138,13 @@ async function blockTimes(blocks) {
 }
 
 export async function buildIndex() {
-  const [taskLogs, agentLogs, bidLogs, verifierLogs, badgeLogs] = await Promise.all([
+  const [taskLogs, agentLogs, bidLogs, verifierLogs, badgeLogs, disputeLogs] = await Promise.all([
     getAllLogs(ADDR.taskRegistry, EVENTS.taskRegistry),
     getAllLogs(ADDR.agentRegistry, EVENTS.agentRegistry),
     getAllLogs(ADDR.bidEngine, EVENTS.bidEngine),
     getAllLogs(ADDR.verifierBridge, EVENTS.verifierBridge),
     getAllLogs(ADDR.agentBadges, EVENTS.agentBadges),
+    getAllLogs(ADDR.disputeManager, EVENTS.disputeManager),
   ]);
 
   const allBlocks = [...taskLogs, ...agentLogs, ...bidLogs, ...verifierLogs].map((l) => l.blockNumber).filter((b) => b != null);
@@ -284,6 +289,32 @@ export async function buildIndex() {
     if (!ag) continue;
     ag.tier = Number(log.args.tier);
     ag.badgeNote = log.args.note || "";
+  }
+
+  /* Attach disputes (Phase C) to their tasks (latest per task) */
+  const disputeById = new Map();
+  for (const log of disputeLogs) {
+    const a = log.args;
+    if (log.name === "DisputeOpened") {
+      disputeById.set(a.disputeId, {
+        disputeId: a.disputeId,
+        taskId: a.taskId,
+        bond: toUsdc(a.bond),
+        reason: a.reason || "",
+        status: "OPEN",
+        juryNote: "",
+      });
+    } else if (log.name === "DisputeResolved") {
+      const dz = disputeById.get(a.disputeId);
+      if (dz) {
+        dz.status = a.upheld ? "UPHELD" : "REJECTED";
+        dz.juryNote = a.juryNote || "";
+      }
+    }
+  }
+  for (const dz of disputeById.values()) {
+    const t = tasks.get(dz.taskId);
+    if (t) t.dispute = dz;
   }
 
   /* Derive agent throughput + earnings from settled tasks */

@@ -27,6 +27,8 @@ export const CONTRACTS: Record<string, Address> = {
   subscriptionManager: "0x3DbA6eD862d4247A30D6dF76d438bEeC72cfb61a",
   // Phase D — on-chain agent verification tiers.
   agentBadges: "0x6c5f75992390079A0A0aaD51059D7bA05Dc1b842",
+  // Phase C — staked dispute resolution.
+  disputeManager: "0xC8272C6f502D130cce9519dacD8a30356E772678",
 };
 
 export function isDeployed(key: string): boolean {
@@ -94,6 +96,13 @@ export const VERIFIER_BRIDGE_ABI = parseAbi([
   "function processed(bytes32) view returns (bool)",
   "function attestations(bytes32) view returns (address agent, bool passed, uint8 score, bytes32 deliverableHash, uint256 timestamp)",
   "event VerificationSubmitted(bytes32 indexed taskId, address indexed agent, bool passed, uint8 score, bytes32 deliverableHash)",
+]);
+
+export const DISPUTE_MANAGER_ABI = parseAbi([
+  "function openDispute(bytes32 disputeId, bytes32 taskId, address agent, uint256 bond, string reason)",
+  "function getDispute(bytes32) view returns (address requester, address agent, bytes32 taskId, uint256 bond, uint8 status)",
+  "event DisputeOpened(bytes32 indexed disputeId, bytes32 indexed taskId, address indexed requester, address agent, uint256 bond, string reason)",
+  "event DisputeResolved(bytes32 indexed disputeId, bool upheld, string juryNote)",
 ]);
 
 export const SUBSCRIPTION_MANAGER_ABI = parseAbi([

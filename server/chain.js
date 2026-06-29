@@ -23,6 +23,9 @@ export const ADDR = {
   // Phase D — agent verification tiers.
   agentBadges:
     process.env.VITE_CONTRACT_AGENT_BADGES || "0x6c5f75992390079A0A0aaD51059D7bA05Dc1b842",
+  // Phase C — staked dispute resolution.
+  disputeManager:
+    process.env.VITE_CONTRACT_DISPUTE_MANAGER || "0xC8272C6f502D130cce9519dacD8a30356E772678",
 };
 
 export const provider = new ethers.JsonRpcProvider(RPC_URL);
@@ -63,6 +66,12 @@ export const ABI = {
     "event SubscriptionCreated(bytes32 indexed subId, address indexed subscriber, address indexed agent, uint256 perDeliveryUsdc, uint32 totalDeliveries, string title, string brief, string rubric, string taskType, string schedule)",
     "event DeliveryReleased(bytes32 indexed subId, address indexed agent, uint32 index, uint256 amount, uint8 score, bytes32 deliverableHash)",
     "event SubscriptionCancelled(bytes32 indexed subId, uint256 refund)",
+  ],
+  disputeManager: [
+    "function resolveDispute(bytes32 disputeId, bool upheld, string juryNote, bytes signature)",
+    "function getDispute(bytes32) view returns (address requester, address agent, bytes32 taskId, uint256 bond, uint8 status)",
+    "event DisputeOpened(bytes32 indexed disputeId, bytes32 indexed taskId, address indexed requester, address agent, uint256 bond, string reason)",
+    "event DisputeResolved(bytes32 indexed disputeId, bool upheld, string juryNote)",
   ],
 };
 

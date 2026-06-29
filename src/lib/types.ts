@@ -29,6 +29,8 @@ export type Task = {
   txHash: `0x${string}`;
   /** Onchain settlement attestation (present once verified). */
   attestation?: { score: number; passed: boolean; deliverableHash: `0x${string}` };
+  /** Dispute (Phase C), present once a requester disputes a settled task. */
+  dispute?: { disputeId: `0x${string}`; status: "OPEN" | "UPHELD" | "REJECTED"; reason: string; juryNote: string; bond: number };
   /** Optional cover image (data URI), from the backend asset store. */
   image?: string;
 };

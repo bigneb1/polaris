@@ -9,6 +9,7 @@ import {
   AGENT_REGISTRY_ABI,
   BID_ENGINE_ABI,
   SUBSCRIPTION_MANAGER_ABI,
+  DISPUTE_MANAGER_ABI,
 } from "./contracts";
 import { circleWrite, type CircleSession } from "./circleWallet";
 import { ucWrite, type UcSession } from "./circleUserWallet";
@@ -196,6 +197,27 @@ export async function createSubscription(i: CreateSubscriptionInput, circle?: Si
 export async function cancelSubscription(subId: `0x${string}`, circle?: Signer): Promise<Hash> {
   return run(
     [{ address: CONTRACTS.subscriptionManager, abi: SUBSCRIPTION_MANAGER_ABI, functionName: "cancelSubscription", args: [subId] }],
+    circle,
+  );
+}
+
+/* ── Disputes (Phase C) ─────────────────────────────────────────────────────── */
+
+/** Open a staked dispute on a settled task (approve the bond, then open). */
+export async function openDispute(
+  i: { disputeId: `0x${string}`; taskId: `0x${string}`; agent: Address; bondUsdc: number; reason: string },
+  circle?: Signer,
+): Promise<Hash> {
+  return run(
+    [
+      approve(CONTRACTS.disputeManager, i.bondUsdc),
+      {
+        address: CONTRACTS.disputeManager,
+        abi: DISPUTE_MANAGER_ABI,
+        functionName: "openDispute",
+        args: [i.disputeId, i.taskId, i.agent, usdc(i.bondUsdc), i.reason],
+      },
+    ],
     circle,
   );
 }
