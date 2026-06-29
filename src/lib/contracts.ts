@@ -25,6 +25,8 @@ export const CONTRACTS: Record<string, Address> = {
   revenueRouter: "0xe26f6beE50A181211291E903D9EA792a02C4b296",
   // Phase A — recurring tasks & subscriptions (self-custodial; reuses the verifier signer).
   subscriptionManager: "0x3DbA6eD862d4247A30D6dF76d438bEeC72cfb61a",
+  // Phase D — on-chain agent verification tiers.
+  agentBadges: "0x6c5f75992390079A0A0aaD51059D7bA05Dc1b842",
 };
 
 export function isDeployed(key: string): boolean {

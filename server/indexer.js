@@ -67,6 +67,9 @@ const EVENTS = {
   verifierBridge: [
     "event VerificationSubmitted(bytes32 indexed taskId, address indexed agent, bool passed, uint8 score, bytes32 deliverableHash)",
   ],
+  agentBadges: [
+    "event BadgeSet(address indexed agent, uint8 tier, string note)",
+  ],
 };
 
 const toUsdc = (raw) => Number(ethers.formatUnits(raw, USDC_DECIMALS));
@@ -131,11 +134,12 @@ async function blockTimes(blocks) {
 }
 
 export async function buildIndex() {
-  const [taskLogs, agentLogs, bidLogs, verifierLogs] = await Promise.all([
+  const [taskLogs, agentLogs, bidLogs, verifierLogs, badgeLogs] = await Promise.all([
     getAllLogs(ADDR.taskRegistry, EVENTS.taskRegistry),
     getAllLogs(ADDR.agentRegistry, EVENTS.agentRegistry),
     getAllLogs(ADDR.bidEngine, EVENTS.bidEngine),
     getAllLogs(ADDR.verifierBridge, EVENTS.verifierBridge),
+    getAllLogs(ADDR.agentBadges, EVENTS.agentBadges),
   ]);
 
   const allBlocks = [...taskLogs, ...agentLogs, ...bidLogs, ...verifierLogs].map((l) => l.blockNumber).filter((b) => b != null);
@@ -251,6 +255,8 @@ export async function buildIndex() {
         totalEarned: 0,
         online: true,
         slashed: false,
+        tier: 0,
+        badgeNote: "",
         createdAtMs: tsOf(log),
       });
     } else {
@@ -269,6 +275,15 @@ export async function buildIndex() {
         ag.tasksFailed += 1;
       }
     }
+  }
+
+  /* Apply on-chain verification tiers (last write per agent wins) */
+  for (const log of badgeLogs) {
+    if (log.name !== "BadgeSet") continue;
+    const ag = agents.get(log.args.agent?.toLowerCase());
+    if (!ag) continue;
+    ag.tier = Number(log.args.tier);
+    ag.badgeNote = log.args.note || "";
   }
 
   /* Derive agent throughput + earnings from settled tasks */

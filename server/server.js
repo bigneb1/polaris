@@ -152,6 +152,23 @@ app.get("/api/sub-deliverable/:subId/:index", (req, res) => {
   res.json({ deliverable: d?.text ?? null, score: d?.score ?? null });
 });
 
+// ── Verification tiers (Phase D) — operator-only grant via the on-chain admin key
+app.post("/api/admin/set-badge", async (req, res) => {
+  try {
+    const { secret, agent, tier, note } = req.body || {};
+    if (!process.env.ADMIN_SECRET || secret !== process.env.ADMIN_SECRET) return res.status(403).json({ error: "Forbidden" });
+    if (!SIGNER_KEY) return res.status(500).json({ error: "VERIFIER_SIGNER_KEY not set" });
+    if (!ethers.isAddress(agent) || tier < 0 || tier > 4) return res.status(400).json({ error: "Bad agent or tier" });
+    const wallet = new ethers.Wallet(SIGNER_KEY, provider);
+    const badges = new ethers.Contract(ADDR.agentBadges, ["function setBadge(address,uint8,string)"], wallet);
+    const tx = await badges.setBadge(agent, tier, note || "");
+    await tx.wait();
+    res.json({ txHash: tx.hash });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post("/api/verify", async (req, res) => {
   try {
     requireAddresses(["taskRegistry", "verifierBridge"]);

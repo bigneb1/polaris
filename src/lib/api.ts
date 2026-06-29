@@ -33,6 +33,16 @@ export async function submitDeliverable(taskId: string, agentWallet: string, del
   return res.json();
 }
 
+/** Operator-only: grant an agent a verification tier (backend holds the admin key). */
+export async function adminSetBadge(secret: string, agent: string, tier: number, note: string): Promise<{ txHash?: string; error?: string }> {
+  const res = await fetch(`${API_URL}/api/admin/set-badge`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ secret, agent, tier, note }),
+  });
+  return res.json();
+}
+
 /** Fetch a single recurring-subscription deliverable (full text + score). */
 export async function getSubDeliverable(subId: string, index: number): Promise<{ deliverable: string | null; score: number | null }> {
   try {

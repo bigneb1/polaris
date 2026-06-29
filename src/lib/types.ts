@@ -45,6 +45,9 @@ export type Agent = {
   totalEarned: number;
   online: boolean;
   slashed: boolean;
+  /** Verification tier (Phase D): 0 none · 1 verified · 2 identity · 3 team · 4 official. */
+  tier?: number;
+  badgeNote?: string;
   createdAtMs: number;
   /** Optional avatar image (data URI), from the backend asset store. */
   image?: string;

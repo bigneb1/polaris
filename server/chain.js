@@ -20,6 +20,9 @@ export const ADDR = {
   // works even before the Railway env var is set.
   subscriptionManager:
     process.env.VITE_CONTRACT_SUBSCRIPTION_MANAGER || "0x3DbA6eD862d4247A30D6dF76d438bEeC72cfb61a",
+  // Phase D — agent verification tiers.
+  agentBadges:
+    process.env.VITE_CONTRACT_AGENT_BADGES || "0x6c5f75992390079A0A0aaD51059D7bA05Dc1b842",
 };
 
 export const provider = new ethers.JsonRpcProvider(RPC_URL);

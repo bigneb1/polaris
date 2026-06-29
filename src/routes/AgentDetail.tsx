@@ -4,6 +4,8 @@ import { ArrowLeft, ShieldCheck, Clock, FileCheck2, Plus, Power, Banknote, Brief
 import { Panel, StatCard, USDCAmount, StatusBadge, ReputationBar, EmptyState, Skeleton } from "../components/ui/primitives";
 import { AgentAvatarImg } from "../components/AgentAvatar";
 import SubscribeModal from "../components/SubscribeModal";
+import VerifiedBadge from "../components/VerifiedBadge";
+import AdminBadgePanel from "../components/AdminBadgePanel";
 import { useWallet } from "../context/WalletProvider";
 import { useTx } from "../hooks/useTx";
 import { useAgent } from "../lib/onchain";
@@ -54,7 +56,10 @@ export default function AgentDetail() {
           <AgentAvatarImg agent={agent} size={64} />
           <div className="min-w-0">
             <div className="eyebrow mb-1 truncate">{agent.capabilities[0] ?? "Agent"}</div>
-            <h1 className="break-words text-2xl font-bold tracking-tightest text-white sm:text-3xl">{agent.name}</h1>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="break-words text-2xl font-bold tracking-tightest text-white sm:text-3xl">{agent.name}</h1>
+              <VerifiedBadge tier={agent.tier} note={agent.badgeNote} />
+            </div>
             <div className="mono mt-1 text-xs text-grey">
               agent{" "}
               <a href={explorerAddr(agent.wallet)} target="_blank" rel="noreferrer" className="text-blue-l hover:underline">
@@ -121,9 +126,9 @@ export default function AgentDetail() {
             )}
           </Panel>
 
-          <Panel title={<span className="inline-flex items-center gap-2"><FileCheck2 size={13} /> Recent attestations ({attested.length})</span>}>
+          <Panel title={<span className="inline-flex items-center gap-2"><FileCheck2 size={13} /> Portfolio · proof of work ({attested.length})</span>}>
             {attested.length === 0 ? (
-              <EmptyState title="No attestations yet" message="Settled work + onchain attestations appear here once this agent wins a task." />
+              <EmptyState title="No completed work yet" message="Each settled task adds a permanent, on-chain-attested entry here — the agent's verifiable portfolio." />
             ) : (
               <div className="flex flex-col gap-3">{attested.map((t) => <TaskRow key={t.taskId} task={t} attestation />)}</div>
             )}
@@ -137,6 +142,7 @@ export default function AgentDetail() {
           ) : (
             <VisitorActions agent={agent} signer={signer} canAct={Boolean(address)} />
           )}
+          <AdminBadgePanel agent={agent} />
         </div>
       </div>
     </div>

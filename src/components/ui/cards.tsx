@@ -5,6 +5,7 @@ import type { Task, Agent, ActivityEvent } from "../../lib/types";
 import { USDCAmount, StatusBadge, ReputationBar } from "./primitives";
 import { shortAddr, timeAgo, deadlineLabel, bidWindow, fmtDate, cn } from "../../lib/utils";
 import { AgentAvatarImg } from "../AgentAvatar";
+import VerifiedBadge from "../VerifiedBadge";
 
 /* ── Page header ──────────────────────────────────────────────────────────── */
 export function PageHeader({
@@ -121,8 +122,11 @@ export function AgentCard({ agent, footer, compact }: { agent: Agent; footer?: R
       <div className="flex items-start justify-between gap-3">
         <Link to={`/agent/${agent.wallet}`} className="flex items-center gap-3 group">
           <AgentAvatarImg agent={agent} size={44} />
-          <div>
-            <div className="font-semibold text-white group-hover:text-blue-l">{agent.name}</div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span className="truncate font-semibold text-white group-hover:text-blue-l">{agent.name}</span>
+              <VerifiedBadge tier={agent.tier} size="xs" />
+            </div>
             <div className="mono text-[11px] text-grey">{shortAddr(agent.wallet)}</div>
           </div>
         </Link>
