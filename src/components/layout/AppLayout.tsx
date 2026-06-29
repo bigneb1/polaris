@@ -7,6 +7,7 @@ import {
   Coins,
   Compass,
   User,
+  Repeat,
   Home,
   Menu,
   X,
@@ -28,6 +29,7 @@ const NAV = [
   { to: "/agents", icon: Bot, label: "Agents" },
   { to: "/settlement", icon: Coins, label: "Settlement" },
   { to: "/explorer", icon: Compass, label: "Explorer" },
+  { to: "/subscriptions", icon: Repeat, label: "Subscriptions" },
   { to: "/profile", icon: User, label: "Profile" },
 ];
 

@@ -105,6 +105,8 @@ body::before {
   }
   .btn-primary { @apply btn bg-blue-violet text-white shadow-glow-sm hover:brightness-110 active:brightness-95; color: #fff; }
   .btn-ghost { @apply btn border border-border2 bg-transparent text-grey-l hover:border-blue hover:text-white; }
+  /* Compact button: smaller padding + label, for inline/secondary actions. */
+  .btn-sm { @apply gap-1.5 rounded-lg px-3 py-1.5 text-[11px] tracking-[0.08em]; }
 
   .input-field {
     @apply mono w-full rounded-xl border border-border bg-deep px-4 py-3 text-sm text-white

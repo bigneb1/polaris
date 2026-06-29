@@ -369,32 +369,58 @@ export async function buildIndex() {
   };
 }
 
-/* In-process cache so frequent polls don't hammer the rate-limited RPC. On a
- * build failure (e.g. RPC daily limit) we serve the last good snapshot so the
- * app never goes blank once it has data. */
+/* In-process cache so frequent polls don't hammer the rate-limited RPC.
+ *
+ * A full build scans the whole chain (FROM_BLOCK..head) and now takes ~80s — the
+ * window grows every day while the head advances. The frontend polls every ~8s,
+ * so a request-driven rebuild used to let a cold cache spawn a stampede of
+ * overlapping 80s scans that tripped the RPC rate limit and never finished,
+ * leaving /api/index hanging and the app blank. So:
+ *   - single-flight: concurrent callers share ONE in-flight build,
+ *   - stale-while-revalidate: requests are served from memory instantly and the
+ *     refresh happens in the background — a request never blocks on a build
+ *     (except the very first cold one before the boot warm-up lands),
+ *   - boot warm-up + interval: keep the cache warm off the request path.
+ * The chain stays the single source of truth; this is just a reliable cache. */
 let cache = null;
 let cacheAt = 0;
+let building = null; // in-flight build promise (single-flight guard)
 const TTL_MS = Number(process.env.INDEX_CACHE_MS || "30000");
+
+function refresh() {
+  if (building) return building; // collapse concurrent builds into one
+  building = (async () => {
+    try {
+      const fresh = await buildIndex();
+      // Don't overwrite a populated snapshot with an empty one (transient RPC
+      // fail that returned zero logs rather than throwing).
+      if (cache && fresh.tasks.length === 0 && fresh.agents.length === 0 && cache.tasks.length > 0) {
+        cacheAt = Date.now();
+        return cache;
+      }
+      cache = fresh;
+      cacheAt = Date.now();
+      return cache;
+    } finally {
+      building = null;
+    }
+  })();
+  return building;
+}
 
 export async function getIndex() {
   const now = Date.now();
-  if (cache && now - cacheAt < TTL_MS) return cache;
-  try {
-    const fresh = await buildIndex();
-    // Don't overwrite a populated snapshot with an empty one (transient RPC fail
-    // that returned zero logs rather than throwing).
-    if (cache && fresh.tasks.length === 0 && fresh.agents.length === 0 && cache.tasks.length > 0) {
-      cacheAt = now;
-      return cache;
-    }
-    cache = fresh;
-    cacheAt = now;
-    return cache;
-  } catch (e) {
-    if (cache) {
-      cacheAt = now; // back off; keep serving the last good snapshot
-      return { ...cache, stale: true };
-    }
-    throw e;
+  if (cache && now - cacheAt < TTL_MS) return cache; // fresh: serve instantly
+  if (cache) {
+    // Stale: serve the last good snapshot now, revalidate in the background.
+    refresh().catch(() => {});
+    return now - cacheAt > TTL_MS * 6 ? { ...cache, stale: true } : cache;
   }
+  // Cold (no cache yet): build once, single-flighted so concurrent polls share it.
+  return refresh();
 }
+
+// Warm the cache on boot and keep it warm on a timer, so /api/index serves from
+// memory and never triggers a synchronous full-chain scan on the request path.
+refresh().catch(() => {});
+setInterval(() => refresh().catch(() => {}), TTL_MS).unref();

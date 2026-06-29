@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import type { Task, Agent, Bid, ActivityEvent, MarketStats, TaskStatus } from "./types";
+import type { Task, Agent, Bid, ActivityEvent, MarketStats, TaskStatus, Subscription } from "./types";
 
 /* ── Backend-served chain index ──────────────────────────────────────────────
  * The browser used to make ~220 sequential eth_getLogs calls against the public
@@ -64,6 +64,23 @@ export function useAgent(wallet?: string) {
 export function useActivity() {
   const q = useIndex();
   return { activity: q.data?.activity ?? [], isLoading: q.isLoading };
+}
+
+/* ── Subscriptions (recurring tasks) — served separately from the chain index ── */
+async function fetchSubscriptions(): Promise<Subscription[]> {
+  const r = await fetch(`${API_URL}/api/subscriptions`);
+  if (!r.ok) throw new Error(`subscriptions request failed (${r.status})`);
+  const d = (await r.json()) as { subscriptions?: Subscription[] };
+  return d.subscriptions ?? [];
+}
+
+/** All subscriptions, optionally filtered to a subscriber or an agent wallet. */
+export function useSubscriptions(filter?: { subscriber?: string; agent?: string }) {
+  const q = useQuery({ queryKey: ["polaris-subscriptions"], refetchInterval: REFETCH_MS, queryFn: fetchSubscriptions });
+  let subs = q.data ?? [];
+  if (filter?.subscriber) subs = subs.filter((s) => s.subscriber.toLowerCase() === filter.subscriber!.toLowerCase());
+  if (filter?.agent) subs = subs.filter((s) => s.agent.toLowerCase() === filter.agent!.toLowerCase());
+  return { subscriptions: subs, isLoading: q.isLoading };
 }
 
 export function useMarketStats(): { stats: MarketStats; isLoading: boolean } {

@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useWallet } from "../context/WalletProvider";
-import { ArrowLeft, ExternalLink, Gavel, Trophy, Clock, Bot, ShieldCheck, Coins, FileText, Lock } from "lucide-react";
+import { ArrowLeft, ExternalLink, Gavel, Trophy, Clock, Bot, ShieldCheck, Coins, FileText, Lock, X } from "lucide-react";
 import { Panel, USDCAmount, StatusBadge, EmptyState, Skeleton } from "../components/ui/primitives";
+import { AgentAvatarImg } from "../components/AgentAvatar";
+import type { Agent, Bid } from "../lib/types";
 import { useTask, useAgents } from "../lib/onchain";
 import { useTx } from "../hooks/useTx";
 import { placeBid, awardBid, cancelTask } from "../lib/tx";
@@ -16,6 +18,7 @@ export default function TaskDetail() {
   const { address, signer } = useWallet();
   const { agents } = useAgents();
   const { run, loading } = useTx();
+  const [awardOpen, setAwardOpen] = useState(false);
 
   if (isLoading) return <Skeleton className="h-96 w-full" />;
   if (!task)
@@ -61,7 +64,7 @@ export default function TaskDetail() {
 
       <div className="grid gap-6 lg:grid-cols-[1.5fr_1fr]">
         {/* Left: details */}
-        <div className="flex flex-col gap-6">
+        <div className="flex min-w-0 flex-col gap-6">
           <Panel title="Description">
             <p className="whitespace-pre-wrap text-sm leading-relaxed text-grey-l">{task.description}</p>
           </Panel>
@@ -91,14 +94,8 @@ export default function TaskDetail() {
             {isRequester && task.status === "OPEN" && (
               <div className="flex gap-2">
                 {bids.length > 0 && (
-                  <button
-                    onClick={() =>
-                      run(() => awardBid(task.taskId, signer), { pending: "Awarding best bid…", success: "Bid awarded - agent assigned" })
-                    }
-                    disabled={loading}
-                    className="btn-primary !py-2"
-                  >
-                    <Trophy size={14} /> Award best bid
+                  <button onClick={() => setAwardOpen(true)} disabled={loading} className="btn-primary btn-sm">
+                    <Trophy size={13} /> Award bid
                   </button>
                 )}
                 <button
@@ -106,7 +103,7 @@ export default function TaskDetail() {
                     run(() => cancelTask(task.taskId, signer), { pending: "Cancelling & refunding…", success: "Task cancelled, USDC refunded" })
                   }
                   disabled={loading}
-                  className="btn-ghost !py-2"
+                  className="btn-ghost btn-sm"
                 >
                   Cancel
                 </button>
@@ -175,7 +172,7 @@ export default function TaskDetail() {
         </div>
 
         {/* Right: bids + place bid */}
-        <div className="flex flex-col gap-6">
+        <div className="flex min-w-0 flex-col gap-6">
           {eligible && <PlaceBid taskId={task.taskId} budget={task.budgetUsdc} />}
           <Panel title={<span className="inline-flex items-center gap-2"><Gavel size={13} /> Bids ({bids.length})</span>}>
             {bids.length === 0 ? (
@@ -209,6 +206,127 @@ export default function TaskDetail() {
               </div>
             )}
           </Panel>
+        </div>
+      </div>
+
+      {awardOpen && (
+        <AwardModal
+          bids={bids}
+          agents={agents}
+          budget={task.budgetUsdc}
+          loading={loading}
+          onClose={() => setAwardOpen(false)}
+          onConfirm={() =>
+            run(() => awardBid(task.taskId, signer), {
+              pending: "Awarding bid…",
+              success: "Bid awarded - agent assigned",
+            }).then((h) => h && setAwardOpen(false))
+          }
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Award review modal. The onchain BidEngine awards the highest-scoring bid
+ * deterministically (price 40% · reputation 40% · speed 20%), so this surfaces
+ * every bidder, marks the winner, and shows the settlement split before the
+ * requester confirms the award transaction.
+ */
+function AwardModal({
+  bids,
+  agents,
+  budget,
+  loading,
+  onClose,
+  onConfirm,
+}: {
+  bids: Bid[];
+  agents: Agent[];
+  budget: number;
+  loading: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  const ranked = [...bids].sort((a, b) => b.score - a.score);
+  const winner = ranked[0];
+  const winnerAgent = winner && agents.find((a) => a.wallet.toLowerCase() === winner.agent.toLowerCase());
+  const refund = winner ? Math.max(0, budget - winner.amount) : 0;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-void/70 p-4 backdrop-blur-sm sm:items-center"
+      onClick={onClose}
+    >
+      <div
+        className="panel flex max-h-[88vh] w-full max-w-lg flex-col overflow-hidden p-0"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+          <div className="inline-flex items-center gap-2 text-sm font-semibold text-white">
+            <Trophy size={15} className="text-violet" /> Award the auction
+          </div>
+          <button onClick={onClose} className="text-grey hover:text-white"><X size={18} /></button>
+        </div>
+
+        <div className="min-w-0 overflow-y-auto px-5 py-4">
+          <p className="mb-4 text-xs leading-relaxed text-grey-l">
+            Polaris awards the <span className="text-white">highest-scoring bid</span> automatically
+            — score = price 40% · reputation 40% · speed 20%. Review the bidders below and confirm.
+          </p>
+
+          <div className="flex flex-col gap-2">
+            {ranked.map((b, i) => {
+              const ag = agents.find((a) => a.wallet.toLowerCase() === b.agent.toLowerCase());
+              const win = i === 0;
+              return (
+                <div
+                  key={`${b.agent}-${b.atMs}-${i}`}
+                  className={`flex min-w-0 items-center gap-3 rounded-xl border px-3 py-2.5 ${
+                    win ? "border-green/40 bg-green/5" : "border-border bg-deep"
+                  }`}
+                >
+                  {ag && <AgentAvatarImg agent={ag} size={34} />}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 text-sm font-medium text-white">
+                      <span className="truncate">{ag?.name ?? "Agent"}</span>
+                      {win && (
+                        <span className="mono shrink-0 rounded-md border border-green/40 bg-green/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-green">
+                          Will win
+                        </span>
+                      )}
+                    </div>
+                    <div className="mono truncate text-[11px] text-grey">
+                      {shortAddr(b.agent)} · rep {ag?.reputation ?? "—"} · score {b.score} · eta {Math.round(b.etaSeconds / 60)}m
+                    </div>
+                  </div>
+                  <USDCAmount amount={b.amount} size="sm" className="shrink-0 text-grey-l" />
+                </div>
+              );
+            })}
+          </div>
+
+          {winner && (
+            <div className="mt-4 rounded-xl border border-border bg-deep p-3 text-xs">
+              <div className="eyebrow mb-2">On settlement (if the work passes)</div>
+              <div className="flex items-center justify-between py-0.5">
+                <span className="text-grey-l">{winnerAgent?.name ?? "Winning agent"} receives</span>
+                <USDCAmount amount={winner.amount} size="sm" className="text-white" />
+              </div>
+              <div className="flex items-center justify-between py-0.5">
+                <span className="text-grey-l">You're refunded</span>
+                <USDCAmount amount={refund} size="sm" className="text-white" />
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-4">
+          <button onClick={onClose} className="btn-ghost btn-sm">Cancel</button>
+          <button onClick={onConfirm} disabled={loading || !winner} className="btn-primary btn-sm">
+            <Trophy size={13} /> {loading ? "Awarding…" : "Confirm award"}
+          </button>
         </div>
       </div>
     </div>

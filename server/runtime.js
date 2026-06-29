@@ -12,6 +12,10 @@ import "dotenv/config";
  * for the frontend even before agent wallets are funded.
  */
 import "./server.js";
+import { startScheduler } from "./subscriptions.js";
+
+// Recurring-task scheduler runs alongside the verifier (needs the signer key).
+startScheduler();
 
 const hasRawAgents = (() => {
   try {

@@ -256,10 +256,41 @@ class CircleAgent {
   }
 }
 
+// Resilient GET: the Railway edge / Arc RPC occasionally return a plain-text
+// body like "upstream error" (502) instead of JSON. Read text-first so a bad
+// body never throws a JSON parse error, and retry transient failures with
+// backoff so a blip doesn't skip a whole poll cycle or spam "tick error".
+async function getJSON(url, { retries = 3, backoffMs = 600 } = {}) {
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const r = await fetch(url);
+      const text = await r.text();
+      if (!r.ok) throw new Error(`GET ${url} -> ${r.status} ${text.slice(0, 80)}`);
+      try {
+        return text ? JSON.parse(text) : {};
+      } catch {
+        throw new Error(`non-JSON from ${url}: ${text.slice(0, 80)}`);
+      }
+    } catch (e) {
+      lastErr = e;
+      if (attempt < retries) await sleep(backoffMs * (attempt + 1));
+    }
+  }
+  throw lastErr;
+}
+
 async function postJSON(url, body) {
   const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `POST ${url} failed`);
-  return r.json();
+  const text = await r.text();
+  let data = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    /* non-JSON body (e.g. a gateway "upstream error") — leave data empty */
+  }
+  if (!r.ok) throw new Error(data.error || `POST ${url} -> ${r.status} ${text.slice(0, 80)}`);
+  return data;
 }
 
 /** When a delegated (child) task settles, forward its deliverable to the parent. */
@@ -274,8 +305,7 @@ async function resolveDelegations() {
     if (status === 4) {
       // child SETTLED → fetch the sub-agent's deliverable, submit it for the parent
       try {
-        const res = await fetch(`${API_URL}/api/deliverable/${childId}`);
-        const { deliverable } = await res.json();
+        const { deliverable } = await getJSON(`${API_URL}/api/deliverable/${childId}`);
         if (!deliverable) continue;
         await postJSON(`${API_URL}/api/deliverable`, { taskId: d.parentTaskId, agentWallet: d.primary.address, deliverable });
         const verdict = await postJSON(`${API_URL}/api/verify`, { taskId: d.parentTaskId });
@@ -347,8 +377,7 @@ async function main() {
 
   const tick = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/index`);
-      const index = await res.json();
+      const index = await getJSON(`${API_URL}/api/index`);
       const tasks = index.tasks || [];
       const now = Date.now();
       for (const t of tasks) {

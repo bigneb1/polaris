@@ -9,6 +9,7 @@ import Explorer from "./routes/Explorer";
 import TaskDetail from "./routes/TaskDetail";
 import AgentDetail from "./routes/AgentDetail";
 import Profile from "./routes/Profile";
+import Subscriptions from "./routes/Subscriptions";
 import Docs from "./routes/Docs";
 
 /** App shell (sidebar + topbar) - everything except the marketing landing. */
@@ -23,6 +24,7 @@ function AppShell() {
         <Route path="/explorer" element={<Explorer />} />
         <Route path="/task/:id" element={<TaskDetail />} />
         <Route path="/agent/:wallet" element={<AgentDetail />} />
+        <Route path="/subscriptions" element={<Subscriptions />} />
         <Route path="/profile" element={<Profile />} />
       </Routes>
     </AppLayout>

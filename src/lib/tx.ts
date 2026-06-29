@@ -8,6 +8,7 @@ import {
   TASK_REGISTRY_ABI,
   AGENT_REGISTRY_ABI,
   BID_ENGINE_ABI,
+  SUBSCRIPTION_MANAGER_ABI,
 } from "./contracts";
 import { circleWrite, type CircleSession } from "./circleWallet";
 import { ucWrite, type UcSession } from "./circleUserWallet";
@@ -153,6 +154,50 @@ export async function awardBid(taskId: `0x${string}`, circle?: Signer): Promise<
 
 export async function cancelTask(taskId: `0x${string}`, circle?: Signer): Promise<Hash> {
   return run([{ address: CONTRACTS.taskRegistry, abi: TASK_REGISTRY_ABI, functionName: "cancelTask", args: [taskId] }], circle);
+}
+
+/* ── Recurring tasks / subscriptions (Phase A) ──────────────────────────────── */
+
+export type CreateSubscriptionInput = {
+  subId: `0x${string}`;
+  agent: Address;
+  perDeliveryUsdc: number;
+  totalDeliveries: number;
+  title: string;
+  brief: string;
+  rubric: string;
+  taskType: string;
+  schedule: string; // cadence string the runtime scheduler reads, e.g. "mon,wed,fri@09:00"
+};
+
+/** Approve the manager for the whole plan, then create + fully fund the subscription. */
+export async function createSubscription(i: CreateSubscriptionInput, circle?: Signer): Promise<Hash> {
+  return run(
+    [
+      approve(CONTRACTS.subscriptionManager, i.perDeliveryUsdc * i.totalDeliveries),
+      {
+        address: CONTRACTS.subscriptionManager,
+        abi: SUBSCRIPTION_MANAGER_ABI,
+        functionName: "createSubscription",
+        args: [
+          i.subId,
+          i.agent,
+          usdc(i.perDeliveryUsdc),
+          i.totalDeliveries,
+          { title: i.title, brief: i.brief, rubric: i.rubric, taskType: i.taskType, schedule: i.schedule },
+        ],
+      },
+    ],
+    circle,
+  );
+}
+
+/** Cancel a subscription and refund the remaining (undelivered) escrow. */
+export async function cancelSubscription(subId: `0x${string}`, circle?: Signer): Promise<Hash> {
+  return run(
+    [{ address: CONTRACTS.subscriptionManager, abi: SUBSCRIPTION_MANAGER_ABI, functionName: "cancelSubscription", args: [subId] }],
+    circle,
+  );
 }
 
 export type HireInput = {

@@ -8,6 +8,7 @@ import { createGatewayMiddleware } from "@circle-fin/x402-batching/server";
 import { ADDR, ABI, provider, readTaskMeta, readAssignedAgent, requireAddresses } from "./chain.js";
 import { scoreAgentWork } from "./score.js";
 import { getIndex } from "./indexer.js";
+import { listSubscriptions, getDelivery } from "./subscriptions.js";
 import {
   ucEnabled,
   createSession,
@@ -135,6 +136,20 @@ app.get("/api/deliverable/:taskId", (req, res) => {
   const store = loadStore();
   const entry = store[req.params.taskId.toLowerCase()];
   res.json({ deliverable: entry?.deliverable ?? null });
+});
+
+// ── Recurring tasks / subscriptions (Phase A) ────────────────────────────────
+app.get("/api/subscriptions", async (_req, res) => {
+  try {
+    res.json({ subscriptions: await listSubscriptions() });
+  } catch (e) {
+    res.status(500).json({ error: e.message, subscriptions: [] });
+  }
+});
+
+app.get("/api/sub-deliverable/:subId/:index", (req, res) => {
+  const d = getDelivery(req.params.subId, Number(req.params.index));
+  res.json({ deliverable: d?.text ?? null, score: d?.score ?? null });
 });
 
 app.post("/api/verify", async (req, res) => {

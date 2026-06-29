@@ -16,6 +16,10 @@ export const ADDR = {
   bidEngine: process.env.VITE_CONTRACT_BID_ENGINE,
   taskRegistry: process.env.VITE_CONTRACT_TASK_REGISTRY,
   verifierBridge: process.env.VITE_CONTRACT_VERIFIER_BRIDGE,
+  // Phase A — recurring tasks. Falls back to the deployed address so the runtime
+  // works even before the Railway env var is set.
+  subscriptionManager:
+    process.env.VITE_CONTRACT_SUBSCRIPTION_MANAGER || "0x3DbA6eD862d4247A30D6dF76d438bEeC72cfb61a",
 };
 
 export const provider = new ethers.JsonRpcProvider(RPC_URL);
@@ -49,6 +53,13 @@ export const ABI = {
   verifierBridge: [
     "function submitVerification(bytes32,address,address,bool,uint8,bytes32,bytes)",
     "function processed(bytes32) view returns (bool)",
+  ],
+  subscriptionManager: [
+    "function recordDelivery(bytes32 subId, uint32 index, bytes32 deliverableHash, uint8 score, bytes signature)",
+    "function getSubscription(bytes32) view returns (address subscriber, address agent, uint256 perDeliveryUsdc, uint32 totalDeliveries, uint32 deliveriesDone, uint256 escrowed, bool active)",
+    "event SubscriptionCreated(bytes32 indexed subId, address indexed subscriber, address indexed agent, uint256 perDeliveryUsdc, uint32 totalDeliveries, string title, string brief, string rubric, string taskType, string schedule)",
+    "event DeliveryReleased(bytes32 indexed subId, address indexed agent, uint32 index, uint256 amount, uint8 score, bytes32 deliverableHash)",
+    "event SubscriptionCancelled(bytes32 indexed subId, uint256 refund)",
   ],
 };
 

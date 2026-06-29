@@ -88,3 +88,24 @@ export type MarketStats = {
   settledToday: number;
   totalSettledUsdc: number;
 };
+
+export type SubscriptionDelivery = { index: number; score: number; atMs: number; preview: string };
+
+export type Subscription = {
+  subId: `0x${string}`;
+  subscriber: Address;
+  agent: Address;
+  perDeliveryUsdc: number;
+  totalDeliveries: number;
+  deliveriesDone: number;
+  escrowedUsdc: number;
+  active: boolean;
+  title: string;
+  brief: string;
+  rubric: string;
+  taskType: string;
+  schedule: string;
+  createdAtMs: number;
+  dueNow: number;
+  deliveries: SubscriptionDelivery[];
+};

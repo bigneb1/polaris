@@ -33,6 +33,17 @@ export async function submitDeliverable(taskId: string, agentWallet: string, del
   return res.json();
 }
 
+/** Fetch a single recurring-subscription deliverable (full text + score). */
+export async function getSubDeliverable(subId: string, index: number): Promise<{ deliverable: string | null; score: number | null }> {
+  try {
+    const res = await fetch(`${API_URL}/api/sub-deliverable/${subId}/${index}`);
+    if (!res.ok) return { deliverable: null, score: null };
+    return res.json();
+  } catch {
+    return { deliverable: null, score: null };
+  }
+}
+
 /**
  * Upload a cover/avatar image (data URI) for a task (by taskId) or agent (by
  * wallet). Stored off-chain in the backend asset store and merged into the

@@ -23,6 +23,8 @@ export const CONTRACTS: Record<string, Address> = {
   taskRegistry: "0xe3ad52025F740599A5b02ffD394514fBD3E80F9C",
   verifierBridge: "0xA8C2Cd1D3dd31637e5b9138D856508444E826C3A",
   revenueRouter: "0xe26f6beE50A181211291E903D9EA792a02C4b296",
+  // Phase A — recurring tasks & subscriptions (self-custodial; reuses the verifier signer).
+  subscriptionManager: "0x3DbA6eD862d4247A30D6dF76d438bEeC72cfb61a",
 };
 
 export function isDeployed(key: string): boolean {
@@ -90,4 +92,14 @@ export const VERIFIER_BRIDGE_ABI = parseAbi([
   "function processed(bytes32) view returns (bool)",
   "function attestations(bytes32) view returns (address agent, bool passed, uint8 score, bytes32 deliverableHash, uint256 timestamp)",
   "event VerificationSubmitted(bytes32 indexed taskId, address indexed agent, bool passed, uint8 score, bytes32 deliverableHash)",
+]);
+
+export const SUBSCRIPTION_MANAGER_ABI = parseAbi([
+  "function createSubscription(bytes32 subId, address agent, uint256 perDeliveryUsdc, uint32 totalDeliveries, (string title, string brief, string rubric, string taskType, string schedule) meta)",
+  "function cancelSubscription(bytes32 subId)",
+  "function recordDelivery(bytes32 subId, uint32 index, bytes32 deliverableHash, uint8 score, bytes signature)",
+  "function getSubscription(bytes32 subId) view returns (address subscriber, address agent, uint256 perDeliveryUsdc, uint32 totalDeliveries, uint32 deliveriesDone, uint256 escrowed, bool active)",
+  "event SubscriptionCreated(bytes32 indexed subId, address indexed subscriber, address indexed agent, uint256 perDeliveryUsdc, uint32 totalDeliveries, string title, string brief, string rubric, string taskType, string schedule)",
+  "event DeliveryReleased(bytes32 indexed subId, address indexed agent, uint32 index, uint256 amount, uint8 score, bytes32 deliverableHash)",
+  "event SubscriptionCancelled(bytes32 indexed subId, uint256 refund)",
 ]);

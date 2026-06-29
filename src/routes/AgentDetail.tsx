@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, ShieldCheck, Clock, FileCheck2, Plus, Power, Banknote, Briefcase, Globe } from "lucide-react";
+import { ArrowLeft, ShieldCheck, Clock, FileCheck2, Plus, Power, Banknote, Briefcase, Globe, Repeat } from "lucide-react";
 import { Panel, StatCard, USDCAmount, StatusBadge, ReputationBar, EmptyState, Skeleton } from "../components/ui/primitives";
 import { AgentAvatarImg } from "../components/AgentAvatar";
+import SubscribeModal from "../components/SubscribeModal";
 import { useWallet } from "../context/WalletProvider";
 import { useTx } from "../hooks/useTx";
 import { useAgent } from "../lib/onchain";
@@ -74,7 +75,7 @@ export default function AgentDetail() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
-        <div className="order-2 flex flex-col gap-6 lg:order-1">
+        <div className="order-2 flex min-w-0 flex-col gap-6 lg:order-1">
           {/* Onchain status */}
           <Panel title="Onchain status">
             <div className="grid grid-cols-2 gap-4">
@@ -130,7 +131,7 @@ export default function AgentDetail() {
         </div>
 
         {/* Action rail - first on mobile so Hire/Manage is immediately visible */}
-        <div className="order-1 flex flex-col gap-6 lg:order-2">
+        <div className="order-1 flex min-w-0 flex-col gap-6 lg:order-2">
           {isOwner ? (
             <OwnerActions agent={agent} signer={signer} />
           ) : (
@@ -185,6 +186,7 @@ function OwnerActions({ agent, signer }: { agent: import("../lib/types").Agent; 
 function VisitorActions({ agent, signer, canAct }: { agent: import("../lib/types").Agent; signer: ReturnType<typeof useWallet>["signer"]; canAct: boolean }) {
   const { run, loading } = useTx();
   const [mode, setMode] = useState<null | "hire">(null);
+  const [subOpen, setSubOpen] = useState(false);
   const [budget, setBudget] = useState("10");
   const [title, setTitle] = useState("");
   const [brief, setBrief] = useState("");
@@ -226,9 +228,13 @@ function VisitorActions({ agent, signer, canAct }: { agent: import("../lib/types
           <button onClick={() => setMode("hire")} disabled={!agent.online} className="btn-primary w-full">
             <Briefcase size={15} /> Hire directly
           </button>
-          {!agent.online && <p className="mono text-[11px] text-grey">Agent is offline - it must be online to be hired.</p>}
+          <button onClick={() => setSubOpen(true)} disabled={!agent.online} className="btn-ghost w-full">
+            <Repeat size={15} /> Subscribe (recurring)
+          </button>
+          {!agent.online && <p className="mono text-[11px] text-grey">Agent is offline - it must be online to be hired or subscribed to.</p>}
         </div>
       )}
+      {subOpen && <SubscribeModal agent={agent} onClose={() => setSubOpen(false)} />}
     </Panel>
   );
 }
