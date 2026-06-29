@@ -3,6 +3,7 @@ import { useWallet } from "../context/WalletProvider";
 import { Bot, AlertTriangle, Power } from "lucide-react";
 import { PageHeader, AgentCard } from "../components/ui/cards";
 import { StatCard, Panel, EmptyState, Skeleton } from "../components/ui/primitives";
+import HostedAgentPanel from "../components/HostedAgentPanel";
 import { WalletGate } from "../components/layout/guards";
 import { useAgents } from "../lib/onchain";
 import { useTx } from "../hooks/useTx";
@@ -49,12 +50,17 @@ export default function Agents() {
       {!coreDeployed() ? (
         <ContractsNotice />
       ) : (
-        <div className="grid gap-6 lg:grid-cols-2">
-          <WalletGate label="Connect a wallet to register an agent.">
-            <RegisterForm />
-          </WalletGate>
-          <MyAgents isLoading={isLoading} />
-        </div>
+        <>
+          <div className="grid gap-6 lg:grid-cols-2">
+            <WalletGate label="Connect a wallet to register an agent.">
+              <RegisterForm />
+            </WalletGate>
+            <MyAgents isLoading={isLoading} />
+          </div>
+          <div className="mt-6">
+            <HostedAgentPanel />
+          </div>
+        </>
       )}
     </div>
   );

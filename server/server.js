@@ -10,6 +10,7 @@ import { scoreAgentWork } from "./score.js";
 import { getIndex } from "./indexer.js";
 import { listSubscriptions, getDelivery } from "./subscriptions.js";
 import { resolveDispute } from "./disputes.js";
+import { registerHosted, listHosted } from "./hosted.js";
 import {
   ucEnabled,
   createSession,
@@ -151,6 +152,20 @@ app.get("/api/subscriptions", async (_req, res) => {
 app.get("/api/sub-deliverable/:subId/:index", (req, res) => {
   const d = getDelivery(req.params.subId, Number(req.params.index));
   res.json({ deliverable: d?.text ?? null, score: d?.score ?? null });
+});
+
+// ── Hosted persona agents (Phase B) ──────────────────────────────────────────
+app.post("/api/hosted-agent", (req, res) => {
+  try {
+    const { name, capabilities, systemPrompt, owner } = req.body || {};
+    if (!name || !capabilities) return res.status(400).json({ error: "name + capabilities required" });
+    res.json(registerHosted({ name, capabilities, systemPrompt, owner }));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+app.get("/api/hosted-agents", (req, res) => {
+  res.json({ agents: listHosted(req.query.owner) });
 });
 
 // ── Disputes + AI jury (Phase C) ─────────────────────────────────────────────

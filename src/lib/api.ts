@@ -33,6 +33,34 @@ export async function submitDeliverable(taskId: string, agentWallet: string, del
   return res.json();
 }
 
+/* ── Hosted persona agents (Phase B) ─────────────────────────────────────────*/
+export type HostedAgent = {
+  id: string;
+  name: string;
+  capabilities: string[];
+  owner: string | null;
+  address: string;
+  status: string;
+  createdAtMs: number;
+};
+export async function createHostedAgent(input: { name: string; capabilities: string[]; systemPrompt: string; owner?: string }): Promise<{ address?: string; id?: string; stakeUsdc?: number; error?: string }> {
+  const res = await fetch(`${API_URL}/api/hosted-agent`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return res.json();
+}
+export async function getHostedAgents(owner?: string): Promise<HostedAgent[]> {
+  try {
+    const res = await fetch(`${API_URL}/api/hosted-agents${owner ? `?owner=${owner}` : ""}`);
+    if (!res.ok) return [];
+    return (await res.json()).agents ?? [];
+  } catch {
+    return [];
+  }
+}
+
 /** Trigger the AI jury to resolve an opened dispute (backend signs + settles on-chain). */
 export async function resolveDispute(disputeId: string, reason: string): Promise<{ upheld?: boolean; juryNote?: string; txHash?: string; error?: string }> {
   const res = await fetch(`${API_URL}/api/dispute/resolve`, {

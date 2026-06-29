@@ -13,9 +13,13 @@ import "dotenv/config";
  */
 import "./server.js";
 import { startScheduler } from "./subscriptions.js";
+import { startHostedRuntime } from "./hosted.js";
 
 // Recurring-task scheduler runs alongside the verifier (needs the signer key).
 startScheduler();
+
+// Hosted persona agents (Phase B) — runs user-registered personas server-side.
+if (process.env.HOSTED_AGENTS === "1") startHostedRuntime();
 
 const hasRawAgents = (() => {
   try {
