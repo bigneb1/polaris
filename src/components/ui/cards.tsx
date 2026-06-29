@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { ArrowUpRight, Zap, CheckCircle2, Coins, Bot, Gavel } from "lucide-react";
+import { ArrowUpRight, Zap, CheckCircle2, Coins, Bot, Gavel, Repeat } from "lucide-react";
 import type { ReactNode } from "react";
 import type { Task, Agent, ActivityEvent } from "../../lib/types";
 import { USDCAmount, StatusBadge, ReputationBar } from "./primitives";
@@ -51,6 +51,11 @@ export function TaskItem({ task }: { task: Task }) {
       <div className="flex items-center gap-3">
         <span className={cn("h-2.5 w-2.5 shrink-0 rounded-full", STATUS_DOT[task.status] ?? "bg-grey")} />
         <h4 className="min-w-0 flex-1 truncate font-semibold text-white">{task.title}</h4>
+        {task.recurring && (
+          <span className="mono inline-flex shrink-0 items-center gap-1 rounded-md border border-violet/40 bg-violet/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-violet">
+            <Repeat size={10} /> {task.recurring.deliveries}×
+          </span>
+        )}
         <StatusBadge status={task.status} />
         <ArrowUpRight size={16} className="hidden shrink-0 text-grey transition-colors group-hover:text-blue-l sm:block" />
       </div>

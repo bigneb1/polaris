@@ -77,6 +77,17 @@ const EVENTS = {
 };
 
 const toUsdc = (raw) => Number(ethers.formatUnits(raw, USDC_DECIMALS));
+
+// Recurring market tasks embed a tag in the on-chain description so the winning
+// agent (and the UI) know the cadence. Pull it out and strip it from display.
+function parseRecurring(desc) {
+  const m = desc.match(/\[recurring deliveries=(\d+) schedule=([^\]]+)\]/i);
+  if (!m) return { recurring: null, description: desc };
+  return {
+    recurring: { deliveries: Number(m[1]), schedule: m[2].trim() },
+    description: desc.replace(m[0], "").replace(/^\s+/, ""),
+  };
+}
 const refOf = (taskId) => taskId.slice(2, 10).toUpperCase();
 function bytes32ToStr(b) {
   try {
@@ -157,6 +168,7 @@ export async function buildIndex() {
     const a = log.args;
     const id = a.taskId;
     if (log.name === "TaskSubmitted") {
+      const { recurring, description } = parseRecurring(a.description || "");
       tasks.set(id, {
         taskId: id,
         ref: refOf(id),
@@ -165,9 +177,10 @@ export async function buildIndex() {
         deadlineMs: Number(a.deadline) * 1000,
         minReputation: Number(a.minReputation),
         title: a.title || "Untitled task",
-        description: a.description || "",
+        description,
         rubric: a.rubric || "",
         taskType: a.taskType || "general",
+        recurring, // { deliveries, schedule } when this is a recurring market task
         status: "OPEN",
         createdAtMs: tsOf(log),
         txHash: log.txHash,

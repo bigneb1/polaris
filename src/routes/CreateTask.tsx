@@ -7,9 +7,8 @@ import { Panel, USDCAmount } from "../components/ui/primitives";
 import { WalletGate } from "../components/layout/guards";
 import ImagePicker from "../components/ImagePicker";
 import { useTx } from "../hooks/useTx";
-import { submitTask, newTaskId, createSubscription } from "../lib/tx";
+import { submitTask, newTaskId } from "../lib/tx";
 import { uploadAsset } from "../lib/api";
-import { useAgents } from "../lib/onchain";
 import { coreDeployed } from "../lib/contracts";
 import { ContractsNotice } from "./TaskMarket";
 
@@ -50,15 +49,12 @@ function Form() {
   const [minRep, setMinRep] = useState("100");
   const [image, setImage] = useState<string | null>(null);
 
-  // Recurring (subscription) mode.
+  // Recurring (market task) mode.
   const [recurring, setRecurring] = useState(false);
-  const [agentWallet, setAgentWallet] = useState("");
   const [perDelivery, setPerDelivery] = useState("10");
   const [deliveries, setDeliveries] = useState("4");
   const [days, setDays] = useState<string[]>(["mon", "wed", "fri"]);
   const [time, setTime] = useState("09:00");
-  const { agents } = useAgents();
-  const onlineAgents = agents.filter((a) => a.online && !a.slashed);
 
   // For "other", the agent-facing category is whatever the user typed.
   const effectiveType = taskType === "other" ? customType.trim() : taskType;
@@ -68,7 +64,7 @@ function Form() {
   const fee = recurring ? 0 : (budgetN * PROTOCOL_FEE_PCT) / 100;
   const baseValid = title.trim() && description.trim() && rubric.trim() && effectiveType;
   const valid = recurring
-    ? baseValid && agentWallet && days.length > 0 && perN > 0 && countN > 0
+    ? baseValid && days.length > 0 && perN > 0 && countN > 0
     : baseValid && budgetN > 0;
   const toggleDay = (d: string) => setDays((x) => (x.includes(d) ? x.filter((y) => y !== d) : [...x, d]));
 
@@ -87,25 +83,30 @@ function Form() {
       .join("");
 
     if (recurring) {
-      const subId = newTaskId();
+      // A recurring task goes to the OPEN MARKET: agents bid like any task, and the
+      // winner reads the embedded cadence and delivers on schedule. No agent is picked.
+      const schedule = `${days.join(",")}@${time}`;
+      const recurringDesc = `[recurring deliveries=${countN} schedule=${schedule}]\nThis is a RECURRING task — deliver ${countN} installments on the schedule ${schedule} (UTC).\n\n${fullDescription}`;
+      // Deadline spans the whole engagement (≥ 3 days per delivery).
+      const recurringDeadline = Date.now() + Math.max(parseInt(deadlineDays || "7"), countN * 3) * 86400_000;
       const hash = await run(
         () =>
-          createSubscription({
-            subId,
-            agent: agentWallet as `0x${string}`,
-            perDeliveryUsdc: perN,
-            totalDeliveries: countN,
+          submitTask({
+            owner: address,
+            taskId,
+            budgetUsdc: budgetN, // whole plan (perDelivery × deliveries) locked in escrow
+            deadlineMs: recurringDeadline,
+            minReputation: parseInt(minRep || "0"),
             title: title.trim(),
-            brief: fullDescription,
+            description: recurringDesc,
             rubric: rubric.trim(),
             taskType: effectiveType,
-            schedule: `${days.join(",")}@${time}`,
           }, signer),
-        { pending: "Escrowing plan & subscribing…", success: "Recurring subscription created" },
+        { pending: "Approving USDC & posting recurring task…", success: "Recurring task posted to the market" },
       );
       if (hash) {
-        if (image) await uploadAsset(subId, image);
-        navigate("/subscriptions");
+        if (image) await uploadAsset(taskId, image);
+        navigate("/tasks");
       }
       return;
     }
@@ -240,14 +241,10 @@ function Form() {
             </div>
           ) : (
             <div className="flex flex-col gap-5">
-              <Field label="Agent" hint="Recurring plans are fulfilled by one chosen agent.">
-                <select className="input-field" value={agentWallet} onChange={(e) => setAgentWallet(e.target.value)}>
-                  <option value="">Select an online agent…</option>
-                  {onlineAgents.map((a) => (
-                    <option key={a.wallet} value={a.wallet}>{a.name} · rep {a.reputation}</option>
-                  ))}
-                </select>
-              </Field>
+              <div className="rounded-xl border border-violet/25 bg-violet/5 p-3 text-[11px] leading-relaxed text-grey-l">
+                Posted to the open market — agents <span className="text-white">bid</span> like any task, and the winner
+                delivers on your schedule. You don't pick the agent; the auction does.
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <Field label="Per delivery (USDC)">
                   <input type="number" min="1" className="input-field" value={perDelivery} onChange={(e) => setPerDelivery(e.target.value)} />

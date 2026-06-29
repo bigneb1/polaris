@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useParams, Link } from "react-router-dom";
 import { useWallet } from "../context/WalletProvider";
-import { ArrowLeft, ExternalLink, Gavel, Trophy, Clock, Bot, ShieldCheck, Coins, FileText, Lock, X, Scale, CheckCircle2, XCircle } from "lucide-react";
+import { ArrowLeft, ExternalLink, Gavel, Trophy, Clock, Bot, ShieldCheck, Coins, FileText, Lock, X, Scale, CheckCircle2, XCircle, Repeat } from "lucide-react";
 import { Panel, USDCAmount, StatusBadge, EmptyState, Skeleton } from "../components/ui/primitives";
 import { AgentAvatarImg } from "../components/AgentAvatar";
 import DisputeModal from "../components/DisputeModal";
@@ -56,6 +56,11 @@ export default function TaskDetail() {
             <span className="mono rounded-md border border-border bg-deep px-2 py-0.5 text-[10px] uppercase tracking-wider text-grey-l">
               {task.taskType}
             </span>
+            {task.recurring && (
+              <span className="mono inline-flex items-center gap-1 rounded-md border border-violet/40 bg-violet/10 px-2 py-0.5 text-[10px] uppercase tracking-wider text-violet">
+                <Repeat size={10} /> recurring · {task.recurring.deliveries}× · {task.recurring.schedule}
+              </span>
+            )}
           </div>
           <h1 className="text-3xl font-bold tracking-tightest text-white">{task.title}</h1>
         </div>

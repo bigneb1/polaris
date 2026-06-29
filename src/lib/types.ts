@@ -31,6 +31,8 @@ export type Task = {
   attestation?: { score: number; passed: boolean; deliverableHash: `0x${string}` };
   /** Dispute (Phase C), present once a requester disputes a settled task. */
   dispute?: { disputeId: `0x${string}`; status: "OPEN" | "UPHELD" | "REJECTED"; reason: string; juryNote: string; bond: number };
+  /** Recurring market task — bid on like any task; the winner delivers on this cadence. */
+  recurring?: { deliveries: number; schedule: string } | null;
   /** Optional cover image (data URI), from the backend asset store. */
   image?: string;
 };
