@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useParams, Link } from "react-router-dom";
 import { useWallet } from "../context/WalletProvider";
 import { ArrowLeft, ExternalLink, Gavel, Trophy, Clock, Bot, ShieldCheck, Coins, FileText, Lock, X, Scale, CheckCircle2, XCircle } from "lucide-react";
@@ -294,9 +295,9 @@ function AwardModal({
   const winnerAgent = winner && agents.find((a) => a.wallet.toLowerCase() === winner.agent.toLowerCase());
   const refund = winner ? Math.max(0, budget - winner.amount) : 0;
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-void/70 p-4 backdrop-blur-sm sm:items-center"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-void/70 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
@@ -369,7 +370,8 @@ function AwardModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

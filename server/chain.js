@@ -25,7 +25,7 @@ export const ADDR = {
     process.env.VITE_CONTRACT_AGENT_BADGES || "0x6c5f75992390079A0A0aaD51059D7bA05Dc1b842",
   // Phase C — staked dispute resolution.
   disputeManager:
-    process.env.VITE_CONTRACT_DISPUTE_MANAGER || "0xC8272C6f502D130cce9519dacD8a30356E772678",
+    process.env.VITE_CONTRACT_DISPUTE_MANAGER || "0xD965F54429a83F80D46462342B24f1814FeBBf05",
 };
 
 export const provider = new ethers.JsonRpcProvider(RPC_URL);

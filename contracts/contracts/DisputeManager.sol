@@ -30,6 +30,11 @@ contract DisputeManager is ReentrancyGuard {
     IERC20 public immutable usdc;
     address public owner;
     address public trustedSigner;
+    address public treasury;
+    // On a rejected (unfair) dispute the requester forfeits half the bond:
+    // 30% compensates the agent, 20% goes to the protocol treasury, 50% is returned.
+    uint256 public constant REJECT_AGENT_BPS = 3000;
+    uint256 public constant REJECT_TREASURY_BPS = 2000;
 
     enum Status { NONE, OPEN, UPHELD, REJECTED }
 
@@ -47,9 +52,10 @@ contract DisputeManager is ReentrancyGuard {
     event DisputeResolved(bytes32 indexed disputeId, bool upheld, string juryNote);
     event TrustedSignerUpdated(address indexed signer);
 
-    constructor(address _usdc, address _signer) {
+    constructor(address _usdc, address _signer, address _treasury) {
         usdc = IERC20(_usdc);
         trustedSigner = _signer;
+        treasury = _treasury;
         owner = msg.sender;
     }
 
@@ -57,6 +63,11 @@ contract DisputeManager is ReentrancyGuard {
         require(msg.sender == owner, "Only owner");
         trustedSigner = _signer;
         emit TrustedSignerUpdated(_signer);
+    }
+
+    function setTreasury(address _treasury) external {
+        require(msg.sender == owner, "Only owner");
+        treasury = _treasury;
     }
 
     /// Open a dispute on a settled task by staking a USDC bond (approve first).
@@ -98,8 +109,18 @@ contract DisputeManager is ReentrancyGuard {
         uint256 bond = d.bond;
         d.bond = 0;
         d.status = upheld ? Status.UPHELD : Status.REJECTED;
-        address payee = upheld ? d.requester : d.agent;
-        require(usdc.transfer(payee, bond), "Payout failed");
+        if (upheld) {
+            // Valid dispute: full bond back to the requester.
+            require(usdc.transfer(d.requester, bond), "Refund failed");
+        } else {
+            // Unfair/malicious dispute: requester forfeits 50% of the bond —
+            // 30% to the agent, 20% to the treasury, 50% returned.
+            uint256 toAgent = (bond * REJECT_AGENT_BPS) / 10000;
+            uint256 toTreasury = (bond * REJECT_TREASURY_BPS) / 10000;
+            require(usdc.transfer(d.agent, toAgent), "Agent payout failed");
+            require(usdc.transfer(treasury, toTreasury), "Treasury payout failed");
+            require(usdc.transfer(d.requester, bond - toAgent - toTreasury), "Refund failed");
+        }
         emit DisputeResolved(disputeId, upheld, juryNote);
     }
 

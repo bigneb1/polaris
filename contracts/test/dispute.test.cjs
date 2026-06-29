@@ -4,15 +4,15 @@ const { ethers } = require("hardhat");
 const USDC = (n) => ethers.parseUnits(String(n), 6);
 
 describe("DisputeManager", function () {
-  let usdc, dm, owner, requester, agent, signer;
+  let usdc, dm, owner, requester, agent, signer, treasury;
   const disputeId = ethers.id("dispute-1");
   const taskId = ethers.id("task-1");
-  const BOND = USDC(5);
+  const BOND = USDC(10);
 
   beforeEach(async () => {
-    [owner, requester, agent, signer] = await ethers.getSigners();
+    [owner, requester, agent, signer, treasury] = await ethers.getSigners();
     usdc = await ethers.deployContract("MockUSDC");
-    dm = await ethers.deployContract("DisputeManager", [await usdc.getAddress(), signer.address]);
+    dm = await ethers.deployContract("DisputeManager", [await usdc.getAddress(), signer.address, treasury.address]);
     await usdc.mint(requester.address, USDC(100));
   });
 
@@ -39,11 +39,15 @@ describe("DisputeManager", function () {
     expect((await dm.getDispute(disputeId)).status).to.equal(2); // UPHELD
   });
 
-  it("rejected → bond goes to the agent (anti-abuse)", async () => {
+  it("rejected → requester forfeits 50% (30% agent, 20% treasury, 50% back)", async () => {
     await open();
-    const before = await usdc.balanceOf(agent.address);
+    const aBefore = await usdc.balanceOf(agent.address);
+    const tBefore = await usdc.balanceOf(treasury.address);
+    const rBefore = await usdc.balanceOf(requester.address);
     await dm.resolveDispute(disputeId, false, "Work met the brief; dispute frivolous", await sign(false));
-    expect(await usdc.balanceOf(agent.address)).to.equal(before + BOND);
+    expect(await usdc.balanceOf(agent.address)).to.equal(aBefore + USDC(3)); // 30%
+    expect(await usdc.balanceOf(treasury.address)).to.equal(tBefore + USDC(2)); // 20%
+    expect(await usdc.balanceOf(requester.address)).to.equal(rBefore + USDC(5)); // 50%
     expect((await dm.getDispute(disputeId)).status).to.equal(3); // REJECTED
   });
 

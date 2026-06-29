@@ -7,10 +7,13 @@ import { Panel, USDCAmount } from "../components/ui/primitives";
 import { WalletGate } from "../components/layout/guards";
 import ImagePicker from "../components/ImagePicker";
 import { useTx } from "../hooks/useTx";
-import { submitTask, newTaskId } from "../lib/tx";
+import { submitTask, newTaskId, createSubscription } from "../lib/tx";
 import { uploadAsset } from "../lib/api";
+import { useAgents } from "../lib/onchain";
 import { coreDeployed } from "../lib/contracts";
 import { ContractsNotice } from "./TaskMarket";
+
+const DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
 const TASK_TYPES = ["research", "writing", "code", "data-labeling", "analysis", "design", "general", "other"];
 
@@ -47,11 +50,27 @@ function Form() {
   const [minRep, setMinRep] = useState("100");
   const [image, setImage] = useState<string | null>(null);
 
+  // Recurring (subscription) mode.
+  const [recurring, setRecurring] = useState(false);
+  const [agentWallet, setAgentWallet] = useState("");
+  const [perDelivery, setPerDelivery] = useState("10");
+  const [deliveries, setDeliveries] = useState("4");
+  const [days, setDays] = useState<string[]>(["mon", "wed", "fri"]);
+  const [time, setTime] = useState("09:00");
+  const { agents } = useAgents();
+  const onlineAgents = agents.filter((a) => a.online && !a.slashed);
+
   // For "other", the agent-facing category is whatever the user typed.
   const effectiveType = taskType === "other" ? customType.trim() : taskType;
-  const budgetN = parseFloat(budget) || 0;
-  const fee = (budgetN * PROTOCOL_FEE_PCT) / 100;
-  const valid = title.trim() && description.trim() && rubric.trim() && budgetN > 0 && effectiveType;
+  const perN = parseFloat(perDelivery) || 0;
+  const countN = parseInt(deliveries) || 0;
+  const budgetN = recurring ? perN * countN : parseFloat(budget) || 0;
+  const fee = recurring ? 0 : (budgetN * PROTOCOL_FEE_PCT) / 100;
+  const baseValid = title.trim() && description.trim() && rubric.trim() && effectiveType;
+  const valid = recurring
+    ? baseValid && agentWallet && days.length > 0 && perN > 0 && countN > 0
+    : baseValid && budgetN > 0;
+  const toggleDay = (d: string) => setDays((x) => (x.includes(d) ? x.filter((y) => y !== d) : [...x, d]));
 
   const onSubmit = async () => {
     if (!address || !valid) return;
@@ -66,6 +85,31 @@ function Form() {
     ]
       .filter(Boolean)
       .join("");
+
+    if (recurring) {
+      const subId = newTaskId();
+      const hash = await run(
+        () =>
+          createSubscription({
+            subId,
+            agent: agentWallet as `0x${string}`,
+            perDeliveryUsdc: perN,
+            totalDeliveries: countN,
+            title: title.trim(),
+            brief: fullDescription,
+            rubric: rubric.trim(),
+            taskType: effectiveType,
+            schedule: `${days.join(",")}@${time}`,
+          }, signer),
+        { pending: "Escrowing plan & subscribing…", success: "Recurring subscription created" },
+      );
+      if (hash) {
+        if (image) await uploadAsset(subId, image);
+        navigate("/subscriptions");
+      }
+      return;
+    }
+
     const hash = await run(
       () =>
         submitTask({
@@ -91,6 +135,24 @@ function Form() {
     <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
       <Panel title="Task Definition">
         <div className="flex flex-col gap-5">
+          {/* One-off vs recurring */}
+          <div className="grid grid-cols-2 gap-2 rounded-xl border border-border bg-deep p-1">
+            <button
+              type="button"
+              onClick={() => setRecurring(false)}
+              className={`mono rounded-lg px-3 py-2 text-[12px] transition-colors ${!recurring ? "bg-blue-violet text-white" : "text-grey hover:text-grey-l"}`}
+            >
+              One-off task
+            </button>
+            <button
+              type="button"
+              onClick={() => setRecurring(true)}
+              className={`mono rounded-lg px-3 py-2 text-[12px] transition-colors ${recurring ? "bg-blue-violet text-white" : "text-grey hover:text-grey-l"}`}
+            >
+              Recurring (subscription)
+            </button>
+          </div>
+
           <Field label="Task name" hint="A short, specific title.">
             <input
               className="input-field"
@@ -164,42 +226,62 @@ function Form() {
             />
           </Field>
 
-          <div className="grid grid-cols-3 gap-4">
-            <Field label="Budget (USDC)">
-              <input
-                type="number"
-                min="0"
-                className="input-field"
-                value={budget}
-                onChange={(e) => setBudget(e.target.value)}
-              />
-            </Field>
-            <Field label="Deadline (days)">
-              <input
-                type="number"
-                min="1"
-                className="input-field"
-                value={deadlineDays}
-                onChange={(e) => setDeadlineDays(e.target.value)}
-              />
-            </Field>
-            <Field label="Min reputation">
-              <input
-                type="number"
-                min="100"
-                max="1000"
-                className="input-field"
-                value={minRep}
-                onChange={(e) => setMinRep(e.target.value)}
-              />
-            </Field>
-          </div>
+          {!recurring ? (
+            <div className="grid grid-cols-3 gap-4">
+              <Field label="Budget (USDC)">
+                <input type="number" min="0" className="input-field" value={budget} onChange={(e) => setBudget(e.target.value)} />
+              </Field>
+              <Field label="Deadline (days)">
+                <input type="number" min="1" className="input-field" value={deadlineDays} onChange={(e) => setDeadlineDays(e.target.value)} />
+              </Field>
+              <Field label="Min reputation">
+                <input type="number" min="100" max="1000" className="input-field" value={minRep} onChange={(e) => setMinRep(e.target.value)} />
+              </Field>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-5">
+              <Field label="Agent" hint="Recurring plans are fulfilled by one chosen agent.">
+                <select className="input-field" value={agentWallet} onChange={(e) => setAgentWallet(e.target.value)}>
+                  <option value="">Select an online agent…</option>
+                  {onlineAgents.map((a) => (
+                    <option key={a.wallet} value={a.wallet}>{a.name} · rep {a.reputation}</option>
+                  ))}
+                </select>
+              </Field>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Per delivery (USDC)">
+                  <input type="number" min="1" className="input-field" value={perDelivery} onChange={(e) => setPerDelivery(e.target.value)} />
+                </Field>
+                <Field label="# of deliveries">
+                  <input type="number" min="1" className="input-field" value={deliveries} onChange={(e) => setDeliveries(e.target.value)} />
+                </Field>
+              </div>
+              <div>
+                <div className="eyebrow mb-2">Schedule (days &amp; time, UTC)</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {DAYS.map((d) => (
+                    <button key={d} type="button" onClick={() => toggleDay(d)}
+                      className={`mono rounded-lg border px-2.5 py-1 text-[11px] uppercase transition-colors ${days.includes(d) ? "border-violet bg-violet/15 text-white" : "border-border bg-deep text-grey hover:text-grey-l"}`}>
+                      {d}
+                    </button>
+                  ))}
+                </div>
+                <input type="time" className="input-field mt-3" value={time} onChange={(e) => setTime(e.target.value)} />
+              </div>
+            </div>
+          )}
 
           {/* Fee breakdown */}
           <div className="rounded-xl border border-border bg-deep p-4">
-            <div className="eyebrow mb-3">Fee breakdown</div>
-            <Row label="Budget locked in escrow" value={budgetN} />
-            <Row label={`Protocol fee (${PROTOCOL_FEE_PCT}%)`} value={fee} muted />
+            <div className="eyebrow mb-3">{recurring ? "Subscription" : "Fee breakdown"}</div>
+            {recurring ? (
+              <Row label={`Plan escrowed (${perN || 0} × ${countN || 0})`} value={budgetN} />
+            ) : (
+              <>
+                <Row label="Budget locked in escrow" value={budgetN} />
+                <Row label={`Protocol fee (${PROTOCOL_FEE_PCT}%)`} value={fee} muted />
+              </>
+            )}
             <Row label="Est. network fee" value={0.01} muted />
             <div className="hairline my-3" />
             <div className="flex items-center justify-between">
@@ -209,7 +291,7 @@ function Form() {
           </div>
 
           <button onClick={onSubmit} disabled={!valid || loading} className="btn-primary w-full">
-            <Lock size={15} /> {loading ? "Posting…" : "Lock USDC & post task"}
+            <Lock size={15} /> {loading ? (recurring ? "Subscribing…" : "Posting…") : recurring ? "Escrow plan & subscribe" : "Lock USDC & post task"}
           </button>
         </div>
       </Panel>

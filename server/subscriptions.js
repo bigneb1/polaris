@@ -3,6 +3,7 @@ import "dotenv/config";
 import fs from "node:fs";
 import { provider, ADDR, ABI, USDC_DECIMALS, queryLogsChunked } from "./chain.js";
 import { produceWork, scoreAgentWork } from "./score.js";
+import { gatherContext } from "./datafeeds.js";
 
 /**
  * Subscription scheduler (Phase A — recurring tasks).
@@ -139,7 +140,10 @@ export function getDelivery(subId, index) {
 
 // ── Scheduler ────────────────────────────────────────────────────────────────
 async function deliverOne(sub, index) {
-  const text = await produceWork({ title: sub.title, description: sub.brief, rubric: sub.rubric });
+  // Ground market/weather/stock/sports deliveries in real public-API data.
+  const ctx = await gatherContext({ title: sub.title, description: sub.brief, taskType: sub.taskType });
+  const description = ctx ? `${sub.brief}\n\n${ctx}\n\nBase the deliverable on the live data above and cite the actual figures.` : sub.brief;
+  const text = await produceWork({ title: sub.title, description, rubric: sub.rubric });
   const { score, passed } = await scoreAgentWork({
     taskDescription: sub.brief,
     qualityRubric: sub.rubric,

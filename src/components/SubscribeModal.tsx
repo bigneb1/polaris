@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { X, Repeat, CalendarClock } from "lucide-react";
 import { USDCAmount } from "./ui/primitives";
 import { AgentAvatarImg } from "./AgentAvatar";
@@ -62,8 +63,8 @@ export default function SubscribeModal({ agent, onClose }: { agent: Agent; onClo
       { pending: "Escrowing plan & subscribing…", success: "Subscribed - deliveries will arrive on schedule" },
     ).then((h) => h && onClose());
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-void/70 p-4 backdrop-blur-sm sm:items-center" onClick={onClose}>
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-void/70 p-4 backdrop-blur-sm" onClick={onClose}>
       <div className="panel flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden p-0" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <div className="inline-flex min-w-0 items-center gap-2.5 text-sm font-semibold text-white">
@@ -134,6 +135,7 @@ export default function SubscribeModal({ agent, onClose }: { agent: Agent; onClo
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

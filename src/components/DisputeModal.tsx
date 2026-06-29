@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { X, Scale, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { USDCAmount } from "./ui/primitives";
 import { useWallet } from "../context/WalletProvider";
@@ -36,8 +37,8 @@ export default function DisputeModal({ task, onClose }: { task: Task; onClose: (
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-void/70 p-4 backdrop-blur-sm sm:items-center" onClick={onClose}>
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-void/70 p-4 backdrop-blur-sm" onClick={onClose}>
       <div className="panel flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden p-0" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <div className="inline-flex items-center gap-2 text-sm font-semibold text-white"><Scale size={15} className="text-violet" /> Dispute deliverable</div>
@@ -49,7 +50,7 @@ export default function DisputeModal({ task, onClose }: { task: Task; onClose: (
             <div className="flex flex-col gap-3">
               <div className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-semibold ${verdict.upheld ? "border-green/40 bg-green/5 text-green" : "border-red/40 bg-red/5 text-red"}`}>
                 {verdict.upheld ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
-                Dispute {verdict.upheld ? "UPHELD — bond refunded, agent will rework" : "REJECTED — bond paid to the agent"}
+                Dispute {verdict.upheld ? "UPHELD — bond refunded, agent will rework" : "REJECTED — you forfeit 50% (30% agent, 20% treasury)"}
               </div>
               <div className="rounded-xl border border-border bg-deep p-3">
                 <div className="eyebrow mb-1">AI jury verdict</div>
@@ -60,7 +61,7 @@ export default function DisputeModal({ task, onClose }: { task: Task; onClose: (
             <div className="flex flex-col gap-3">
               <p className="text-xs leading-relaxed text-grey-l">
                 The work passed verification but you can still challenge it. An impartial AI jury re-reads your brief
-                against the delivery. <span className="text-white">If your dispute is rejected as unfair, your bond goes to the agent</span> — so only dispute genuine misses.
+                against the delivery. <span className="text-white">If your dispute is rejected as unfair you forfeit 50% of the bond (30% to the agent, 20% to the treasury)</span> — so only dispute genuine misses.
               </p>
               <textarea className="input-field min-h-[90px]" placeholder="Why does the deliverable miss the brief?" value={reason} onChange={(e) => setReason(e.target.value)} />
               <label className="block">
@@ -93,6 +94,7 @@ export default function DisputeModal({ task, onClose }: { task: Task; onClose: (
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

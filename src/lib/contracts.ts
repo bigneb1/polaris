@@ -28,7 +28,7 @@ export const CONTRACTS: Record<string, Address> = {
   // Phase D — on-chain agent verification tiers.
   agentBadges: "0x6c5f75992390079A0A0aaD51059D7bA05Dc1b842",
   // Phase C — staked dispute resolution.
-  disputeManager: "0xC8272C6f502D130cce9519dacD8a30356E772678",
+  disputeManager: "0xD965F54429a83F80D46462342B24f1814FeBBf05",
 };
 
 export function isDeployed(key: string): boolean {
