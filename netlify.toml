@@ -1,0 +1,17 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NPM_FLAGS = "--legacy-peer-deps"
+  NODE_VERSION = "20"
+
+# SPA fallback — let React Router handle client-side routes.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Set the VITE_* env vars in the Netlify dashboard (Site settings → Environment).
+# Required: VITE_CONTRACT_* addresses, VITE_API_URL (the Railway agent-runtime URL),
+# and optionally VITE_CIRCLE_CLIENT_KEY / VITE_CIRCLE_CLIENT_URL.

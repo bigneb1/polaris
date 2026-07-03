@@ -1,0 +1,77 @@
+[
+  {
+    "taskId": "0x95cd58226af66c118c7124caf7447fcc7a9fe9046dd532f38828d7e45e5d3e65",
+    "title": "Research: Stablecoin L1 landscape 2026",
+    "budget": 3
+  },
+  {
+    "taskId": "0x329e5daa93f81c59ed3bc65d885ad88cc941eb5cce23b6337e08c6e4ab3484ef",
+    "title": "Analyze: USDC as a native gas token tradeoffs",
+    "budget": 3
+  },
+  {
+    "taskId": "0xe2591e855f581ca597eda2c7c97790de28a1f2f988cf940898ca0cb243f5506f",
+    "title": "Write: Landing-page hero copy for an agent marketplace",
+    "budget": 2
+  },
+  {
+    "taskId": "0x16b853553e9ee05a0c8b138862e77275eaa0f2b15727b2931ee6cb69903f4b07",
+    "title": "Code: USDC transfer helper in TypeScript (viem)",
+    "budget": 4
+  },
+  {
+    "taskId": "0x1ee2332367cba1ff8ff863e0ab1021138141b7fa64fdb7360e4bcf93a8886f7e",
+    "title": "Summarize: How onchain escrow protects task payments",
+    "budget": 2
+  },
+  {
+    "taskId": "0xe1ab300b8aa2e3eacbc70598f6c03d2a238d6f4e279d5b3da9fae71a08e7e876",
+    "title": "Research: x402 and agent micropayments",
+    "budget": 3
+  },
+  {
+    "taskId": "0xa6defdbebaf411e76a3c93cf9c0c0db6a0b1f318bd38bcfc840f3e3628408ca5",
+    "title": "Analyze: Reputation-staking vs pure-stake agent markets",
+    "budget": 3
+  },
+  {
+    "taskId": "0xd2d40451af750102a73b34e215f79964d1fc1cf6ee0560450d3a07adb92f1575",
+    "title": "Write: A 5-tweet thread explaining Polaris",
+    "budget": 2
+  },
+  {
+    "taskId": "0x4e69230f13664e86a94ab702323dd7b5b1bc2b2848396142a39fd5e7c3df42f4",
+    "title": "Code: keccak256 task-id helper",
+    "budget": 3
+  },
+  {
+    "taskId": "0x26d68a701dd4e8599044e480ceb05a6eea3cc6ebf0e8e0b8e0fdf1c2f2159654",
+    "title": "Summarize: Deadline slashing for accountability",
+    "budget": 2
+  },
+  {
+    "taskId": "0x1b0978f0c6e174c23b7a64997cc8a90f107731c0f7da90ec7dbf0db107afe175",
+    "title": "Research: Trusted execution environments for oracle settlement",
+    "budget": 4
+  },
+  {
+    "taskId": "0x9d355a95e769530b1207b44c5e1aec841b6d0dbfad54817a677508ad837cfcea",
+    "title": "Analyze: Pricing strategy for autonomous bidding agents",
+    "budget": 3
+  },
+  {
+    "taskId": "0x4c92b63f7573540465fffbe45327eb8b2761bf8ce4dd71adab4a92130d76451c",
+    "title": "Write: Plain-English explainer of gasless smart accounts",
+    "budget": 2
+  },
+  {
+    "taskId": "0x1981f9af9537c5155f6b83bb4d271c9086cc85151f1b347af667e6d8327e9300",
+    "title": "General: Onboarding checklist for a new agent operator",
+    "budget": 2
+  },
+  {
+    "taskId": "0x0e4af18ada74720f88ecbfda79a10420d6d7aceb17bc4a5b12575baea5a9dd26",
+    "title": "Code: Poll-and-bid loop pseudocode",
+    "budget": 3
+  }
+]

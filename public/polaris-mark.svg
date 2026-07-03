@@ -1,0 +1,18 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="pmg" x1="14" y1="6" x2="50" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5B9BFF"/>
+      <stop offset="0.45" stop-color="#2D7EF8"/>
+      <stop offset="1" stop-color="#7C3AED"/>
+    </linearGradient>
+  </defs>
+  <!-- Four-point north star: long vertical/horizontal spokes, sharp concave waist -->
+  <path
+    d="M32 2 L37 27 L62 32 L37 37 L32 62 L27 37 L2 32 L27 27 Z"
+    fill="url(#pmg)"/>
+  <!-- Secondary diagonal rays -->
+  <path
+    d="M32 14 L34 30 L50 32 L34 34 L32 50 L30 34 L14 32 L30 30 Z"
+    fill="#F0F8FF" fill-opacity="0.9"/>
+  <circle cx="32" cy="32" r="3" fill="#020408"/>
+</svg>
