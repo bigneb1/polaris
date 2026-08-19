@@ -1,18 +1,25 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Inbox, Plus, Search } from "lucide-react";
+import { CheckCircle2, Inbox, LayoutGrid, List, ListChecks, Lock, Plus, Search, Target, TrendingUp, Users } from "lucide-react";
 import { AppShell } from "../components/shell/AppShell";
 import { PanelRow, PanelSection } from "../components/shell/StudioPanel";
-import { FeedItem, RowList, TaskItem } from "../components/ui/cards";
+import { FeedItem, RowList, TaskCard, TaskItem } from "../components/ui/cards";
+import { StatRow, StatTile } from "../components/ui/StatTile";
 import { EmptyState, ErrorNotice, Skeleton, StatusBadge, USDCAmount } from "../components/ui/primitives";
 import { useActivity, useMarketStats, useRecurringPlans, useTasks } from "../lib/onchain";
 import { coreDeployed } from "../lib/contracts";
 import type { TaskStatus } from "../lib/types";
-import { fmtDate } from "../lib/utils";
+import { fmtCompact, fmtDate } from "../lib/utils";
 import { useNetwork } from "../context/NetworkProvider";
 import { useAsset } from "../hooks/useAsset";
 
 type Filter = TaskStatus | "ALL" | "RECURRING";
+type View = "grid" | "list";
+
+/** Grid is the default: a card carries the title, the brief and the money at a glance,
+ *  which is what someone scanning an unfamiliar market actually wants. The choice
+ *  persists, because it is a preference rather than a per-visit decision. */
+const VIEW_KEY = "polaris-market-view";
 const FILTERS: { key: Filter; label: string }[] = [
   { key: "ALL", label: "All" },
   { key: "OPEN", label: "Open" },
@@ -34,6 +41,11 @@ export default function TaskMarket() {
   const { symbol } = useAsset();
   const [filter, setFilter] = useState<Filter>("ALL");
   const [search, setSearch] = useState("");
+  const [view, setView] = useState<View>(() => (localStorage.getItem(VIEW_KEY) as View) || "grid");
+  const setViewPersisted = (v: View) => {
+    setView(v);
+    localStorage.setItem(VIEW_KEY, v);
+  };
   const { tasks, isLoading, error } = useTasks();
   const { plans } = useRecurringPlans();
   const { stats } = useMarketStats();
@@ -46,6 +58,11 @@ export default function TaskMarket() {
     }
     return c;
   }, [tasks, plans]);
+
+  // Success rate over tasks that actually reached a verdict. Tasks still open or
+  // cancelled are not failures, so including them would understate the market.
+  const graded = tasks.filter((t) => t.attestation);
+  const successRate = graded.length ? Math.round((graded.filter((t) => t.attestation!.passed).length / graded.length) * 100) : null;
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -67,6 +84,24 @@ export default function TaskMarket() {
                 placeholder="Search tasks…"
                 className="field h-7 w-full pl-7"
               />
+            </div>
+            <div className="flex shrink-0 items-center overflow-hidden rounded-[4px] border border-border">
+              <button
+                onClick={() => setViewPersisted("grid")}
+                data-active={view === "grid"}
+                className="tool-btn h-7 w-7 rounded-none border-0 px-0"
+                title="Grid view"
+              >
+                <LayoutGrid className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => setViewPersisted("list")}
+                data-active={view === "list"}
+                className="tool-btn h-7 w-7 rounded-none border-0 px-0"
+                title="List view"
+              >
+                <List className="h-3.5 w-3.5" />
+              </button>
             </div>
             <button onClick={() => navigate("/create-task")} className="tool-btn-primary sm:hidden">
               <Plus className="h-3.5 w-3.5" />
@@ -122,7 +157,24 @@ export default function TaskMarket() {
         </>
       }
     >
-      <div className="max-w-4xl mx-auto p-4">
+      <div className="max-w-5xl mx-auto space-y-4 p-4">
+        {/* The headline numbers, above the list. The details panel repeats them for a
+            wide screen, but it is hidden under `lg` and these are the first thing
+            anyone looks for. Money is labelled with this network's own ticker. */}
+        <StatRow>
+          <StatTile icon={ListChecks} label="Total tasks" value={tasks.length} accent="primary" />
+          <StatTile icon={Users} label="Agents" value={stats.activeAgents} accent="secondary" />
+          <StatTile icon={Target} label="Open" value={stats.openTasks} accent="accent" />
+          <StatTile icon={Lock} label={`${symbol} in escrow`} value={fmtCompact(stats.escrowUsdc)} accent="primary" />
+          <StatTile icon={CheckCircle2} label={`${symbol} settled`} value={fmtCompact(stats.totalSettledUsdc)} accent="success" />
+          <StatTile
+            icon={TrendingUp}
+            label="Success rate"
+            value={successRate === null ? "-" : `${successRate}%`}
+            accent="success"
+          />
+        </StatRow>
+
         {!coreDeployed(network.id) ? (
           <ErrorNotice message={`Polaris is not deployed on ${network.label} yet, so there is no market to show.`} />
         ) : error ? (
@@ -183,6 +235,12 @@ export default function TaskMarket() {
               ) : undefined
             }
           />
+        ) : view === "grid" ? (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {filtered.map((t) => (
+              <TaskCard key={t.taskId} task={t} />
+            ))}
+          </div>
         ) : (
           <RowList>
             {filtered.map((t, i) => (
