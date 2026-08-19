@@ -33,6 +33,7 @@ contract AgentBadges {
 
     function setAdmin(address a, bool enabled) external {
         require(msg.sender == owner, "Only owner");
+        require(!enabled || a != address(0), "Zero address");
         isAdmin[a] = enabled;
         emit AdminSet(a, enabled);
     }

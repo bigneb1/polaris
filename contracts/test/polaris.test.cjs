@@ -22,7 +22,7 @@ describe("Polaris V2", function () {
     usdc = await ethers.deployContract("MockUSDC");
     escrow = await ethers.deployContract("USDCEscrow", [await usdc.getAddress()]);
     agentReg = await ethers.deployContract("AgentRegistry", [await usdc.getAddress()]);
-    bidEngine = await ethers.deployContract("BidEngine", [await agentReg.getAddress()]);
+    bidEngine = await ethers.deployContract("BidEngine", [await agentReg.getAddress(), 1_000_000n]);
     taskReg = await ethers.deployContract("TaskRegistry", [await escrow.getAddress(), await agentReg.getAddress()]);
     verifier = await ethers.deployContract("VerifierBridge", [
       await escrow.getAddress(),
@@ -54,10 +54,18 @@ describe("Polaris V2", function () {
     await bidEngine.connect(agent).placeBid(taskId, bid, 1800);
     await bidEngine.awardBid(taskId);
   }
-  async function sign(passed, score, hash = HASH) {
-    const inner = ethers.solidityPackedKeccak256(["bytes32", "bool", "uint8", "bytes32"], [taskId, passed, score, hash]);
+  async function sign(passed, score, hash = HASH, agentAddr = agent.address, requesterAddr = requester.address) {
+    const { chainId } = await ethers.provider.getNetwork();
+    const inner = ethers.solidityPackedKeccak256(
+      ["uint256", "address", "bytes32", "address", "address", "bool", "uint8", "bytes32"],
+      [chainId, await verifier.getAddress(), taskId, agentAddr, requesterAddr, passed, score, hash],
+    );
     return signer.signMessage(ethers.getBytes(inner));
   }
+  // submitVerification is now restricted to the trusted signer's own address
+  // (the backend signs AND relays from the same key) — tests must call it
+  // `.connect(signer)`.
+  const verify = (...args) => verifier.connect(signer).submitVerification(...args);
 
   it("posts a task locking USDC exactly once (double-transfer bug fixed)", async () => {
     await usdc.connect(requester).approve(await escrow.getAddress(), USDC(20));
@@ -81,7 +89,7 @@ describe("Polaris V2", function () {
     await postAndWin(USDC(20), USDC(18)); // budget 20, winning bid 18
     const agentBefore = await usdc.balanceOf(agent.address);
     const reqBefore = await usdc.balanceOf(requester.address);
-    await verifier.submitVerification(taskId, agent.address, requester.address, true, 92, HASH, await sign(true, 92));
+    await verify(taskId, agent.address, requester.address, true, 92, HASH, await sign(true, 92));
 
     // Agent gets its bid (18); requester is refunded budget − bid (2).
     expect(await usdc.balanceOf(agent.address)).to.equal(agentBefore + USDC(18));
@@ -103,7 +111,7 @@ describe("Polaris V2", function () {
     await register();
     await postAndWin();
     const reqBefore = await usdc.balanceOf(requester.address);
-    await verifier.submitVerification(taskId, agent.address, requester.address, false, 30, HASH, await sign(false, 30));
+    await verify(taskId, agent.address, requester.address, false, 30, HASH, await sign(false, 30));
     // requester gets the 20 budget back + 10 slash penalty (10% of 100 stake)
     expect(await usdc.balanceOf(requester.address)).to.equal(reqBefore + USDC(20) + USDC(10));
     expect((await agentReg.agents(agent.address)).stakedUsdc).to.equal(USDC(90));
@@ -115,7 +123,7 @@ describe("Polaris V2", function () {
     const inner = ethers.solidityPackedKeccak256(["bytes32", "bool", "uint8", "bytes32"], [taskId, true, 92, HASH]);
     const forged = await agent.signMessage(ethers.getBytes(inner));
     await expect(
-      verifier.submitVerification(taskId, agent.address, requester.address, true, 92, HASH, forged),
+      verify(taskId, agent.address, requester.address, true, 92, HASH, forged),
     ).to.be.revertedWith("Bad signature");
   });
 
@@ -125,7 +133,7 @@ describe("Polaris V2", function () {
     // active task → cannot deactivate
     await expect(agentReg.connect(agent).deactivate()).to.be.revertedWith("Has active tasks");
     // settle it
-    await verifier.submitVerification(taskId, agent.address, requester.address, true, 92, HASH, await sign(true, 92));
+    await verify(taskId, agent.address, requester.address, true, 92, HASH, await sign(true, 92));
     // now idle → deactivate + withdraw the full remaining stake
     await agentReg.connect(agent).deactivate();
     const before = await usdc.balanceOf(agent.address);
@@ -143,7 +151,7 @@ describe("Polaris V2", function () {
     expect(t.assignedAgent).to.equal(agent.address);
     expect(t.status).to.equal(1); // ASSIGNED
     const before = await usdc.balanceOf(agent.address);
-    await verifier.submitVerification(taskId, agent.address, requester.address, true, 88, HASH, await sign(true, 88));
+    await verify(taskId, agent.address, requester.address, true, 88, HASH, await sign(true, 88));
     expect(await usdc.balanceOf(agent.address)).to.equal(before + USDC(15));
   });
 

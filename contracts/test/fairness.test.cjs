@@ -16,7 +16,7 @@ describe("BidEngine fairness lottery", function () {
     const usdc = await ethers.deployContract("MockUSDC");
     const agentReg = await ethers.deployContract("AgentRegistry", [await usdc.getAddress()]);
     const escrow = await ethers.deployContract("USDCEscrow", [await usdc.getAddress()]);
-    const bidEngine = await ethers.deployContract("BidEngine", [await agentReg.getAddress()]);
+    const bidEngine = await ethers.deployContract("BidEngine", [await agentReg.getAddress(), 1_000_000n]);
     const taskReg = await ethers.deployContract("TaskRegistry", [await escrow.getAddress(), await agentReg.getAddress()]);
 
     await escrow.setTaskRegistry(await taskReg.getAddress());

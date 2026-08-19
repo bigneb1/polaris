@@ -1,197 +1,196 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
-import { Inbox, PlusSquare, Activity, Repeat, CalendarClock, Gavel } from "lucide-react";
-import { PageHeader, TaskItem, FeedItem } from "../components/ui/cards";
-import { StatCard, USDCAmount, Panel, Skeleton, EmptyState } from "../components/ui/primitives";
-import { useTasks, useMarketStats, useActivity, useRecurringPlans } from "../lib/onchain";
+import { useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { Inbox, Plus, Search } from "lucide-react";
+import { AppShell } from "../components/shell/AppShell";
+import { PanelRow, PanelSection } from "../components/shell/StudioPanel";
+import { FeedItem, RowList, TaskItem } from "../components/ui/cards";
+import { EmptyState, ErrorNotice, Skeleton, StatusBadge, USDCAmount } from "../components/ui/primitives";
+import { useActivity, useMarketStats, useRecurringPlans, useTasks } from "../lib/onchain";
 import { coreDeployed } from "../lib/contracts";
-import type { TaskStatus, RecurringPlan } from "../lib/types";
-import { cn, fmtDate } from "../lib/utils";
+import type { TaskStatus } from "../lib/types";
+import { fmtDate } from "../lib/utils";
+import { useNetwork } from "../context/NetworkProvider";
+import { useAsset } from "../hooks/useAsset";
 
-type Tab = TaskStatus | "ALL" | "RECURRING";
-const TABS: { key: Tab; label: string }[] = [
+type Filter = TaskStatus | "ALL" | "RECURRING";
+const FILTERS: { key: Filter; label: string }[] = [
   { key: "ALL", label: "All" },
   { key: "OPEN", label: "Open" },
-  { key: "ASSIGNED", label: "Assigned" },
-  { key: "SETTLED", label: "Settled" },
+  { key: "ASSIGNED", label: "In progress" },
+  { key: "SETTLED", label: "Completed" },
+  { key: "CANCELLED", label: "Cancelled" },
   { key: "RECURRING", label: "Recurring" },
 ];
 
+/**
+ * The market floor: every task on the active network, plus the live settlement feed.
+ *
+ * Search and filters live in the toolbar and the aggregates live in the details panel,
+ * so the scrolling area is nothing but the list itself.
+ */
 export default function TaskMarket() {
-  const [tab, setTab] = useState<Tab>("ALL");
-  const { tasks, isLoading } = useTasks();
+  const navigate = useNavigate();
+  const { network } = useNetwork();
+  const { symbol } = useAsset();
+  const [filter, setFilter] = useState<Filter>("ALL");
+  const [search, setSearch] = useState("");
+  const { tasks, isLoading, error } = useTasks();
   const { plans } = useRecurringPlans();
   const { stats } = useMarketStats();
-  const { activity } = useActivity();
+  const { activity, error: activityError } = useActivity();
 
-  const filtered = tab === "ALL" ? tasks : tasks.filter((t) => t.status === tab);
+  const counts = useMemo(() => {
+    const c: Record<string, number> = { ALL: tasks.length, RECURRING: plans.length };
+    for (const f of FILTERS) {
+      if (f.key !== "ALL" && f.key !== "RECURRING") c[f.key] = tasks.filter((t) => t.status === f.key).length;
+    }
+    return c;
+  }, [tasks, plans]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return tasks
+      .filter((t) => (filter === "ALL" || filter === "RECURRING" ? true : t.status === filter))
+      .filter((t) => !q || t.title.toLowerCase().includes(q) || t.ref.toLowerCase().includes(q));
+  }, [tasks, filter, search]);
 
   return (
-    <div>
-      <PageHeader
-        eyebrow="Task Market"
-        title="The market floor"
-        sub="Open tasks, locked escrow, and the live settlement feed - read directly from Arc."
-        action={
-          <Link to="/create-task" className="btn-primary">
-            <PlusSquare size={16} /> New task
-          </Link>
-        }
-      />
-
-      <div className="mb-7 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Open Tasks" value={stats.openTasks} accent="blue" />
-        <StatCard label="USDC in Escrow" value={<USDCAmount amount={stats.escrowUsdc} size="lg" />} accent="usdc" />
-        <StatCard label="Active Agents" value={stats.activeAgents} accent="violet" />
-        <StatCard label="Settled Today" value={stats.settledToday} accent="green" />
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-[1.55fr_1fr]">
-        {/* Task list */}
-        <div className="min-w-0">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <h2 className="text-sm font-semibold text-white">
-              Tasks <span className="mono text-grey">({tasks.length} total)</span>
-            </h2>
-            <span className="mono text-[11px] text-grey">{tab === "RECURRING" ? plans.length : filtered.length} shown</span>
+    <AppShell
+      toolbar={
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full">
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1 sm:w-56">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search tasks…"
+                className="field h-7 w-full pl-7"
+              />
+            </div>
+            <button onClick={() => navigate("/create-task")} className="tool-btn-primary sm:hidden">
+              <Plus className="h-3.5 w-3.5" />
+            </button>
           </div>
-          <div className="mb-4 flex flex-wrap gap-2">
-            {TABS.map((t) => {
-              const count =
-                t.key === "ALL" ? tasks.length : t.key === "RECURRING" ? plans.length : tasks.filter((x) => x.status === t.key).length;
-              return (
-                <button
-                  key={t.key}
-                  onClick={() => setTab(t.key)}
-                  className={cn(
-                    "mono rounded-lg border px-3.5 py-2 text-xs uppercase tracking-wider transition-colors",
-                    tab === t.key
-                      ? "border-blue/50 bg-blue/10 text-blue-l"
-                      : "border-border bg-card text-grey hover:text-grey-l",
-                  )}
-                >
-                  {t.label} <span className="opacity-70">{count}</span>
-                </button>
-              );
-            })}
+          <div className="hidden sm:block w-px h-4 bg-border" />
+          <div className="flex items-center gap-0.5 overflow-x-auto sm:flex-1 -mx-1 px-1 sm:mx-0 sm:px-0">
+            {FILTERS.map((f) => (
+              <button
+                key={f.key}
+                data-active={filter === f.key}
+                onClick={() => setFilter(f.key)}
+                className="tool-btn"
+              >
+                {f.label}
+                {counts[f.key] != null && <span className="text-muted-foreground">{counts[f.key]}</span>}
+              </button>
+            ))}
           </div>
-
-          <div className="flex flex-col gap-3">
-            {!coreDeployed() ? (
-              <ContractsNotice />
-            ) : isLoading ? (
-              [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-[72px]" />)
-            ) : tab === "RECURRING" ? (
-              plans.length === 0 ? (
-                <div className="panel">
-                  <EmptyState
-                    icon={<Repeat size={32} />}
-                    title="No recurring plans yet"
-                    message="Post a task, switch it to Recurring, and it's auctioned to the swarm to deliver on your schedule."
-                    action={<Link to="/create-task" className="btn-ghost">Post a recurring task</Link>}
-                  />
-                </div>
-              ) : (
-                plans.map((p) => <RecurringMarketRow key={p.planId} plan={p} />)
-              )
-            ) : filtered.length === 0 ? (
-              <div className="panel">
-                <EmptyState
-                  icon={<Inbox size={32} />}
-                  title="No tasks here yet"
-                  message="When a task is posted onchain it appears here instantly."
-                  action={
-                    <Link to="/create-task" className="btn-ghost">
-                      Post the first task
-                    </Link>
-                  }
-                />
-              </div>
-            ) : (
-              filtered.map((t) => <TaskItem key={t.taskId} task={t} />)
-            )}
-          </div>
+          <button onClick={() => navigate("/create-task")} className="tool-btn-primary hidden sm:inline-flex">
+            <Plus className="h-3.5 w-3.5" /> New task
+          </button>
         </div>
-
-        {/* Right rail */}
-        <div className="flex min-w-0 flex-col gap-6">
-          <Panel title="Escrow Status">
-            <div className="flex items-baseline justify-between">
-              <span className="mono text-xs text-grey">Total locked</span>
-              <USDCAmount amount={stats.escrowUsdc} size="lg" className="text-white" />
-            </div>
-            <div className="hairline my-4" />
-            <div className="grid grid-cols-2 gap-3 text-center">
-              <div>
-                <div className="mono text-2xl font-bold text-green">${stats.totalSettledUsdc.toFixed(0)}</div>
-                <div className="eyebrow mt-1 !text-[9px]">Settled all-time</div>
-              </div>
-              <div>
-                <div className="mono text-2xl font-bold text-blue-l">{tasks.length}</div>
-                <div className="eyebrow mt-1 !text-[9px]">Total tasks</div>
-              </div>
-            </div>
-          </Panel>
-
-          <Panel title={<span className="inline-flex items-center gap-2"><Activity size={13} /> Live Activity</span>}>
-            {activity.length === 0 ? (
-              <EmptyState title="Quiet for now" message="Onchain events stream here in real time." />
+      }
+      panel={
+        <>
+          <PanelSection title="Market">
+            <PanelRow label="Open tasks" value={stats.openTasks} />
+            <PanelRow label={`${symbol} in escrow`} value={<USDCAmount amount={stats.escrowUsdc} />} />
+            <PanelRow label="Active agents" value={stats.activeAgents} />
+            <PanelRow label="Settled today" value={stats.settledToday} />
+            <PanelRow label={`Total settled`} value={<USDCAmount amount={stats.totalSettledUsdc} />} />
+          </PanelSection>
+          <PanelSection title="Network">
+            <PanelRow label="Chain" value={network.label} />
+            <PanelRow label="Chain id" value={network.chainId} mono />
+            <PanelRow label="Settles in" value={symbol} />
+            <PanelRow label="Explorer" value={network.explorerName} />
+          </PanelSection>
+          <PanelSection title="Activity" defaultOpen={false}>
+            {activityError ? (
+              <p className="text-[11px] text-destructive">Activity feed unavailable.</p>
+            ) : activity.length === 0 ? (
+              <p className="text-[11px] text-muted-foreground">Nothing yet on this network.</p>
             ) : (
-              <div className="divide-y divide-border/60">
-                {activity.slice(0, 12).map((ev) => (
-                  <FeedItem key={ev.id} ev={ev} />
+              <div className="-mx-3">
+                {activity.slice(0, 12).map((ev, i) => (
+                  <FeedItem key={ev.id} ev={ev} first={i === 0} />
                 ))}
               </div>
             )}
-          </Panel>
-        </div>
+          </PanelSection>
+        </>
+      }
+    >
+      <div className="max-w-4xl mx-auto p-4">
+        {!coreDeployed(network.id) ? (
+          <ErrorNotice message={`Polaris is not deployed on ${network.label} yet, so there is no market to show.`} />
+        ) : error ? (
+          <ErrorNotice message="Could not load the market. Check your connection and try again." />
+        ) : isLoading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} className="h-14 w-full" />
+            ))}
+          </div>
+        ) : filter === "RECURRING" ? (
+          plans.length === 0 ? (
+            <EmptyState
+              title="No recurring plans"
+              message={`Nobody has posted a recurring plan on ${network.label} yet.`}
+              action={
+                <Link to="/subscriptions" className="tool-btn-primary">
+                  Post a recurring plan
+                </Link>
+              }
+            />
+          ) : (
+            <RowList>
+              {plans.map((p, i) => (
+                <Link
+                  key={p.planId}
+                  to={`/plan/${p.planId}`}
+                  className={`flex items-center gap-2 sm:gap-4 px-3 py-2.5 bg-card transition-colors hover:bg-muted/60 ${i !== 0 ? "border-t border-border" : ""}`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[13px] font-medium text-foreground">{p.title}</p>
+                    <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">
+                      {p.schedule} · {p.done}/{p.total} delivered · from {fmtDate(p.createdAtMs)}
+                    </p>
+                  </div>
+                  <USDCAmount amount={p.perDeliveryUsdc} size="sm" className="shrink-0" />
+                  <div className="shrink-0 hidden xs:block">
+                    <StatusBadge status={p.status} />
+                  </div>
+                </Link>
+              ))}
+            </RowList>
+          )
+        ) : filtered.length === 0 ? (
+          <EmptyState
+            icon={<Inbox className="h-7 w-7" />}
+            title={tasks.length === 0 ? `No tasks on ${network.label}` : "No tasks match those filters"}
+            message={
+              tasks.length === 0
+                ? "Post the first one and the agent swarm will bid on it."
+                : "Try a different filter or clear the search."
+            }
+            action={
+              tasks.length === 0 ? (
+                <Link to="/create-task" className="tool-btn-primary">
+                  <Plus className="h-3.5 w-3.5" /> Create the first task
+                </Link>
+              ) : undefined
+            }
+          />
+        ) : (
+          <RowList>
+            {filtered.map((t, i) => (
+              <TaskItem key={t.taskId} task={t} first={i === 0} />
+            ))}
+          </RowList>
+        )}
       </div>
-    </div>
-  );
-}
-
-function RecurringMarketRow({ plan }: { plan: RecurringPlan }) {
-  const statusCls =
-    plan.status === "OPEN" ? "border-blue/40 bg-blue/10 text-blue-l"
-    : plan.status === "ACTIVE" ? "border-green/40 bg-green/10 text-green"
-    : plan.status === "COMPLETE" ? "border-violet/40 bg-violet/10 text-violet"
-    : "border-border bg-deep text-grey";
-  return (
-    <Link to={`/plan/${plan.planId}`} className="panel flex items-center justify-between gap-3 transition-colors hover:border-blue/40">
-      <div className="min-w-0">
-        <div className="mb-1 flex items-center gap-2">
-          <Repeat size={13} className="shrink-0 text-violet" />
-          <span className="truncate text-sm font-medium text-white">{plan.title}</span>
-        </div>
-        <div className="mono flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-grey">
-          <span className="inline-flex items-center gap-1"><CalendarClock size={11} /> {plan.schedule}</span>
-          <span>{plan.done}/{plan.total} delivered</span>
-          <span>started {fmtDate(plan.createdAtMs)}</span>
-          {plan.status === "OPEN" && <span className="inline-flex items-center gap-1 text-blue-l"><Gavel size={10} /> {plan.bidCount} bid{plan.bidCount === 1 ? "" : "s"}</span>}
-        </div>
-      </div>
-      <div className="flex shrink-0 flex-col items-end gap-1.5">
-        <span className={`mono rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-wider ${statusCls}`}>{plan.status.toLowerCase()}</span>
-        <USDCAmount amount={plan.status === "OPEN" ? plan.perDeliveryUsdc : plan.priceUsdc} size="sm" className="text-white" />
-        <span className="mono text-[9px] text-grey">per delivery</span>
-      </div>
-    </Link>
-  );
-}
-
-export function ContractsNotice() {
-  return (
-    <div className="panel border-amber/30 bg-amber/5">
-      <EmptyState
-        icon={<Inbox size={32} />}
-        title="Contracts not deployed yet"
-        message="The Arc-testnet contract addresses are baked into the build. Run the Hardhat deploy script and update src/lib/contracts.ts, then redeploy. The UI reads everything from those contracts."
-        action={
-          <Link to="/docs" className="btn-ghost">
-            Read the docs
-          </Link>
-        }
-      />
-    </div>
+    </AppShell>
   );
 }

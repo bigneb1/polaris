@@ -20,7 +20,7 @@ async function main() {
   const [deployer] = await ethers.getSigners();
   console.log("deployer:", deployer.address);
 
-  const bidEngine = await ethers.deployContract("BidEngine", [AGENT_REG]);
+  const bidEngine = await ethers.deployContract("BidEngine", [AGENT_REG, 1_000_000n]);
   await bidEngine.waitForDeployment();
   const addr = await bidEngine.getAddress();
   console.log("new BidEngine:", addr);

@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 interface IUSDCEscrow {
     function release(bytes32 taskId, address agent) external;
@@ -34,8 +35,15 @@ interface ITaskRegistry {
  *
  * The stored Attestation (score, pass/fail, deliverable hash, agent, timestamp)
  * is the permanent on-chain proof of what was delivered and how it was judged.
+ *
+ * SECURITY: submitVerification is restricted to `trustedSigner` (the same key
+ * that produces the signature — the backend signs and relays from one key) AND
+ * the signed digest binds `agent`+`requester`, not just the score/hash. Neither
+ * check existed originally, which let anyone replay a legitimately-signed
+ * verdict with a different `agent`/`requester` to redirect the payout or the
+ * slash beneficiary — see docs/AUDIT_REPORT.md, Security #1.
  */
-contract VerifierBridge {
+contract VerifierBridge is ReentrancyGuard {
     using MessageHashUtils for bytes32;
 
     IUSDCEscrow public escrow;
@@ -69,6 +77,7 @@ contract VerifierBridge {
 
     function setTrustedSigner(address _signer) external {
         require(msg.sender == owner, "Only owner");
+        require(_signer != address(0), "Zero address");
         trustedSigner = _signer;
         emit TrustedSignerUpdated(_signer);
     }
@@ -81,11 +90,17 @@ contract VerifierBridge {
         uint8 score,
         bytes32 deliverableHash,
         bytes calldata signature
-    ) external {
+    ) external nonReentrant {
+        require(msg.sender == trustedSigner, "Only backend");
         require(!processed[taskId], "Already processed");
 
-        // The signed verdict binds the score AND the exact deliverable hash.
-        bytes32 digest = keccak256(abi.encodePacked(taskId, passed, score, deliverableHash)).toEthSignedMessageHash();
+        // The signed verdict binds the exact agent/requester it settles for
+        // (not just the score/hash), plus this chain + contract instance so a
+        // verdict can't be replayed against a different deployment or a
+        // different pair of addresses.
+        bytes32 digest = keccak256(
+            abi.encodePacked(block.chainid, address(this), taskId, agent, requester, passed, score, deliverableHash)
+        ).toEthSignedMessageHash();
         require(ECDSA.recover(digest, signature) == trustedSigner, "Bad signature");
 
         processed[taskId] = true;

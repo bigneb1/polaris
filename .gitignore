@@ -16,9 +16,10 @@ dist-ssr
 .env
 .env.*
 !.env.example
-server/deliverables.json
-server/assets.json
-server/agent-meta.json
+# hosted-agents.json holds raw private keys for hosted persona agents — never commit.
+server/*.json
+!server/package.json
+!server/package-lock.json
 
 # Hardhat
 contracts/artifacts
@@ -38,3 +39,11 @@ contracts/typechain-types
 
 # Railway local link
 .railway
+.vercel
+.env*
+
+# Local SQLite index state (rebuilt from chain; lives on the volume in production)
+*.db
+*.db-shm
+*.db-wal
+.state/

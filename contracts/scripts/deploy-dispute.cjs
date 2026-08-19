@@ -4,13 +4,15 @@ async function main() {
   const signer = process.env.VERIFIER_SIGNER_ADDRESS;
   // Treasury = RevenueRouter (protocol treasury), falls back to deployer.
   const treasury = process.env.TREASURY_ADDRESS || "0xe26f6beE50A181211291E903D9EA792a02C4b296";
+  const taskRegistry = process.env.VITE_CONTRACT_TASK_REGISTRY;
   if (!signer) throw new Error("VERIFIER_SIGNER_ADDRESS not set");
+  if (!taskRegistry) throw new Error("VITE_CONTRACT_TASK_REGISTRY not set");
   const [d] = await hre.ethers.getSigners();
-  console.log("Deployer:", d.address, "| signer:", signer, "| treasury:", treasury);
-  const dm = await hre.ethers.deployContract("DisputeManager", [usdc, signer, treasury]);
+  console.log("Deployer:", d.address, "| signer:", signer, "| treasury:", treasury, "| taskRegistry:", taskRegistry);
+  const dm = await hre.ethers.deployContract("DisputeManager", [usdc, signer, treasury, taskRegistry]);
   await dm.waitForDeployment();
   const addr = await dm.getAddress();
   console.log("\n✅ DisputeManager v2 deployed:", addr);
-  console.log("Verify:\n  npx hardhat verify --network arc_testnet", addr, usdc, signer, treasury);
+  console.log("Verify:\n  npx hardhat verify --network arc_testnet", addr, usdc, signer, treasury, taskRegistry);
 }
 main().catch((e) => { console.error(e); process.exit(1); });

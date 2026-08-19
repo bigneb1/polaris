@@ -1,113 +1,117 @@
 /**
- * Polaris shared UI primitives - the design-system building blocks referenced
- * across every page. Kept in one file so the vocabulary stays consistent.
+ * Shared vocabulary for the app's surfaces, in the ProofWork idiom: dense, mono for
+ * anything machine-generated, and semantic status colours.
+ *
+ * Export names and props are unchanged from the previous design system on purpose, so
+ * the routes needed a layout pass rather than an API migration.
  */
 import type { ReactNode } from "react";
+import { AlertTriangle } from "lucide-react";
 import { cn, fmtUSDC } from "../../lib/utils";
+import { useNetwork } from "../../context/NetworkProvider";
 
-/* ── USDC amount with the Circle mark ─────────────────────────────────────── */
+/**
+ * An amount in the active network's escrow asset.
+ *
+ * The ticker comes from the network, never hardcoded: it is USDC on Arc and native BOT
+ * on BOT Chain. `symbol` overrides it where an amount belongs to a specific network
+ * rather than the active one.
+ */
 export function USDCAmount({
   amount,
-  size = "md",
+  size = "sm",
   className,
+  symbol,
 }: {
   amount: number | string;
   size?: "sm" | "md" | "lg" | "xl";
   className?: string;
+  symbol?: string;
 }) {
-  const dims = { sm: 14, md: 18, lg: 22, xl: 30 }[size];
-  // Responsive: smaller on phones so large amounts never overflow/clip.
+  const { network } = useNetwork();
+  const ticker = symbol ?? network.assets.find((a) => a.isEscrowAsset)?.symbol ?? "USDC";
   const text = {
-    sm: "text-sm",
-    md: "text-base",
-    lg: "text-xl sm:text-2xl",
-    xl: "text-3xl sm:text-4xl",
+    sm: "text-xs",
+    md: "text-[13px]",
+    lg: "text-base",
+    xl: "text-xl sm:text-2xl",
   }[size];
   return (
-    <span className={cn("inline-flex min-w-0 max-w-full items-center gap-1.5 font-semibold", text, className)}>
-      <svg width={dims} height={dims} viewBox="0 0 24 24" className="shrink-0">
-        <circle cx="12" cy="12" r="12" fill="#2775CA" />
-        <path
-          d="M12 5.2c-.5 0-.9.4-.9.9v.5c-1.6.2-2.7 1.1-2.7 2.5 0 1.6 1.2 2.2 2.9 2.6 1.3.3 1.6.6 1.6 1.1 0 .5-.5.9-1.3.9-1 0-1.6-.4-1.8-1-.1-.4-.4-.6-.8-.6-.5 0-.9.4-.8.9.2 1.1 1.1 1.8 2.4 2v.5c0 .5.4.9.9.9s.9-.4.9-.9v-.5c1.7-.2 2.8-1.2 2.8-2.6 0-1.6-1.2-2.3-3-2.7-1.2-.3-1.5-.6-1.5-1 0-.5.4-.8 1.2-.8.8 0 1.3.3 1.5.9.1.3.4.5.8.5.5 0 .9-.5.7-1-.3-.9-1-1.5-2-1.7v-.5c0-.5-.4-.9-.9-.9z"
-          fill="#fff"
-        />
-      </svg>
-      <span className="mono truncate">{fmtUSDC(amount)}</span>
+    <span className={cn("inline-flex items-baseline gap-1 font-medium", text, className)}>
+      <span className="font-mono">{fmtUSDC(amount)}</span>
+      <span className="text-muted-foreground text-[0.85em]">{ticker}</span>
     </span>
   );
 }
 
-/* ── Status badges ────────────────────────────────────────────────────────── */
-const STATUS_STYLES: Record<string, string> = {
-  OPEN: "text-blue-l border-blue/40 bg-blue/10",
-  ASSIGNED: "text-violet border-purple/40 bg-purple/10",
-  IN_PROGRESS: "text-amber border-amber/40 bg-amber/10",
-  COMPLETED: "text-green border-green/40 bg-green/10",
-  SETTLED: "text-green border-green/40 bg-green/10",
-  CANCELLED: "text-grey border-border2 bg-deep",
-  SLASHED: "text-red border-red/40 bg-red/10",
-  ONLINE: "text-green border-green/40 bg-green/10",
-  OFFLINE: "text-grey border-border2 bg-deep",
-  PENDING: "text-amber border-amber/40 bg-amber/10",
-  WON: "text-green border-green/40 bg-green/10",
-  LOST: "text-grey border-border2 bg-deep",
+/**
+ * A task, subscription, plan or dispute state.
+ *
+ * Polaris's four on-chain task states map onto the badge vocabulary shared with
+ * ProofWork. A SETTLED task reads as "Completed" because that is what it means to a
+ * user; it is a label, not a fifth state (see `TaskStatus` in lib/types.ts).
+ */
+const STATUS_CLASS: Record<string, string> = {
+  OPEN: "status-open",
+  ASSIGNED: "status-claimed",
+  SETTLED: "status-verified",
+  CANCELLED: "status-rejected",
+  // Subscriptions and recurring plans
+  ACTIVE: "status-claimed",
+  COMPLETE: "status-verified",
+  // Disputes
+  UPHELD: "status-verified",
+  REJECTED: "status-rejected",
+  PENDING: "status-submitted",
 };
 
-// User-facing label overrides: a settled task reads as "COMPLETED" (it's done &
-// paid), which is clearer than the internal SETTLED state.
-const STATUS_LABELS: Record<string, string> = { SETTLED: "COMPLETED" };
+const STATUS_LABEL: Record<string, string> = {
+  OPEN: "Open",
+  ASSIGNED: "In progress",
+  SETTLED: "Completed",
+  CANCELLED: "Cancelled",
+  ACTIVE: "Active",
+  COMPLETE: "Complete",
+  UPHELD: "Upheld",
+  REJECTED: "Rejected",
+  PENDING: "Under review",
+};
 
 export function StatusBadge({ status }: { status: string }) {
-  const s = status?.toUpperCase() ?? "OPEN";
+  const key = String(status).toUpperCase();
   return (
-    <span
-      className={cn(
-        "mono inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em]",
-        STATUS_STYLES[s] ?? STATUS_STYLES.OPEN,
-      )}
-    >
-      <span className="h-1.5 w-1.5 rounded-full bg-current" />
-      {STATUS_LABELS[s] ?? s.replace("_", " ")}
+    <span className={cn("status-badge", STATUS_CLASS[key] ?? "status-submitted")}>
+      {STATUS_LABEL[key] ?? status}
     </span>
   );
 }
 
-/* ── StatCard ─────────────────────────────────────────────────────────────── */
-const ACCENTS: Record<string, string> = {
-  blue: "before:bg-blue",
-  violet: "before:bg-violet",
-  green: "before:bg-green",
-  amber: "before:bg-amber",
-  usdc: "before:bg-usdc",
-};
-
+/** A single figure with its label. Used in tight rows of three or four. */
 export function StatCard({
   label,
   value,
-  sub,
   accent = "blue",
 }: {
   label: string;
   value: ReactNode;
-  sub?: string;
-  accent?: keyof typeof ACCENTS;
+  accent?: "blue" | "green" | "violet" | "usdc" | "amber";
 }) {
+  const tone = {
+    blue: "text-primary",
+    green: "text-success",
+    violet: "text-secondary",
+    usdc: "text-foreground",
+    amber: "text-accent",
+  }[accent];
   return (
-    <div
-      className={cn(
-        "panel panel-hover relative overflow-hidden p-5",
-        "before:absolute before:left-0 before:top-0 before:h-full before:w-[3px] before:content-['']",
-        ACCENTS[accent],
-      )}
-    >
-      <div className="eyebrow break-words leading-tight">{label}</div>
-      <div className="mono mt-2 min-w-0 break-words text-2xl font-bold leading-tight tracking-tight text-white sm:text-3xl">{value}</div>
-      {sub && <div className="mono mt-1 text-xs text-grey-l">{sub}</div>}
+    <div className="rounded-[4px] border border-border bg-card px-3 py-2">
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className={cn("mt-0.5 text-base font-semibold", tone)}>{value}</div>
     </div>
   );
 }
 
-/* ── Panel with header ────────────────────────────────────────────────────── */
+/** A titled content block. */
 export function Panel({
   title,
   action,
@@ -120,55 +124,57 @@ export function Panel({
   className?: string;
 }) {
   return (
-    <section className={cn("panel", className)}>
+    <section className={cn("rounded-[4px] border border-border bg-card", className)}>
       {(title || action) && (
-        <header className="flex items-center justify-between border-b border-border px-5 py-3.5">
-          <h3 className="eyebrow !text-grey-l">{title}</h3>
+        <header className="flex items-center justify-between gap-2 border-b border-border px-3 h-9">
+          <h2 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</h2>
           {action}
         </header>
       )}
-      <div className="p-5">{children}</div>
+      <div className="p-3">{children}</div>
     </section>
   );
 }
 
-/* ── ProgressBar ──────────────────────────────────────────────────────────── */
 export function ProgressBar({ value, max = 100 }: { value: number; max?: number }) {
   const pct = Math.max(0, Math.min(100, (value / max) * 100));
   return (
-    <div className="h-1.5 w-full overflow-hidden rounded-full bg-deep">
-      <div
-        className="h-full rounded-full bg-blue-violet transition-all duration-700"
-        style={{ width: `${pct}%` }}
-      />
+    <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
+      <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
     </div>
   );
 }
 
-/* ── Reputation bar (0-1000 scale) ────────────────────────────────────────── */
+/**
+ * Reputation, 0 to 1000, with the bid floor marked.
+ *
+ * The colour changes at 70 because that is the on-chain threshold below which
+ * BidEngine refuses a bid, so the bar shows eligibility rather than just a number.
+ */
 export function ReputationBar({ rep }: { rep: number }) {
   const pct = Math.max(0, Math.min(100, (rep / 1000) * 100));
-  const color = rep >= 700 ? "bg-green" : rep >= 400 ? "bg-blue" : "bg-amber";
+  const eligible = rep >= 70;
   return (
-    <div className="flex items-center gap-2">
-      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-deep">
-        <div className={cn("h-full rounded-full transition-all", color)} style={{ width: `${pct}%` }} />
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-[11px]">
+        <span className="text-muted-foreground">Reputation</span>
+        <span className={cn("font-mono", eligible ? "text-success" : "text-destructive")}>{rep}</span>
       </div>
-      <span className="mono text-xs text-grey-l">{rep}</span>
+      <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
+        <div
+          className={cn("h-full rounded-full transition-all", eligible ? "bg-success" : "bg-destructive")}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      {!eligible && <p className="text-[10px] text-destructive">Below the 70 floor, so this agent cannot bid.</p>}
     </div>
   );
 }
 
-/* ── Loading skeleton ─────────────────────────────────────────────────────── */
 export function Skeleton({ className }: { className?: string }) {
-  return (
-    <div className={cn("relative overflow-hidden rounded-lg bg-deep", className)}>
-      <div className="absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-border2/40 to-transparent" />
-    </div>
-  );
+  return <div className={cn("animate-pulse rounded-[4px] bg-muted", className)} />;
 }
 
-/* ── Empty state ──────────────────────────────────────────────────────────── */
 export function EmptyState({
   icon,
   title,
@@ -181,11 +187,20 @@ export function EmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 px-6 py-16 text-center">
-      {icon && <div className="text-grey">{icon}</div>}
-      <div className="text-lg font-semibold text-grey-l">{title}</div>
-      {message && <p className="max-w-sm text-sm text-grey">{message}</p>}
-      {action && <div className="mt-2">{action}</div>}
+    <div className="flex flex-col items-center justify-center py-16 text-center">
+      {icon && <div className="mb-3 text-muted-foreground/50">{icon}</div>}
+      <p className="text-[13px] font-medium text-foreground">{title}</p>
+      {message && <p className="mt-1 max-w-sm text-xs text-muted-foreground">{message}</p>}
+      {action && <div className="mt-3">{action}</div>}
+    </div>
+  );
+}
+
+export function ErrorNotice({ message }: { message?: string }) {
+  return (
+    <div className="flex items-start gap-2 rounded-[4px] border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-xs text-destructive">
+      <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+      <span>{message ?? "Something went wrong. Please try again."}</span>
     </div>
   );
 }

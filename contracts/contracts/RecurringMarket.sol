@@ -51,6 +51,10 @@ contract RecurringMarket is ReentrancyGuard {
 
     struct PlanMeta { string title; string brief; string rubric; string taskType; string schedule; }
 
+    // Bounds award()'s scan so it can never approach the block gas limit — see
+    // docs/AUDIT_REPORT.md, Bug #5.
+    uint256 public constant MAX_BIDS_PER_PLAN = 50;
+
     mapping(bytes32 => Plan) public plans;
     mapping(bytes32 => Bid[]) public bidsOf;
     mapping(bytes32 => mapping(uint32 => bool)) public delivered;
@@ -70,6 +74,7 @@ contract RecurringMarket is ReentrancyGuard {
 
     function setTrustedSigner(address s) external {
         require(msg.sender == owner, "Only owner");
+        require(s != address(0), "Zero address");
         trustedSigner = s;
     }
 
@@ -87,6 +92,7 @@ contract RecurringMarket is ReentrancyGuard {
         Plan storage p = plans[planId];
         require(p.status == Status.OPEN, "Not open");
         require(price > 0 && price <= p.perDelivery, "Bad price");
+        require(bidsOf[planId].length < MAX_BIDS_PER_PLAN, "Too many bids");
         require(agentRegistry.isOnline(msg.sender), "Agent offline");
         uint256 rep = agentRegistry.getReputation(msg.sender);
         require(rep >= p.minReputation, "Reputation too low");
@@ -131,7 +137,9 @@ contract RecurringMarket is ReentrancyGuard {
         require(p.status == Status.ACTIVE, "Not active");
         require(index < p.total && !delivered[planId][index], "Bad/dup index");
         require(score >= 70, "Below MIN_SCORE");
-        bytes32 digest = keccak256(abi.encodePacked(planId, index, deliverableHash, score)).toEthSignedMessageHash();
+        bytes32 digest = keccak256(
+            abi.encodePacked(block.chainid, address(this), planId, index, deliverableHash, score)
+        ).toEthSignedMessageHash();
         require(ECDSA.recover(digest, signature) == trustedSigner, "Bad signature");
 
         delivered[planId][index] = true;

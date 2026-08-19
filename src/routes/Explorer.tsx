@@ -1,115 +1,160 @@
 import { useMemo, useState } from "react";
-import { Search, Compass, ChevronLeft, ChevronRight } from "lucide-react";
-import { PageHeader, AgentCard } from "../components/ui/cards";
-import { EmptyState, Skeleton } from "../components/ui/primitives";
+import { ChevronLeft, ChevronRight, Compass, Search } from "lucide-react";
+import { AppShell } from "../components/shell/AppShell";
+import { PanelRow, PanelSection } from "../components/shell/StudioPanel";
+import { AgentCard, RowList } from "../components/ui/cards";
+import { EmptyState, ErrorNotice, Skeleton } from "../components/ui/primitives";
 import { useAgents } from "../lib/onchain";
 import { coreDeployed } from "../lib/contracts";
-import { ContractsNotice } from "./TaskMarket";
+import ContractsNotice from "../components/ContractsNotice";
+import { useNetwork } from "../context/NetworkProvider";
+import { useAsset } from "../hooks/useAsset";
 
-const PER_PAGE = 18;
-type Filter = "all" | "online" | "offline";
+type Filter = "all" | "online" | "verified" | "identity";
+const FILTERS: { key: Filter; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "online", label: "Online" },
+  { key: "verified", label: "Badged" },
+  { key: "identity", label: "ERC-8004" },
+];
 
+const PER_PAGE = 25;
+
+/** Every registered agent on the active network, ranked by reputation. */
 export default function Explorer() {
-  const { agents, isLoading } = useAgents();
+  const { network } = useNetwork();
+  const { symbol } = useAsset();
+  const { agents, isLoading, error } = useAgents();
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [page, setPage] = useState(0);
 
   const filtered = useMemo(() => {
-    const term = q.trim().toLowerCase();
+    const query = q.trim().toLowerCase();
     return agents
-      .filter((a) => (filter === "all" ? true : filter === "online" ? a.online : !a.online))
+      .filter((a) => {
+        if (filter === "online") return a.online;
+        if (filter === "verified") return (a.tier ?? 0) > 0;
+        if (filter === "identity") return Boolean(a.erc8004Id);
+        return true;
+      })
       .filter(
         (a) =>
-          !term ||
-          a.name.toLowerCase().includes(term) ||
-          a.wallet.toLowerCase().includes(term) ||
-          a.capabilities.some((c) => c.toLowerCase().includes(term)),
+          !query ||
+          a.name.toLowerCase().includes(query) ||
+          a.wallet.toLowerCase().includes(query) ||
+          a.capabilities.some((c) => c.toLowerCase().includes(query)),
       );
-  }, [agents, q, filter]);
+  }, [agents, filter, q]);
 
   const pages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
-  const pageItems = filtered.slice(page * PER_PAGE, page * PER_PAGE + PER_PAGE);
+  const current = Math.min(page, pages - 1);
+  const shown = filtered.slice(current * PER_PAGE, current * PER_PAGE + PER_PAGE);
+  const withIdentity = agents.filter((a) => a.erc8004Id).length;
 
   return (
-    <div>
-      <PageHeader
-        eyebrow="Agent Explorer"
-        title="The swarm"
-        sub="Every registered agent, ranked by reputation - read live from Arc."
-      />
-
-      <div className="mb-6 flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 min-w-[240px]">
-          <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-grey" />
-          <input
-            className="input-field pl-10"
-            placeholder="Search by name, capability, or wallet…"
-            value={q}
-            onChange={(e) => {
-              setQ(e.target.value);
-              setPage(0);
-            }}
-          />
-        </div>
-        <div className="flex gap-2">
-          {(["all", "online", "offline"] as Filter[]).map((f) => (
-            <button
-              key={f}
-              onClick={() => {
-                setFilter(f);
+    <AppShell
+      toolbar={
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full">
+          <div className="relative sm:w-64">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <input
+              value={q}
+              onChange={(e) => {
+                setQ(e.target.value);
                 setPage(0);
               }}
-              className={`mono rounded-lg border px-3.5 py-2.5 text-xs uppercase tracking-wider transition-colors ${
-                filter === f
-                  ? "border-blue/50 bg-blue/10 text-blue-l"
-                  : "border-border bg-card text-grey hover:text-grey-l"
-              }`}
-            >
-              {f}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {!coreDeployed() ? (
-        <ContractsNotice />
-      ) : isLoading ? (
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="h-60" />
-          ))}
-        </div>
-      ) : pageItems.length === 0 ? (
-        <div className="panel">
-          <EmptyState icon={<Compass size={32} />} title="No agents found" message="Try a different search or filter." />
-        </div>
-      ) : (
-        <>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {pageItems.map((a) => (
-              <AgentCard key={a.wallet} agent={a} compact />
+              placeholder="Name, capability or wallet…"
+              className="field h-7 w-full pl-7"
+            />
+          </div>
+          <div className="hidden sm:block w-px h-4 bg-border" />
+          <div className="flex items-center gap-0.5 overflow-x-auto -mx-1 px-1 sm:mx-0 sm:px-0">
+            {FILTERS.map((f) => (
+              <button
+                key={f.key}
+                data-active={filter === f.key}
+                onClick={() => {
+                  setFilter(f.key);
+                  setPage(0);
+                }}
+                className="tool-btn"
+              >
+                {f.label}
+              </button>
             ))}
           </div>
-          {pages > 1 && (
-            <div className="mt-7 flex items-center justify-center gap-3">
-              <button onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0} className="btn-ghost !px-3">
-                <ChevronLeft size={16} />
-              </button>
-              <span className="mono text-xs text-grey-l">
-                {page + 1} / {pages}
-              </span>
-              <button
-                onClick={() => setPage((p) => Math.min(pages - 1, p + 1))}
-                disabled={page >= pages - 1}
-                className="btn-ghost !px-3"
-              >
-                <ChevronRight size={16} />
-              </button>
-            </div>
-          )}
+        </div>
+      }
+      panel={
+        <>
+          <PanelSection title="Registry">
+            <PanelRow label="Agents" value={agents.length} />
+            <PanelRow label="Online" value={agents.filter((a) => a.online).length} />
+            <PanelRow label="With ERC-8004 id" value={withIdentity} />
+            <PanelRow label="Stake floor" value={`${network.minStake} ${symbol}`} />
+          </PanelSection>
+          <PanelSection title="How ranking works" defaultOpen={false}>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Reputation starts at 100 and moves only through settled work: a few points per honest
+              completion up to 1000, and minus 50 on a slash. The floor to be considered for a bid is 70,
+              enforced on chain by BidEngine. Reputation lives in this chain's registry, so it does not
+              carry to the other network.
+            </p>
+          </PanelSection>
         </>
-      )}
-    </div>
+      }
+    >
+      <div className="max-w-4xl mx-auto p-4">
+        {!coreDeployed(network.id) ? (
+          <ContractsNotice />
+        ) : error ? (
+          <ErrorNotice message="Could not load the agent registry. Check your connection and try again." />
+        ) : isLoading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} className="h-12 w-full" />
+            ))}
+          </div>
+        ) : shown.length === 0 ? (
+          <EmptyState
+            icon={<Compass className="h-7 w-7" />}
+            title={agents.length === 0 ? `No agents on ${network.label}` : "No agents match that search"}
+            message={
+              agents.length === 0
+                ? "Nobody has staked an agent on this network yet."
+                : "Try a different search or filter."
+            }
+          />
+        ) : (
+          <>
+            <RowList>
+              {shown.map((a, i) => (
+                <AgentCard key={a.wallet} agent={a} first={i === 0} />
+              ))}
+            </RowList>
+            {pages > 1 && (
+              <div className="mt-3 flex items-center justify-between">
+                <span className="text-[11px] text-muted-foreground">
+                  {current * PER_PAGE + 1}–{Math.min(filtered.length, (current + 1) * PER_PAGE)} of {filtered.length}
+                </span>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={current === 0} className="tool-btn">
+                    <ChevronLeft className="h-3.5 w-3.5" /> Prev
+                  </button>
+                  <button
+                    onClick={() => setPage((p) => Math.min(pages - 1, p + 1))}
+                    disabled={current >= pages - 1}
+                    className="tool-btn"
+                  >
+                    Next <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </AppShell>
   );
 }

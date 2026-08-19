@@ -84,11 +84,13 @@ contract TaskRegistry {
 
     function setBidEngine(address _b) external {
         require(msg.sender == owner, "Only owner");
+        require(_b != address(0), "Zero address");
         bidEngine = _b;
     }
 
     function setVerifierBridge(address _v) external {
         require(msg.sender == owner, "Only owner");
+        require(_v != address(0), "Zero address");
         verifierBridge = _v;
     }
 

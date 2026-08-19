@@ -7,6 +7,8 @@
  * contract revert reason, a user rejection, or a network failure) and maps it to
  * plain language. Everything unrecognized falls back to a clean generic message.
  */
+import { resolveNetwork } from "./activeNetwork";
+import { getNetwork } from "./networks";
 
 type AnyErr = {
   code?: number | string;
@@ -95,7 +97,7 @@ export function humanizeError(err: unknown, fallback = "Something went wrong. Pl
   const reason = revertReason(strings);
   if (reason) return REVERT_MAP[reason] ?? `Transaction reverted: ${reason}`;
 
-  if (looksLikeNetwork(strings)) return "Network issue reaching Arc. Please try again in a moment.";
+  if (looksLikeNetwork(strings)) return `Network issue reaching ${getNetwork(resolveNetwork()).label}. Please try again in a moment.`;
 
   // Backend (Circle / verifier) errors already arrive as clean single-line messages.
   for (const s of strings) {

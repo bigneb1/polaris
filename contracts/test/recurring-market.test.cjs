@@ -25,8 +25,13 @@ describe("RecurringMarket", function () {
     await rm.connect(requester).createPlan(planId, USDC(10), 3, 70, META);
     await rm.connect(agent).bid(planId, USDC(price), 1800);
   }
-  function signDelivery(index, hash, score) {
-    return signer.signMessage(ethers.getBytes(ethers.solidityPackedKeccak256(["bytes32", "uint32", "bytes32", "uint8"], [planId, index, hash, score])));
+  async function signDelivery(index, hash, score) {
+    const { chainId } = await ethers.provider.getNetwork();
+    const inner = ethers.solidityPackedKeccak256(
+      ["uint256", "address", "bytes32", "uint32", "bytes32", "uint8"],
+      [chainId, await rm.getAddress(), planId, index, hash, score],
+    );
+    return signer.signMessage(ethers.getBytes(inner));
   }
 
   it("escrows the whole plan and accepts bids", async () => {

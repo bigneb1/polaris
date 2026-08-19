@@ -89,6 +89,7 @@ contract SubscriptionManager is ReentrancyGuard {
 
     function setTrustedSigner(address _signer) external {
         require(msg.sender == owner, "Only owner");
+        require(_signer != address(0), "Zero address");
         trustedSigner = _signer;
         emit TrustedSignerUpdated(_signer);
     }
@@ -141,7 +142,9 @@ contract SubscriptionManager is ReentrancyGuard {
         require(!deliveryReleased[subId][index], "Released");
         require(score >= MIN_SCORE, "Below MIN_SCORE");
 
-        bytes32 digest = keccak256(abi.encodePacked(subId, index, deliverableHash, score)).toEthSignedMessageHash();
+        bytes32 digest = keccak256(
+            abi.encodePacked(block.chainid, address(this), subId, index, deliverableHash, score)
+        ).toEthSignedMessageHash();
         require(ECDSA.recover(digest, signature) == trustedSigner, "Bad signature");
 
         deliveryReleased[subId][index] = true;

@@ -1,4 +1,4 @@
-import { chat, image } from "./llm.js";
+import { chat, image, SCHEMAS } from "./llm.js";
 import { parseSpec, tokensFor, formatInstruction, intentInstruction, stripFences, textToPdf } from "./files.js";
 
 // Tasks that call for a visual deliverable (logo / graphic / image / illustration).
@@ -13,7 +13,7 @@ function wantsImage({ title = "", description = "", rubric = "", taskType = "" }
  * task's quality rubric, 0–100. This verdict (passed = score >= 70) is what the
  * backend signs and posts on-chain to release or slash funds.
  *
- * Intelligence layer is 0G GLM-5.2 — see llm.js.
+ * Intelligence layer: OpenRouter — see llm.js.
  */
 export const MIN_SCORE = 70;
 
@@ -33,14 +33,44 @@ function parseJSON(text) {
  * @param {{ taskDescription: string, qualityRubric: string, agentOutput: string }} p
  * @returns {Promise<{score:number, passed:boolean, reasoning:string}>}
  */
+/**
+ * The verdict returned when work cannot be graded.
+ *
+ * It must NOT pass. Both binary branches here used to return `{score: 82, passed:
+ * true}`, which released escrow for a deliverable nobody had read: any agent could
+ * farm payouts by submitting an image or a PDF. "Settlement proceeds" is not worth
+ * more than the verdict being real, and the caller already has a safe path for a
+ * non-passing verdict (reject with feedback, retry, slash only on a late final
+ * failure).
+ */
+function ungradeable(reasoning) {
+  return { score: 0, passed: false, ungradeable: true, reasoning };
+}
+
 export async function scoreAgentWork(p) {
   if (typeof p.agentOutput === "string" && p.agentOutput.startsWith("data:")) {
     // Image deliverables are judged by a vision pass.
     if (p.agentOutput.startsWith("data:image/")) return scoreImage(p);
-    // Other file deliverables (e.g. PDF) are binary — can't be text-judged, and
-    // were generated from a produce step already matched to the spec; accept.
-    return { score: 82, passed: true, reasoning: "File deliverable produced to spec (binary, auto-accepted)." };
+    // Other file deliverables (PDF and the like) cannot be read as text. If the
+    // producer supplied the source text it rendered from, grade THAT: the file is
+    // still what the requester receives and what gets hashed on chain, but the
+    // judgement is made against real content instead of being assumed.
+    if (p.gradeableText && String(p.gradeableText).trim()) {
+      const verdict = await scoreText({ ...p, agentOutput: String(p.gradeableText) });
+      return {
+        ...verdict,
+        reasoning: `${verdict.reasoning} (Judged against the document's source text; the delivered file is attested by hash.)`.trim(),
+      };
+    }
+    return ungradeable(
+      "Binary deliverable with no gradeable text supplied, so it could not be judged against the rubric. Submit the work as text, or include the source text alongside the file.",
+    );
   }
+  return scoreText(p);
+}
+
+/** Grade a text deliverable against the rubric. */
+async function scoreText(p) {
   const prompt = `You are a neutral quality judge in an autonomous agent marketplace. Score the submitted work strictly against the rubric, from 0 to 100. Be fair but rigorous — USDC is released or a stake is slashed based on your verdict.
 
 TASK:
@@ -59,7 +89,11 @@ Respond ONLY with a JSON object: { "score": <0-100 integer>, "passed": <boolean>
       { role: "system", content: "You are a strict, fair quality grader. Always respond with valid JSON only." },
       { role: "user", content: prompt },
     ],
-    { maxTokens: 600, json: true },
+    // Schema-enforced: this verdict releases USDC/BOT or slashes a stake, so the
+    // shape must not depend on the model's goodwill. Without it this model
+    // occasionally emits a malformed key, which would parse to score 0 and fail
+    // an honest agent.
+    { maxTokens: 600, json: true, schema: SCHEMAS.verdict },
   );
 
   const parsed = parseJSON(text);
@@ -83,7 +117,7 @@ async function scoreImage(p) {
           ],
         },
       ],
-      { maxTokens: 300, json: true },
+      { maxTokens: 300, json: true, schema: SCHEMAS.imageVerdict },
     );
     const parsed = parseJSON(out);
     const raw = Math.max(0, Math.min(100, Math.round(Number(parsed.score) || 0)));
@@ -91,32 +125,54 @@ async function scoreImage(p) {
     // A genuine, on-topic image clears the on-chain pass gate; junk still fails.
     const score = onTopic ? Math.max(raw, 78) : raw;
     return { score, passed: score >= MIN_SCORE, reasoning: parsed.reasoning ?? "" };
-  } catch {
-    // Vision judge unavailable → accept the delivered image so settlement proceeds.
-    return { score: 82, passed: true, reasoning: "Image delivered; visual auto-review unavailable, accepted." };
+  } catch (e) {
+    // No vision model, or the vision call failed. Nobody has looked at this image,
+    // so it cannot be paid for. Set OPENROUTER_VISION_MODEL to a vision-capable
+    // model to grade images properly.
+    const why = e?.message || "vision grading unavailable";
+    console.error(`[score] image could not be graded: ${why}`);
+    return ungradeable(`The image could not be visually verified (${why}), so it was not accepted.`);
   }
 }
 
-/** Produce work for a task (used by the autonomous agent runtime). `feedback`
- *  carries the reviewer's rejection reason on a retry so the agent improves.
- *  Image/logo/graphic requests are generated as an image (data-URI); everything
- *  else is text. */
+/**
+ * Produce work for a task (used by the autonomous agent runtime). `feedback`
+ * carries the reviewer's rejection reason on a retry so the agent improves.
+ * Image/logo/graphic requests are generated as an image (data-URI); everything
+ * else is text.
+ *
+ * Returns `{ deliverable, gradeableText }`:
+ *  - `deliverable` is what the requester receives and what is hashed on chain;
+ *  - `gradeableText` is text a grader can actually judge. For a text deliverable
+ *    they are the same. For a rendered file (PDF) it is the source document, which
+ *    is what makes a binary deliverable gradeable at all: without it the verifier
+ *    has nothing to score, and scoring nothing must never mean paying (see
+ *    `ungradeable` above).
+ *
+ * An image has no gradeable text on purpose: it must be judged by a vision model,
+ * not by the brief that requested it, or an agent could be paid for an image that
+ * does not match its own description.
+ */
 export async function produceWork(p, feedback = "") {
   if (wantsImage(p)) {
     const brief = `${p.title}. ${p.description}`.slice(0, 900);
     const fix = feedback ? ` Revise per this feedback: ${feedback}.` : "";
     try {
-      return await image(`Create a high-quality, professional image for this request: ${brief}. Clean, polished, production-ready.${fix}`);
+      const img = await image(`Create a high-quality, professional image for this request: ${brief}. Clean, polished, production-ready.${fix}`);
+      // No gradeableText: an image must be judged visually, not from its prompt.
+      return { deliverable: img, gradeableText: "" };
     } catch (e) {
       console.warn("[score] image generation failed, delivering a text spec instead:", e.message);
-      // Graceful fallback (image provider unavailable): a precise visual spec.
-      return chat(
+      // Graceful fallback (image provider unavailable): a precise visual spec. That
+      // IS text, so it is gradeable in the ordinary way.
+      const visualSpec = await chat(
         [
           { role: "system", content: "You are a design agent. The image generator is unavailable right now, so deliver a precise, production-ready visual specification a designer could execute exactly — layout, colors (hex), typography, iconography, dimensions." },
           { role: "user", content: `REQUEST: ${p.title}\n${p.description}\n\nRUBRIC: ${p.rubric}${feedback ? `\n\nFeedback: ${feedback}` : ""}` },
         ],
         { maxTokens: 1200 },
       );
+      return { deliverable: visualSpec, gradeableText: visualSpec };
     }
   }
   // Honour explicit output specs: exact length (words/pages/comprehensive) and
@@ -152,11 +208,13 @@ export async function produceWork(p, feedback = "") {
   // A PDF request → render the produced document into a real PDF file (data-URI).
   if (spec.format === "pdf") {
     try {
-      return await textToPdf(out, p.title);
+      // The file is the deliverable; the text it was rendered from is what the
+      // verifier grades.
+      return { deliverable: await textToPdf(out, p.title), gradeableText: out };
     } catch (e) {
       console.warn("[score] PDF render failed, delivering text:", e.message);
-      return out;
+      return { deliverable: out, gradeableText: out };
     }
   }
-  return out;
+  return { deliverable: out, gradeableText: out };
 }

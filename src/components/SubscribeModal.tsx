@@ -7,6 +7,7 @@ import { useWallet } from "../context/WalletProvider";
 import { useTx } from "../hooks/useTx";
 import { createSubscription, newTaskId } from "../lib/tx";
 import type { Agent } from "../lib/types";
+import { useAsset } from "../hooks/useAsset";
 
 const DAYS = [
   { k: "mon", label: "Mon" },
@@ -24,6 +25,7 @@ const DAYS = [
  * one deliverable per scheduled slot and releases one slice on each.
  */
 export default function SubscribeModal({ agent, onClose }: { agent: Agent; onClose: () => void }) {
+  const { symbol } = useAsset();
   const { address, signer } = useWallet();
   const { run, loading } = useTx();
 
@@ -64,42 +66,42 @@ export default function SubscribeModal({ agent, onClose }: { agent: Agent; onClo
     ).then((h) => h && onClose());
 
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-void/70 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="panel flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden p-0" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/70 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="rounded-[4px] border border-border bg-card flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden p-0" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
-          <div className="inline-flex min-w-0 items-center gap-2.5 text-sm font-semibold text-white">
+          <div className="inline-flex min-w-0 items-center gap-2.5 text-sm font-semibold text-foreground">
             <AgentAvatarImg agent={agent} size={30} />
             <span className="truncate">Subscribe to {agent.name}</span>
           </div>
-          <button onClick={onClose} className="shrink-0 text-grey hover:text-white"><X size={18} /></button>
+          <button onClick={onClose} className="shrink-0 text-muted-foreground hover:text-foreground"><X size={18} /></button>
         </div>
 
         <div className="min-w-0 overflow-y-auto px-5 py-4">
           <div className="flex flex-col gap-3">
-            <input className="input-field" placeholder="What recurring work? e.g. Weekly thread on Arc" value={title} onChange={(e) => setTitle(e.target.value)} />
-            <textarea className="input-field min-h-[70px]" placeholder="Details / topic / style for each drop" value={brief} onChange={(e) => setBrief(e.target.value)} />
+            <input className="field" placeholder="What recurring work? e.g. Weekly market thread" value={title} onChange={(e) => setTitle(e.target.value)} />
+            <textarea className="field min-h-[70px]" placeholder="Details / topic / style for each drop" value={brief} onChange={(e) => setBrief(e.target.value)} />
 
             <div className="grid grid-cols-2 gap-3">
               <label className="block">
-                <div className="eyebrow mb-1.5">Per delivery (USDC)</div>
-                <input type="number" min="1" className="input-field" value={perDelivery} onChange={(e) => setPerDelivery(e.target.value)} />
+                <div className="field-label mb-1.5">Per delivery ({symbol})</div>
+                <input type="number" min="1" className="field" value={perDelivery} onChange={(e) => setPerDelivery(e.target.value)} />
               </label>
               <label className="block">
-                <div className="eyebrow mb-1.5"># of deliveries</div>
-                <input type="number" min="1" className="input-field" value={deliveries} onChange={(e) => setDeliveries(e.target.value)} />
+                <div className="field-label mb-1.5"># of deliveries</div>
+                <input type="number" min="1" className="field" value={deliveries} onChange={(e) => setDeliveries(e.target.value)} />
               </label>
             </div>
 
             <div>
-              <div className="eyebrow mb-2 flex items-center gap-1.5"><CalendarClock size={12} /> Schedule</div>
+              <div className="field-label mb-2 flex items-center gap-1.5"><CalendarClock size={12} /> Schedule</div>
               <div className="flex flex-wrap gap-1.5">
                 {DAYS.map((d) => (
                   <button
                     key={d.k}
                     type="button"
                     onClick={() => toggleDay(d.k)}
-                    className={`mono rounded-lg border px-2.5 py-1 text-[11px] transition-colors ${
-                      days.includes(d.k) ? "border-violet bg-violet/15 text-white" : "border-border bg-deep text-grey hover:text-grey-l"
+                    className={`font-mono rounded-lg border px-2.5 py-1 text-[11px] transition-colors ${
+                      days.includes(d.k) ? "border-secondary bg-secondary/15 text-foreground" : "border-border bg-muted text-muted-foreground hover:text-muted-foreground"
                     }`}
                   >
                     {d.label}
@@ -107,21 +109,21 @@ export default function SubscribeModal({ agent, onClose }: { agent: Agent; onClo
                 ))}
               </div>
               <label className="mt-3 block">
-                <div className="eyebrow mb-1.5">Time (UTC)</div>
-                <input type="time" className="input-field" value={time} onChange={(e) => setTime(e.target.value)} />
+                <div className="field-label mb-1.5">Time (UTC)</div>
+                <input type="time" className="field" value={time} onChange={(e) => setTime(e.target.value)} />
               </label>
             </div>
 
-            <div className="rounded-xl border border-border bg-deep p-3 text-xs">
+            <div className="rounded-xl border border-border bg-muted p-3 text-xs">
               <div className="flex items-center justify-between py-0.5">
-                <span className="text-grey-l">Cadence</span>
-                <span className="mono text-white">{days.length ? `${days.length}× · ${schedule}` : "pick days"}</span>
+                <span className="text-muted-foreground">Cadence</span>
+                <span className="font-mono text-foreground">{days.length ? `${days.length}× · ${schedule}` : "pick days"}</span>
               </div>
               <div className="flex items-center justify-between py-0.5">
-                <span className="text-grey-l">Escrowed now (whole plan)</span>
-                <USDCAmount amount={total} size="sm" className="text-white" />
+                <span className="text-muted-foreground">Escrowed now (whole plan)</span>
+                <USDCAmount amount={total} size="sm" className="text-foreground" />
               </div>
-              <p className="mono mt-1.5 text-[10px] leading-relaxed text-grey">
+              <p className="font-mono mt-1.5 text-[10px] leading-relaxed text-muted-foreground">
                 Funds are held on-chain; one slice releases to the agent per verified delivery. Cancel anytime to refund the rest.
               </p>
             </div>
@@ -129,8 +131,8 @@ export default function SubscribeModal({ agent, onClose }: { agent: Agent; onClo
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-4">
-          <button onClick={onClose} className="btn-ghost btn-sm">Cancel</button>
-          <button onClick={subscribe} disabled={!valid || loading} className="btn-primary btn-sm">
+          <button onClick={onClose} className="tool-btn">Cancel</button>
+          <button onClick={subscribe} disabled={!valid || loading} className="tool-btn-primary">
             <Repeat size={13} /> {loading ? "Subscribing…" : "Subscribe & escrow"}
           </button>
         </div>

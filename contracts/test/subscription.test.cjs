@@ -33,10 +33,11 @@ describe("SubscriptionManager", function () {
       });
   }
 
-  function signDelivery(index, hash, score) {
+  async function signDelivery(index, hash, score) {
+    const { chainId } = await ethers.provider.getNetwork();
     const inner = ethers.solidityPackedKeccak256(
-      ["bytes32", "uint32", "bytes32", "uint8"],
-      [subId, index, hash, score],
+      ["uint256", "address", "bytes32", "uint32", "bytes32", "uint8"],
+      [chainId, await sub.getAddress(), subId, index, hash, score],
     );
     return signer.signMessage(ethers.getBytes(inner));
   }
