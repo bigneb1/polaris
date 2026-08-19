@@ -1,0 +1,31 @@
+# What must never reach a Vercel build.
+#
+# `vercel deploy` from a workstation uploads the working tree, and it does NOT honour
+# .gitignore. A local `.env` therefore gets uploaded and Vite inlines every VITE_* key in
+# it into the public bundle, silently overriding what is configured in the dashboard. That
+# happened: a CLI deploy shipped a local `VITE_API_URL`, which is a single global API base
+# that beats every network's own. It was harmless only because each network also has an
+# explicit VITE_API_URL_<NETWORK>, which takes precedence; without one, BOT Chain requests
+# would have gone to the Arc runtime and been refused with a 409.
+#
+# Vercel's own environment variables are the only source of build config, so local env
+# files have no business here.
+.env
+.env.*
+!.env.example
+
+# Local runtime state. The SQLite index is written live, and an in-flight write inside an
+# upload is what truncated a Railway snapshot once already.
+.state/
+*.db
+*.db-shm
+*.db-wal
+server/*.json
+!server/package.json
+!server/package-lock.json
+
+# Never needed to build the frontend.
+contracts/artifacts/
+contracts/cache/
+node_modules
+dist
