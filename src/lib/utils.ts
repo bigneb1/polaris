@@ -120,6 +120,18 @@ export function bidWindow(createdAtMs: number, deadlineMs: number): { closesInMs
  * verifier attestation. The attestation (deliverable hash) is the on-chain proof
  * of completion, so we treat it as done even if the TaskSettled event lagged.
  */
+/**
+ * Past its deadline and still not resolved.
+ *
+ * The distinction the UI got wrong: an ASSIGNED task whose deadline has passed is not "in
+ * progress", it is overdue, and a task that reads as healthy while nothing can advance it is
+ * how a stall goes unnoticed. Terminal states are never overdue, however old they are.
+ */
+export function isOverdue(task: { status: string; deadlineMs?: number; attestation?: { passed: boolean } }): boolean {
+  if (isFinished(task)) return false;
+  return typeof task.deadlineMs === "number" && task.deadlineMs < Date.now();
+}
+
 export function isDone(task: { status: string; attestation?: { passed: boolean } }): boolean {
   return task.status === "SETTLED" || task.attestation?.passed === true;
 }

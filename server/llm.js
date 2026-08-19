@@ -151,7 +151,26 @@ export async function chat(messages, opts = {}) {
 
       const data = JSON.parse(text);
       if (data.error) throw new Error(`LLM error: ${JSON.stringify(data.error).slice(0, 300)}`);
-      return data.choices?.[0]?.message?.content ?? "";
+
+      // An empty completion is a FAILURE, not a value.
+      //
+      // This used to `?? ""`, and that empty string became the agent's deliverable. The
+      // deliverable endpoint then correctly refused it with 400 "taskId and deliverable
+      // required", the agent treated the 400 as retryable, and the task retried every ~20s
+      // forever: a model call paid for on each pass, and a task that could never leave
+      // ASSIGNED. A provider that returns no content (a refusal, a truncation, a filtered
+      // response) has failed, and the only safe thing to do with a failure is surface it.
+      //
+      // Marked retryable because the usual causes are transient, so the retry ladder above
+      // gets a chance before the caller ever sees it.
+      const content = data.choices?.[0]?.message?.content;
+      if (typeof content !== "string" || content.trim() === "") {
+        const reason = data.choices?.[0]?.finish_reason ?? "none";
+        const err = new Error(`LLM returned an empty completion (model=${model}, finish_reason=${reason})`);
+        err.retryable = true;
+        throw err;
+      }
+      return content;
     } catch (e) {
       lastErr = e;
       const retryable = e.retryable || e.name === "TimeoutError" || e.name === "AbortError";

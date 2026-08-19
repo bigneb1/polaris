@@ -3,6 +3,11 @@ import "dotenv/config";
 
 import { ADDR, ABI, provider, readTaskMeta, USDC_DECIMALS, requireAddresses, queryLogsChunked } from "./chain.js";
 import { produceWork } from "./score.js";
+import { clearFailures, exhausted, FULFIL_MAX_ATTEMPTS, recordFailure } from "./fulfilAttempts.js";
+import { DEFAULT_NETWORK, getNetwork } from "./networks.js";
+
+/** This swarm is Arc-only: Circle MPC wallets have no BOT Chain presence. */
+const ARC_CHAIN_ID = getNetwork(DEFAULT_NETWORK).chainId;
 import { listAgentWallets, fundWallet, execute, isLoggedIn, CIRCLE_CHAIN } from "./circle-wallet.js";
 
 /**
@@ -242,10 +247,22 @@ class CircleAgent {
         this.log(`rejected "${meta.title}" ${result.score}/100${result.reopened ? " → returned to market" : ""}: ${String(result.feedback || "").slice(0, 90)}`);
       }
       this.inFlight -= 1;
+      clearFailures(ARC_CHAIN_ID, taskId);
     } catch (e) {
-      this.handled.delete(taskId);
       if (this.inFlight > 0) this.inFlight -= 1;
-      this.log("fulfil error:", e.message);
+      // Same bounded retry as the raw-key swarm (server/agent.js). Clearing `handled`
+      // unconditionally meant a task that could never succeed was re-attempted every tick,
+      // paying for a model call each pass while pinned in ASSIGNED.
+      const n = recordFailure(ARC_CHAIN_ID, taskId, e.message);
+      if (n >= FULFIL_MAX_ATTEMPTS) {
+        this.log(
+          `giving up on ${String(taskId).slice(0, 10)} after ${n} attempts: ${e.message}. ` +
+            `Leaving it for the deadline reaper.`,
+        );
+      } else {
+        this.handled.delete(taskId);
+        this.log(`fulfil error (attempt ${n}/${FULFIL_MAX_ATTEMPTS}):`, e.message);
+      }
     }
   }
 

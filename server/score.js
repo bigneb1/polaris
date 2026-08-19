@@ -190,21 +190,35 @@ export async function produceWork(p, feedback = "") {
   const revision = feedback
     ? `\n\nYOUR PREVIOUS SUBMISSION WAS REJECTED. Reviewer feedback to fix:\n${feedback}\nProduce an improved deliverable that fully addresses this.`
     : "";
-  let out = await chat(
-    [
-      {
-        role: "system",
-        content:
-          `You are an AI worker agent completing a paid task. Produce the deliverable directly — no preamble, no meta-commentary. Satisfy EVERY criterion in the rubric, and match the requested length and format EXACTLY. ${intentNote} ${lengthNote} ${fmtNote}`.trim(),
-      },
-      {
-        role: "user",
-        content: `TASK: ${p.title}\n${p.description}\n\nRUBRIC (you will be scored against this): ${p.rubric}${revision}`,
-      },
-    ],
-    { maxTokens: tokensFor(spec) },
-  );
+  const messages = [
+    {
+      role: "system",
+      content:
+        `You are an AI worker agent completing a paid task. Produce the deliverable directly — no preamble, no meta-commentary. Satisfy EVERY criterion in the rubric, and match the requested length and format EXACTLY. ${intentNote} ${lengthNote} ${fmtNote}`.trim(),
+    },
+    {
+      role: "user",
+      content: `TASK: ${p.title}\n${p.description}\n\nRUBRIC (you will be scored against this): ${p.rubric}${revision}`,
+    },
+  ];
+
+  // One extra attempt of our own on top of the transport-level retries in chat(). A model
+  // that returns nothing is usually transient, and one more try is far cheaper than the
+  // alternative this code used to produce: an empty deliverable that no endpoint would
+  // accept, retried by the agent forever.
+  let out;
+  try {
+    out = await chat(messages, { maxTokens: tokensFor(spec) });
+  } catch (e) {
+    console.warn(`[score] first generation attempt failed, retrying once: ${e.message}`);
+    out = await chat(messages, { maxTokens: tokensFor(spec) });
+  }
   out = stripFences(out, spec.format);
+  // Never hand back a deliverable nothing can accept. `stripFences` can also empty a
+  // response that was nothing but a code fence, so this is checked after it, not before.
+  if (typeof out !== "string" || out.trim() === "") {
+    throw new Error("the model produced no usable deliverable for this task");
+  }
   // A PDF request → render the produced document into a real PDF file (data-URI).
   if (spec.format === "pdf") {
     try {

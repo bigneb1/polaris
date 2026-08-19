@@ -16,6 +16,7 @@ import "dotenv/config";
 import { getChainCtx } from "./chain.js";
 import { DEFAULT_NETWORK, getNetwork, isDeployed } from "./networks.js";
 import { produceWork } from "./score.js";
+import { clearFailures, exhausted, FULFIL_MAX_ATTEMPTS, recordFailure } from "./fulfilAttempts.js";
 import { payForService } from "./x402.js";
 
 /**
@@ -363,9 +364,20 @@ class Agent {
     for (const lg of logs) {
       const taskId = lg.args.taskId;
       if (this.handled.has(taskId)) continue;
+      // Durable, so a restart does not reset the budget and resume paying for a task that
+      // has already failed its limit.
+      if (exhausted(this.ctx.chainId, taskId)) {
+        this.handled.add(taskId);
+        continue;
+      }
       this.handled.add(taskId);
+      // Declared outside the try because the catch reports on it. It was a `const` inside
+      // the try, so the "already in progress" branch referenced an out-of-scope binding and
+      // threw a ReferenceError instead of logging: the one branch meant to avoid a pointless
+      // retry was the one that could not run.
+      let meta = null;
       try {
-        const meta = await this.ctx.readTaskMeta(taskId);
+        meta = await this.ctx.readTaskMeta(taskId);
         if (!meta) continue;
         // Optional: pay a sub-cent x402 nanopayment for an oracle quote first.
         // Only on networks with a Circle Gateway facilitator (Arc) — BOT Chain has
@@ -419,16 +431,30 @@ class Agent {
         } else {
           this.log(`settled "${meta.title}" → ${verdict.score}/100 (${verdict.passed ? "PASS" : "FAIL"})`);
         }
+        // Got all the way through, so the task owes nothing to the retry budget.
+        clearFailures(this.ctx.chainId, taskId);
       } catch (e) {
         const msg = e.message || "";
         // "already in progress" is the backend deduplicating a concurrent verify, not
         // a failure. Retrying it re-runs the LLM for nothing, so keep the task
         // handled and let the next tick see the settled state.
         if (/already in progress/i.test(msg)) {
-          this.log(`verification already running for "${meta.title}", waiting`);
+          this.log(`verification already running for "${meta?.title ?? taskId.slice(0, 10)}", waiting`);
+          continue;
+        }
+        // A bounded retry, not an unbounded one. This used to clear `handled`
+        // unconditionally, so a task that could never succeed was retried every tick and
+        // paid for a fresh model call each time while staying pinned in ASSIGNED.
+        const n = recordFailure(this.ctx.chainId, taskId, msg);
+        if (n >= FULFIL_MAX_ATTEMPTS) {
+          this.log(
+            `giving up on ${taskId.slice(0, 10)} after ${n} attempts: ${msg}. ` +
+              `Leaving it for the deadline reaper, which refunds the requester and slashes this agent.`,
+          );
+          // Stays in `handled`, so this process stops spending on it.
         } else {
-          this.handled.delete(taskId); // allow retry next loop
-          this.log("fulfil error:", msg);
+          this.handled.delete(taskId); // retry next loop, within budget
+          this.log(`fulfil error (attempt ${n}/${FULFIL_MAX_ATTEMPTS}):`, msg);
         }
       }
     }

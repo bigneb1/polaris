@@ -77,13 +77,23 @@ const STATUS_LABEL: Record<string, string> = {
   PENDING: "Under review",
 };
 
-export function StatusBadge({ status }: { status: string }) {
+/**
+ * A task's state, told honestly.
+ *
+ * `overdue` matters: a task past its deadline that has not settled is not "In progress", and
+ * calling it that is what made a stalled task look healthy. An overdue ASSIGNED task reads
+ * **Overdue** (the runtime's reaper refunds the requester and slashes the agent), and an OPEN
+ * task nobody bid on reads **Expired** (only the requester can reclaim it, so the task page
+ * offers them that action). Passed in rather than computed, so reading the clock stays in the
+ * data helpers where `isOverdue` lives.
+ */
+export function StatusBadge({ status, overdue = false }: { status: string; overdue?: boolean }) {
   const key = String(status).toUpperCase();
-  return (
-    <span className={cn("status-badge", STATUS_CLASS[key] ?? "status-submitted")}>
-      {STATUS_LABEL[key] ?? status}
-    </span>
-  );
+
+  const label = overdue && key === "ASSIGNED" ? "Overdue" : overdue && key === "OPEN" ? "Expired" : (STATUS_LABEL[key] ?? status);
+  const cls = overdue && (key === "ASSIGNED" || key === "OPEN") ? "status-disputed" : (STATUS_CLASS[key] ?? "status-submitted");
+
+  return <span className={cn("status-badge", cls)}>{label}</span>;
 }
 
 /** A single figure with its label. Used in tight rows of three or four. */

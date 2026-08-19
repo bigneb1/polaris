@@ -10,7 +10,7 @@ import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ArrowUpRight, Repeat } from "lucide-react";
 import type { ActivityEvent, Agent, Task } from "../../lib/types";
-import { bidWindow, cn, deadlineLabel, fmtDate, shortAddr, timeAgo } from "../../lib/utils";
+import { bidWindow, cn, deadlineLabel, fmtDate, isOverdue, shortAddr, timeAgo } from "../../lib/utils";
 import { StatusBadge, USDCAmount } from "./primitives";
 import { useAsset } from "../../hooks/useAsset";
 
@@ -108,7 +108,7 @@ export function TaskItem({ task, first }: { task: Task; first?: boolean }) {
       </div>
       <USDCAmount amount={task.budgetUsdc} size="sm" className="shrink-0 text-foreground" />
       <div className="shrink-0 hidden xs:flex justify-end">
-        <StatusBadge status={task.status} />
+        <StatusBadge status={task.status} overdue={isOverdue(task)} />
       </div>
       <ArrowUpRight className="hidden sm:block h-3.5 w-3.5 shrink-0 text-muted-foreground" />
     </Row>
@@ -131,7 +131,7 @@ export function TaskCard({ task }: { task: Task }) {
     >
       <div className="flex items-start justify-between gap-2">
         <p className="line-clamp-2 text-[13px] font-medium text-foreground">{task.title}</p>
-        <StatusBadge status={task.status} />
+        <StatusBadge status={task.status} overdue={isOverdue(task)} />
       </div>
       <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">{task.description}</p>
       <div className="mt-auto flex flex-wrap items-center gap-1.5 border-t border-border pt-2">
