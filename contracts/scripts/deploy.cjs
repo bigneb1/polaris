@@ -41,7 +41,7 @@ async function main() {
   const agentRegAddr = await agentReg.getAddress();
   console.log("AgentRegistry:", agentRegAddr);
 
-  const bidEngine = await ethers.deployContract("BidEngine", [agentRegAddr]);
+  const bidEngine = await ethers.deployContract("BidEngine", [agentRegAddr, 1_000_000n]);
   await bidEngine.waitForDeployment();
   const bidEngineAddr = await bidEngine.getAddress();
   console.log("BidEngine:", bidEngineAddr);

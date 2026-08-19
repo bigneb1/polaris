@@ -45,9 +45,9 @@ export function DeliverableView({ content, title = "deliverable", compact = fals
       ) : isPdf ? (
         <iframe src={content} title="deliverable-pdf" className={`w-full rounded-lg border border-border ${compact ? "h-72" : "h-[520px]"}`} />
       ) : (
-        <pre className={`overflow-y-auto whitespace-pre-wrap break-words font-sans leading-relaxed text-grey-l ${compact ? "max-h-60 text-[13px]" : "max-h-[480px] text-sm"}`}>{content}</pre>
+        <pre className={`overflow-y-auto whitespace-pre-wrap break-words font-sans leading-relaxed text-muted-foreground ${compact ? "max-h-60 text-[13px]" : "max-h-[480px] text-sm"}`}>{content}</pre>
       )}
-      <button onClick={() => download(content, title)} className="mono inline-flex items-center gap-1.5 self-start text-[11px] text-grey transition-colors hover:text-blue-l">
+      <button onClick={() => download(content, title)} className="font-mono inline-flex items-center gap-1.5 self-start text-[11px] text-muted-foreground transition-colors hover:text-primary">
         <Download size={12} /> Download {inferFile(content).ext.toUpperCase()}
       </button>
     </div>

@@ -103,6 +103,17 @@ export async function circleUsdcBalance(session: CircleSession): Promise<number>
   return Number(formatUnits(raw, USDC_DECIMALS));
 }
 
+/**
+ * Sign an arbitrary off-chain message (EIP-191) with the Circle smart account.
+ * Used to prove wallet ownership to the backend (e.g. viewing a private
+ * deliverable, submitting one as an agent) without an on-chain transaction.
+ * Verified server-side via ERC-1271 `isValidSignature` (server/auth.js), since
+ * a smart-account signature isn't a plain ECDSA recovery.
+ */
+export async function circleSignMessage(session: CircleSession, message: string): Promise<`0x${string}`> {
+  return session.account.signMessage({ message });
+}
+
 type Call = { address: `0x${string}`; abi: Abi; functionName: string; args: readonly unknown[] };
 
 /** Send one or more contract writes from the Circle smart account, gaslessly. */
@@ -123,7 +134,6 @@ export async function circleWrite(session: CircleSession, calls: Call[]): Promis
     // The Gas Station policy may not sponsor these contracts ("Missing or invalid
     // parameters"). Fall back to self-paid gas: the smart account pays from its
     // own USDC balance (on Arc the native gas token IS USDC).
-    // eslint-disable-next-line no-console
     console.warn("paymaster sponsorship failed, retrying self-paid:", (err as Error)?.message);
     hash = await send({});
   }

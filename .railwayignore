@@ -1,10 +1,45 @@
+# Railway upload excludes.
+#
+# NOTE: a bare `node_modules` does NOT reliably match nested copies here — with
+# only the top-level one excluded the payload was 618 MB / 39k files and the
+# upload failed with a 500. The explicit nested patterns below keep it ~3 MB.
 node_modules
+**/node_modules
+contracts/node_modules
+server/node_modules
+
+# Build output and caches — rebuilt on the server, never shipped.
 dist
-.env
-.env.*
-.git
+**/dist
 contracts/artifacts
 contracts/cache
-server/deliverables.json
+contracts/typechain-types
 *.map
+
+# Secrets stay in Railway service variables, never in the image.
+.env
+.env.*
+
+# Local state / VCS
+.git
+server/*.json
+!server/package.json
 package-lock.json
+
+# Local runtime state, never shipped. The SQLite index lives on the Railway volume
+# and is rebuilt from chain if absent, so uploading a local copy is pointless. Worse,
+# it is actively being WRITTEN by any locally running backend, and a file that changes
+# size while the uploader is reading it truncated the snapshot: a deploy went out at
+# 629 kB with package.json and railway.json missing, and the build failed with
+# "Railpack could not determine how to build the app".
+# Local runtime state directory (server/store-path.js). Never part of a build.
+.state/
+
+*.db
+*.db-shm
+*.db-wal
+**/*.db
+**/*.db-shm
+**/*.db-wal
+chain-index-*.json
+**/chain-index-*.json

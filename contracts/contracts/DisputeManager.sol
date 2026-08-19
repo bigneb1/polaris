@@ -6,6 +6,13 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
+interface ITaskRegistryDM {
+    function tasks(bytes32 taskId) external view returns (
+        bytes32 id, address requester, uint256 budgetUsdc, uint256 deadline,
+        uint256 minReputation, address assignedAgent, uint8 status, uint256 createdAt, uint256 winningBid
+    );
+}
+
 /**
  * DisputeManager — staked dispute resolution for settled tasks (Phase C).
  *
@@ -28,9 +35,11 @@ contract DisputeManager is ReentrancyGuard {
     using MessageHashUtils for bytes32;
 
     IERC20 public immutable usdc;
+    ITaskRegistryDM public taskRegistry;
     address public owner;
     address public trustedSigner;
     address public treasury;
+    uint8 public constant TASK_STATUS_SETTLED = 4;
     // On a rejected (unfair) dispute the requester forfeits half the bond:
     // 30% compensates the agent, 20% goes to the protocol treasury, 50% is returned.
     uint256 public constant REJECT_AGENT_BPS = 3000;
@@ -52,25 +61,37 @@ contract DisputeManager is ReentrancyGuard {
     event DisputeResolved(bytes32 indexed disputeId, bool upheld, string juryNote);
     event TrustedSignerUpdated(address indexed signer);
 
-    constructor(address _usdc, address _signer, address _treasury) {
+    constructor(address _usdc, address _signer, address _treasury, address _taskRegistry) {
         usdc = IERC20(_usdc);
         trustedSigner = _signer;
         treasury = _treasury;
+        taskRegistry = ITaskRegistryDM(_taskRegistry);
         owner = msg.sender;
     }
 
     function setTrustedSigner(address _signer) external {
         require(msg.sender == owner, "Only owner");
+        require(_signer != address(0), "Zero address");
         trustedSigner = _signer;
         emit TrustedSignerUpdated(_signer);
     }
 
     function setTreasury(address _treasury) external {
         require(msg.sender == owner, "Only owner");
+        require(_treasury != address(0), "Zero address");
         treasury = _treasury;
     }
 
+    function setTaskRegistry(address _t) external {
+        require(msg.sender == owner, "Only owner");
+        require(_t != address(0), "Zero address");
+        taskRegistry = ITaskRegistryDM(_t);
+    }
+
     /// Open a dispute on a settled task by staking a USDC bond (approve first).
+    /// The task must actually exist, be SETTLED, and `msg.sender`/`agent` must
+    /// match its real requester/assigned agent — closes off disputing a
+    /// fabricated or mismatched task. See docs/AUDIT_REPORT.md, Security #6/8.
     function openDispute(
         bytes32 disputeId,
         bytes32 taskId,
@@ -81,6 +102,10 @@ contract DisputeManager is ReentrancyGuard {
         require(disputes[disputeId].status == Status.NONE, "Exists");
         require(bond > 0, "No bond");
         require(agent != address(0), "No agent");
+        (, address taskRequester, , , , address assignedAgent, uint8 status, , ) = taskRegistry.tasks(taskId);
+        require(status == TASK_STATUS_SETTLED, "Task not settled");
+        require(taskRequester == msg.sender, "Not this task's requester");
+        require(assignedAgent == agent, "Agent mismatch");
         require(usdc.transferFrom(msg.sender, address(this), bond), "USDC transferFrom failed");
         disputes[disputeId] = Dispute({
             requester: msg.sender,
@@ -103,7 +128,9 @@ contract DisputeManager is ReentrancyGuard {
         Dispute storage d = disputes[disputeId];
         require(d.status == Status.OPEN, "Not open");
 
-        bytes32 digest = keccak256(abi.encodePacked(disputeId, upheld)).toEthSignedMessageHash();
+        bytes32 digest = keccak256(
+            abi.encodePacked(block.chainid, address(this), disputeId, upheld)
+        ).toEthSignedMessageHash();
         require(ECDSA.recover(digest, signature) == trustedSigner, "Bad signature");
 
         uint256 bond = d.bond;

@@ -15,6 +15,10 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
+    /* Path alias, matching the shadcn convention the copied components import by.
+       No `baseUrl`: it is deprecated in TS 7, and a relative pattern works without it. */
+    "paths": { "@/*": ["./src/*"] },
+
     /* Linting */
     "noUnusedLocals": true,
     "noUnusedParameters": true,

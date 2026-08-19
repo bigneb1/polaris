@@ -1,13 +1,20 @@
-import { Link } from "react-router-dom";
-import { ArrowUpRight, Zap, CheckCircle2, Coins, Bot, Gavel, Repeat } from "lucide-react";
+/**
+ * Row and header components shared by the list pages.
+ *
+ * The list idiom is ProofWork's: one bordered container whose children are separated
+ * by `border-t`, rather than a stack of floating cards. At this density it fits far
+ * more on a phone and scans like a table, which is what a market of tasks actually is.
+ * A row is therefore a full-width flex line, not a card.
+ */
 import type { ReactNode } from "react";
-import type { Task, Agent, ActivityEvent } from "../../lib/types";
-import { USDCAmount, StatusBadge, ReputationBar } from "./primitives";
-import { shortAddr, timeAgo, deadlineLabel, bidWindow, fmtDate, cn } from "../../lib/utils";
-import { AgentAvatarImg } from "../AgentAvatar";
-import VerifiedBadge from "../VerifiedBadge";
+import { Link } from "react-router-dom";
+import { ArrowUpRight, Repeat } from "lucide-react";
+import type { ActivityEvent, Agent, Task } from "../../lib/types";
+import { bidWindow, cn, deadlineLabel, fmtDate, shortAddr, timeAgo } from "../../lib/utils";
+import { StatusBadge, USDCAmount } from "./primitives";
+import { useAsset } from "../../hooks/useAsset";
 
-/* ── Page header ──────────────────────────────────────────────────────────── */
+/** A page's title block, inside `<main>`. Kept small: the chrome already says where you are. */
 export function PageHeader({
   eyebrow,
   title,
@@ -20,204 +27,161 @@ export function PageHeader({
   action?: ReactNode;
 }) {
   return (
-    <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
-      <div>
-        {eyebrow && <div className="eyebrow mb-2">{eyebrow}</div>}
-        <h1 className="text-3xl font-bold tracking-tightest text-white md:text-4xl">{title}</h1>
-        {sub && <p className="mt-2 max-w-2xl text-sm text-grey-l">{sub}</p>}
+    <header className="mb-4 flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        {eyebrow && (
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{eyebrow}</div>
+        )}
+        <h1 className="text-base font-semibold tracking-tight text-foreground">{title}</h1>
+        {sub && <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">{sub}</p>}
       </div>
-      {action}
+      {action && <div className="shrink-0">{action}</div>}
+    </header>
+  );
+}
+
+/** Wraps rows in the single bordered container the list idiom expects. */
+export function RowList({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <div className={cn("rounded-[4px] border border-border overflow-hidden", className)}>
+      {children}
     </div>
   );
 }
 
-/* ── TaskItem ─────────────────────────────────────────────────────────────── */
-const STATUS_DOT: Record<string, string> = {
-  OPEN: "bg-blue",
-  ASSIGNED: "bg-violet",
-  IN_PROGRESS: "bg-amber",
-  COMPLETED: "bg-green",
-  SETTLED: "bg-green",
-  CANCELLED: "bg-grey",
-};
-
-export function TaskItem({ task }: { task: Task }) {
-  return (
-    <Link
-      to={`/task/${task.taskId}`}
-      className="panel panel-hover group block overflow-hidden px-4 py-3.5 sm:px-5 sm:py-4"
-    >
-      {/* Row 1: dot + title (truncates) + status */}
-      <div className="flex items-center gap-3">
-        <span className={cn("h-2.5 w-2.5 shrink-0 rounded-full", STATUS_DOT[task.status] ?? "bg-grey")} />
-        <h4 className="min-w-0 flex-1 truncate font-semibold text-white">{task.title}</h4>
-        {task.recurring && (
-          <span className="mono inline-flex shrink-0 items-center gap-1 rounded-md border border-violet/40 bg-violet/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-violet">
-            <Repeat size={10} /> {task.recurring.deliveries}×
-          </span>
-        )}
-        <StatusBadge status={task.status} />
-        <ArrowUpRight size={16} className="hidden shrink-0 text-grey transition-colors group-hover:text-blue-l sm:block" />
-      </div>
-      {/* Row 2: meta (wraps) + budget */}
-      <div className="mt-2 flex items-end justify-between gap-3 pl-5">
-        <div className="mono flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-grey">
-          <span className="mono text-[10px] text-grey">#{task.ref}</span>
-          <span className="uppercase tracking-wider text-grey-l">{task.taskType}</span>
-          <span>·</span>
-          <span title="Date created">{fmtDate(task.createdAtMs)}</span>
-          <span>·</span>
-          <span>{deadlineLabel(task.deadlineMs)}</span>
-          <span>·</span>
-          <span>min rep {task.minReputation}</span>
-          {task.status === "OPEN" &&
-            (() => {
-              const bw = bidWindow(task.createdAtMs, task.deadlineMs);
-              return (
-                <span
-                  className={cn(
-                    "rounded-md border px-1.5 py-0.5 text-[10px]",
-                    bw.closesInMs > 0
-                      ? "border-amber/40 bg-amber/10 text-amber"
-                      : "border-border bg-deep text-grey",
-                  )}
-                >
-                  {bw.closesInMs > 0 ? `⏳ ${bw.label}` : "bidding closed"}
-                </span>
-              );
-            })()}
-        </div>
-        <USDCAmount amount={task.budgetUsdc} size="md" className="shrink-0 text-white" />
-      </div>
-    </Link>
+/** Shared row chrome: hover, separator, and a consistent click target. */
+export function Row({
+  to,
+  onClick,
+  children,
+  first,
+}: {
+  to?: string;
+  onClick?: () => void;
+  children: ReactNode;
+  first?: boolean;
+}) {
+  const cls = cn(
+    "flex w-full items-center gap-2 sm:gap-4 px-3 py-2.5 bg-card text-left transition-colors hover:bg-muted/60",
+    !first && "border-t border-border",
+    (to || onClick) && "cursor-pointer",
   );
-}
-
-/* ── AgentCard ────────────────────────────────────────────────────────────── */
-export function AgentCard({ agent, footer, compact }: { agent: Agent; footer?: ReactNode; compact?: boolean }) {
-  if (compact) {
+  if (to) {
     return (
-      <Link
-        to={`/agent/${agent.wallet}`}
-        className="panel panel-hover group flex items-center gap-3 p-3.5"
-      >
-        <AgentAvatarImg agent={agent} size={40} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-semibold text-white group-hover:text-blue-l">{agent.name}</span>
-            <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", agent.slashed ? "bg-red" : agent.online ? "bg-green" : "bg-grey")} />
-          </div>
-          <div className="mono truncate text-[10px] text-grey">
-            {agent.capabilities.slice(0, 2).join(" · ") || shortAddr(agent.wallet)}
-          </div>
-        </div>
-        <div className="text-right">
-          <div className="mono text-sm font-bold text-white">{agent.reputation}</div>
-          <div className="eyebrow !text-[8px]">rep</div>
-        </div>
-        <div className="text-right">
-          <div className="mono text-sm font-bold text-green">${agent.totalEarned.toFixed(0)}</div>
-          <div className="eyebrow !text-[8px]">earned</div>
-        </div>
+      <Link to={to} className={cls}>
+        {children}
       </Link>
     );
   }
-  return (
-    <div className="panel panel-hover flex flex-col gap-4 p-5">
-      <div className="flex items-start justify-between gap-3">
-        <Link to={`/agent/${agent.wallet}`} className="flex items-center gap-3 group">
-          <AgentAvatarImg agent={agent} size={44} />
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5">
-              <span className="truncate font-semibold text-white group-hover:text-blue-l">{agent.name}</span>
-              <VerifiedBadge tier={agent.tier} size="xs" />
-            </div>
-            <div className="mono text-[11px] text-grey">{shortAddr(agent.wallet)}</div>
-          </div>
-        </Link>
-        <StatusBadge status={agent.slashed ? "SLASHED" : agent.online ? "ONLINE" : "OFFLINE"} />
-      </div>
-
-      <div>
-        <div className="eyebrow mb-1.5 flex justify-between">
-          <span>Reputation</span>
-        </div>
-        <ReputationBar rep={agent.reputation} />
-      </div>
-
-      {agent.capabilities.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {agent.capabilities.slice(0, 4).map((c) => (
-            <span
-              key={c}
-              className="mono rounded-md border border-border bg-deep px-2 py-0.5 text-[10px] text-grey-l"
-            >
-              {c}
-            </span>
-          ))}
-        </div>
-      )}
-
-      <div className="grid grid-cols-3 gap-2 border-t border-border pt-3 text-center">
-        <Stat label="Done" value={agent.tasksCompleted} />
-        <Stat label="Failed" value={agent.tasksFailed} />
-        <Stat label="Stake" value={`$${agent.stakeUsdc.toFixed(0)}`} />
-      </div>
-      <div className="mono text-center text-[11px] text-grey">
-        earned <span className="text-green">${agent.totalEarned.toFixed(2)}</span> USDC
-      </div>
-      <div className="mono text-center text-[10px] text-grey">joined {fmtDate(agent.createdAtMs)}</div>
-      {footer}
-    </div>
+  return onClick ? (
+    <button type="button" onClick={onClick} className={cls}>
+      {children}
+    </button>
+  ) : (
+    <div className={cls}>{children}</div>
   );
 }
 
-function Stat({ label, value }: { label: string; value: ReactNode }) {
+export function TaskItem({ task, first }: { task: Task; first?: boolean }) {
+  const bw = task.status === "OPEN" ? bidWindow(task.createdAtMs, task.deadlineMs) : null;
   return (
-    <div>
-      <div className="mono text-lg font-bold text-white">{value}</div>
-      <div className="eyebrow !text-[9px]">{label}</div>
-    </div>
-  );
-}
-
-/* ── FeedItem (activity) ──────────────────────────────────────────────────── */
-const KIND_ICON: Record<string, ReactNode> = {
-  TASK_POSTED: <Zap size={13} />,
-  BID_PLACED: <Gavel size={13} />,
-  TASK_ASSIGNED: <Bot size={13} />,
-  TASK_SETTLED: <CheckCircle2 size={13} />,
-  AGENT_REGISTERED: <Bot size={13} />,
-  AGENT_SLASHED: <Coins size={13} />,
-};
-const KIND_COLOR: Record<string, string> = {
-  TASK_POSTED: "text-blue-l border-blue/30",
-  BID_PLACED: "text-violet border-purple/30",
-  TASK_ASSIGNED: "text-violet border-purple/30",
-  TASK_SETTLED: "text-green border-green/30",
-  AGENT_REGISTERED: "text-blue-l border-blue/30",
-  AGENT_SLASHED: "text-red border-red/30",
-};
-
-export function FeedItem({ ev }: { ev: ActivityEvent }) {
-  return (
-    <div className="flex items-start gap-3 py-2.5">
-      <span
-        className={cn(
-          "mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full border bg-deep",
-          KIND_COLOR[ev.kind] ?? "text-grey-l border-border2",
-        )}
-      >
-        {KIND_ICON[ev.kind] ?? <Zap size={13} />}
-      </span>
+    <Row to={`/task/${task.taskId}`} first={first}>
       <div className="min-w-0 flex-1">
-        <div className="truncate text-[13px] text-white">{ev.title}</div>
-        <div className="mono mt-0.5 flex items-center gap-2 text-[10px] text-grey">
-          <span>{timeAgo(ev.atMs)}</span>
-          {ev.wallet && <span>· {shortAddr(ev.wallet)}</span>}
-          {ev.amountUsdc != null && <span className="text-usdc-l">· ${ev.amountUsdc.toFixed(2)}</span>}
+        <div className="flex items-center gap-2">
+          <p className="truncate text-[13px] font-medium text-foreground">{task.title}</p>
+          {task.recurring && (
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-[3px] border border-secondary/30 bg-secondary/15 px-1.5 text-[10px] text-secondary">
+              <Repeat className="h-2.5 w-2.5" /> {task.recurring.deliveries}×
+            </span>
+          )}
         </div>
+        <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[11px] text-muted-foreground">
+          <span>#{task.ref}</span>
+          <span className="uppercase">{task.taskType}</span>
+          <span className="hidden xs:inline">· {fmtDate(task.createdAtMs)}</span>
+          {/* Only a live task has a countdown; a finished one shows when it settled. */}
+          <span className="hidden sm:inline">
+            · {deadlineLabel(task.deadlineMs, task) ?? `settled ${fmtDate(task.settledAtMs ?? task.createdAtMs)}`}
+          </span>
+          {bw && bw.closesInMs > 0 && <span className="text-accent">· bidding {bw.label}</span>}
+        </p>
       </div>
+      <USDCAmount amount={task.budgetUsdc} size="sm" className="shrink-0 text-foreground" />
+      <div className="shrink-0 hidden xs:flex justify-end">
+        <StatusBadge status={task.status} />
+      </div>
+      <ArrowUpRight className="hidden sm:block h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+    </Row>
+  );
+}
+
+export function AgentCard({
+  agent,
+  footer,
+  first,
+}: {
+  agent: Agent;
+  footer?: ReactNode;
+  /** Kept for call-site compatibility; the row idiom is compact by construction. */
+  compact?: boolean;
+  first?: boolean;
+}) {
+  const { symbol } = useAsset();
+  return (
+    <div className={cn("bg-card", !first && "border-t border-border")}>
+      <Link to={`/agent/${agent.wallet}`} className="flex items-center gap-2 sm:gap-4 px-3 py-2.5 transition-colors hover:bg-muted/60">
+        <span
+          className={cn("status-dot", agent.online ? "bg-success" : "bg-muted-foreground/50")}
+          title={agent.online ? "Online" : "Offline"}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <p className="truncate text-[13px] font-medium text-foreground">{agent.name || shortAddr(agent.wallet)}</p>
+            {agent.erc8004Id && (
+              <span
+                className="shrink-0 rounded-[3px] border border-primary/25 bg-primary/12 px-1.5 text-[10px] text-primary"
+                title="Has a portable ERC-8004 identity"
+              >
+                8004 #{agent.erc8004Id}
+              </span>
+            )}
+          </div>
+          <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">
+            {agent.capabilities.slice(0, 3).join(" · ") || "no capabilities"}
+          </p>
+        </div>
+        <span className="hidden md:block shrink-0 text-[11px] text-muted-foreground">
+          {agent.tasksCompleted} done
+        </span>
+        <span className="shrink-0 text-[11px] font-mono text-foreground w-14 text-right">rep {agent.reputation}</span>
+        <span className="hidden xs:block shrink-0 text-[11px] text-muted-foreground w-20 text-right">
+          {agent.stakeUsdc} {symbol}
+        </span>
+      </Link>
+      {footer && <div className="border-t border-border px-3 py-2">{footer}</div>}
     </div>
+  );
+}
+
+const KIND_TONE: Record<string, string> = {
+  TASK_CREATED: "bg-primary",
+  BID_PLACED: "bg-secondary",
+  TASK_ASSIGNED: "bg-accent",
+  TASK_SETTLED: "bg-success",
+  AGENT_REGISTERED: "bg-secondary",
+  AGENT_SLASHED: "bg-destructive",
+};
+
+export function FeedItem({ ev, first }: { ev: ActivityEvent; first?: boolean }) {
+  return (
+    <Row first={first}>
+      <span className={cn("status-dot mt-1.5 self-start", KIND_TONE[ev.kind] ?? "bg-muted-foreground")} />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-xs text-foreground">{ev.title}</p>
+        {ev.detail && <p className="truncate font-mono text-[11px] text-muted-foreground">{ev.detail}</p>}
+      </div>
+      {ev.amountUsdc != null && <USDCAmount amount={ev.amountUsdc} size="sm" className="shrink-0" />}
+      <span className="shrink-0 text-[11px] text-muted-foreground w-16 text-right">{timeAgo(ev.atMs)}</span>
+    </Row>
   );
 }

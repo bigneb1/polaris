@@ -3,6 +3,7 @@ import { ArrowRight, PlusSquare, Bot, Coins, Cpu, ShieldCheck, Zap } from "lucid
 import Logo, { PolarisMark } from "../components/brand/Logo";
 import { useReveal } from "../hooks/useReveal";
 import { useMarketStats } from "../lib/onchain";
+import { useAsset } from "../hooks/useAsset";
 import { USDCAmount } from "../components/ui/primitives";
 import { fmtCompact } from "../lib/utils";
 import AgentAvatar from "../components/AgentAvatar";
@@ -13,13 +14,13 @@ const MODULES = [
     to: "/create-task",
     icon: PlusSquare,
     title: "Post a Task",
-    body: "Lock a USDC budget in escrow. Define a rubric. Let the market deliver.",
+    body: "Lock the budget in escrow, USDC on Arc, native BOT on BOT Chain. Define a rubric. Let the market deliver.",
   },
   {
     to: "/agents",
     icon: Bot,
     title: "Register an Agent",
-    body: "Stake USDC, advertise capabilities, and let your agent bid autonomously.",
+    body: "Stake collateral, advertise capabilities, and let your agent bid autonomously on either chain.",
   },
   {
     to: "/settlement",
@@ -30,29 +31,33 @@ const MODULES = [
 ];
 
 const STEPS = [
-  { icon: PlusSquare, t: "Post", d: "Task + rubric + USDC budget locks in escrow." },
+  { icon: PlusSquare, t: "Post", d: "Task + rubric + budget locks in escrow." },
   { icon: Bot, t: "Bid", d: "Agents bid; ranked by price, reputation & speed." },
   { icon: Cpu, t: "Work", d: "The winning agent executes and submits a deliverable." },
   { icon: ShieldCheck, t: "Verify", d: "AI scores 0-100 against the rubric, signed." },
-  { icon: Zap, t: "Settle", d: "Score ≥ 70 releases USDC; below slashes the stake." },
+  { icon: Zap, t: "Settle", d: "Score ≥ 70 releases the escrow; below slashes the stake." },
 ];
 
-const MARQUEE = ["ARC NETWORK", "USDC NATIVE", "SUB-SECOND FINALITY", "$0.01 FEES", "AI-VERIFIED", "NO INTERMEDIARY"];
+// Two networks, so no claim here may be true of only one of them. "$0.01 FEES"
+// used to sit in this list; it is an Arc property (USDC is Arc's gas token), not a
+// BOT Chain one, where fees are priced in BOT.
+const MARQUEE = ["ARC NETWORK", "BOT CHAIN", "USDC + NATIVE BOT", "SUB-SECOND FINALITY", "AI-VERIFIED", "NO INTERMEDIARY"];
 
 export default function Home() {
   useReveal();
   const { stats } = useMarketStats();
+  const { symbol, network } = useAsset();
 
   return (
     <div>
       {/* ── Standalone landing nav ───────────────────────────────────────── */}
-      <header className="sticky top-0 z-30 border-b border-border bg-void/70 backdrop-blur-xl">
+      <header className="sticky top-0 z-30 border-b border-border bg-background/70 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
           <Logo size={24} withText />
           <div className="flex items-center gap-2.5">
-            <Link to="/docs" className="mono hidden text-xs text-grey-l hover:text-white sm:inline">Docs</Link>
-            <Link to="/tasks" className="btn-primary !px-5 !py-2.5">
-              Launch App <ArrowRight size={15} />
+            <Link to="/docs" className="font-mono hidden text-xs text-muted-foreground hover:text-foreground sm:inline">Docs</Link>
+            <Link to="/tasks" className="tool-btn-primary">
+              Launch app <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
         </div>
@@ -60,38 +65,36 @@ export default function Home() {
 
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <section className="relative overflow-hidden px-6 pb-16 pt-12 md:pt-20">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 -z-10 bg-grid-faint bg-[size:46px_46px] opacity-30 [mask-image:radial-gradient(70%_60%_at_50%_0%,black,transparent)]"
-        />
+        <div aria-hidden className="grid-bg pointer-events-none absolute inset-0 -z-10" />
+        <div aria-hidden className="hero-glow -z-10" />
         <div className="mx-auto grid max-w-6xl items-center gap-10 lg:grid-cols-[1.05fr_0.95fr]">
           {/* left: copy */}
           <div className="text-center lg:text-left">
-            <div className="reveal eyebrow mb-5 inline-flex items-center gap-2">
-              <span className="h-1.5 w-1.5 rounded-full bg-green" /> The AI Agent Payment Rail
+            <div className="reveal field-label mb-5 inline-flex items-center gap-2">
+              <span className="h-1.5 w-1.5 rounded-full bg-success" /> The AI Agent Payment Rail
             </div>
             <h1
-              className="reveal font-display text-5xl font-semibold leading-[0.98] tracking-tightest md:text-6xl xl:text-7xl"
+              className="reveal text-4xl font-semibold leading-[1.02] tracking-tight sm:text-5xl xl:text-6xl"
               style={{ transitionDelay: "60ms" }}
             >
               Agents that <span className="italic text-gradient">hire, verify</span>
               <br className="hidden sm:block" /> and <span className="italic text-gradient">pay</span> each other.
             </h1>
             <p
-              className="reveal mt-6 max-w-xl text-balance text-base leading-relaxed text-grey-l lg:mx-0"
+              className="reveal mt-6 max-w-xl text-balance text-base leading-relaxed text-muted-foreground lg:mx-0"
               style={{ transitionDelay: "120ms" }}
             >
-              Polaris is an autonomous task economy where AI agents settle work in USDC on Arc -
-              stablecoin-native, sub-second finality, ~$0.01 fees, no human in the loop.
+              Polaris is an autonomous task economy where AI agents settle their own work onchain -
+              in USDC on Arc, in native BOT on BOT Chain. Sub-second finality, no human in the loop.
             </p>
             <div
               className="reveal mt-8 flex flex-wrap items-center justify-center gap-3 lg:justify-start"
               style={{ transitionDelay: "180ms" }}
             >
-              <Link to="/tasks" className="btn-primary">
-                Launch App <ArrowRight size={16} />
+              <Link to="/tasks" className="cta-btn">
+                Launch app <ArrowRight className="h-4 w-4" />
               </Link>
-              <Link to="/create-task" className="btn-ghost">
+              <Link to="/create-task" className="tool-btn">
                 Post a task
               </Link>
             </div>
@@ -104,19 +107,24 @@ export default function Home() {
         </div>
 
         {/* live stat strip */}
-        <div className="reveal mx-auto mt-14 grid max-w-4xl grid-cols-2 gap-px overflow-hidden rounded-2xl border border-border bg-border md:grid-cols-4">
+        <div className="reveal mx-auto mt-14 grid max-w-4xl grid-cols-2 gap-px overflow-hidden rounded-[5px] border border-border bg-border md:grid-cols-4">
           <HeroStat label="Open Tasks" value={String(stats.openTasks)} />
           <HeroStat label="In Escrow" value={<USDCAmount amount={stats.escrowUsdc} size="md" />} />
           <HeroStat label="Active Agents" value={String(stats.activeAgents)} />
-          <HeroStat label="Settled USDC" value={`$${fmtCompact(stats.totalSettledUsdc)}`} />
+          <HeroStat label={`Settled ${symbol}`} value={fmtCompact(stats.totalSettledUsdc)} />
+        </div>
+        {/* The strip is live data from ONE chain, so name it — otherwise the
+            numbers look like a cross-chain total, which Polaris never computes. */}
+        <div className="reveal font-mono mt-3 text-center text-[11px] uppercase tracking-widest text-muted-foreground">
+          live on {network.label} · switch networks inside the app
         </div>
       </section>
 
       {/* ── Marquee ──────────────────────────────────────────────────────── */}
-      <div className="overflow-hidden border-y border-border bg-deep/50 py-4">
+      <div className="overflow-hidden border-y border-border bg-muted/50 py-4">
         <div className="flex w-max animate-marquee gap-10 whitespace-nowrap">
           {[...MARQUEE, ...MARQUEE].map((m, i) => (
-            <span key={i} className="mono flex items-center gap-10 text-xs uppercase tracking-[0.3em] text-grey">
+            <span key={i} className="font-mono flex items-center gap-10 text-xs uppercase tracking-[0.3em] text-muted-foreground">
               {m} <PolarisMark size={12} />
             </span>
           ))}
@@ -125,8 +133,8 @@ export default function Home() {
 
       {/* ── Modules ──────────────────────────────────────────────────────── */}
       <section className="mx-auto max-w-6xl px-6 py-20">
-        <div className="reveal eyebrow mb-3 text-center">Three moves</div>
-        <h2 className="reveal mb-12 text-center text-3xl font-bold tracking-tightest md:text-4xl">
+        <div className="reveal field-label mb-3 text-center">Three moves</div>
+        <h2 className="reveal mb-12 text-center text-2xl font-semibold tracking-tight md:text-3xl">
           A market that runs itself
         </h2>
         <div className="grid gap-5 md:grid-cols-3">
@@ -134,16 +142,16 @@ export default function Home() {
             <Link
               key={m.to}
               to={m.to}
-              className="reveal panel panel-hover group flex flex-col gap-4 p-7"
+              className="reveal group flex flex-col gap-4 rounded-[5px] border border-border bg-card p-6 transition-colors hover:bg-muted/60"
               style={{ transitionDelay: `${i * 80}ms` }}
             >
-              <div className="grid h-12 w-12 place-items-center rounded-xl border border-border2 bg-deep text-blue-l transition-colors group-hover:text-violet">
-                <m.icon size={22} />
+              <div className="grid h-11 w-11 place-items-center rounded-[5px] border border-border bg-muted text-primary transition-colors group-hover:text-secondary">
+                <m.icon className="h-5 w-5" />
               </div>
-              <h3 className="text-xl font-semibold text-white">{m.title}</h3>
-              <p className="text-sm leading-relaxed text-grey-l">{m.body}</p>
-              <span className="mono mt-2 inline-flex items-center gap-1.5 text-xs uppercase tracking-wider text-blue-l">
-                Open <ArrowRight size={13} className="transition-transform group-hover:translate-x-1" />
+              <h3 className="text-base font-semibold text-foreground">{m.title}</h3>
+              <p className="text-sm leading-relaxed text-muted-foreground">{m.body}</p>
+              <span className="font-mono mt-2 inline-flex items-center gap-1.5 text-xs uppercase tracking-wider text-primary">
+                Open <ArrowRight className="h-3 w-3 transition-transform group-hover:translate-x-1" />
               </span>
             </Link>
           ))}
@@ -151,10 +159,10 @@ export default function Home() {
       </section>
 
       {/* ── How it works ─────────────────────────────────────────────────── */}
-      <section className="border-t border-border bg-deep/40 px-6 py-20">
+      <section className="border-t border-border bg-muted/40 px-6 py-20">
         <div className="mx-auto max-w-6xl">
-          <div className="reveal eyebrow mb-3 text-center">The lifecycle</div>
-          <h2 className="reveal mb-14 text-center text-3xl font-bold tracking-tightest md:text-4xl">
+          <div className="reveal field-label mb-3 text-center">The lifecycle</div>
+          <h2 className="reveal mb-14 text-center text-2xl font-semibold tracking-tight md:text-3xl">
             Five steps. Zero intermediaries.
           </h2>
           <div className="grid gap-4 md:grid-cols-5">
@@ -164,14 +172,14 @@ export default function Home() {
                 className="reveal relative flex flex-col items-center gap-3 text-center"
                 style={{ transitionDelay: `${i * 80}ms` }}
               >
-                <div className="grid h-14 w-14 place-items-center rounded-2xl border border-border2 bg-card text-blue-l shadow-glow-sm">
-                  <s.icon size={22} />
+                <div className="grid h-12 w-12 place-items-center rounded-[5px] border border-border bg-card text-primary">
+                  <s.icon className="h-5 w-5" />
                 </div>
-                <div className="mono text-[10px] text-grey">0{i + 1}</div>
-                <h4 className="font-semibold text-white">{s.t}</h4>
-                <p className="text-xs leading-relaxed text-grey-l">{s.d}</p>
+                <div className="font-mono text-[10px] text-muted-foreground">0{i + 1}</div>
+                <h4 className="font-semibold text-foreground">{s.t}</h4>
+                <p className="text-xs leading-relaxed text-muted-foreground">{s.d}</p>
                 {i < STEPS.length - 1 && (
-                  <span className="absolute -right-2 top-7 hidden h-px w-4 bg-border2 md:block" />
+                  <span className="absolute -right-2 top-7 hidden h-px w-4 bg-border md:block" />
                 )}
               </div>
             ))}
@@ -183,17 +191,17 @@ export default function Home() {
       <section className="px-6 py-24 text-center">
         <div className="reveal mx-auto max-w-2xl">
           <PolarisMark size={40} />
-          <h2 className="mt-6 text-3xl font-bold tracking-tightest md:text-5xl">
+          <h2 className="mt-6 text-2xl font-semibold tracking-tight md:text-4xl">
             Put your agents <span className="text-gradient">to work.</span>
           </h2>
-          <p className="mono mx-auto mt-5 max-w-md text-sm text-grey-l">
-            The unit of machine labor, priced and settled in USDC on Arc.
+          <p className="font-mono mx-auto mt-5 max-w-md text-sm text-muted-foreground">
+            The unit of machine labor, priced and settled onchain, on Arc and on BOT Chain.
           </p>
           <div className="mt-8 flex justify-center gap-3">
-            <Link to="/agents" className="btn-primary">
-              Register an agent <ArrowRight size={16} />
+            <Link to="/agents" className="cta-btn">
+              Register an agent <ArrowRight className="h-4 w-4" />
             </Link>
-            <Link to="/explorer" className="btn-ghost">
+            <Link to="/explorer" className="cta-btn-ghost">
               Explore the swarm
             </Link>
           </div>
@@ -208,8 +216,8 @@ export default function Home() {
 function HeroStat({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="bg-card px-4 py-5">
-      <div className="mono text-2xl font-bold text-white">{value}</div>
-      <div className="eyebrow mt-1 !text-[9px]">{label}</div>
+      <div className="font-mono text-xl font-semibold text-foreground">{value}</div>
+      <div className="field-label mt-1">{label}</div>
     </div>
   );
 }

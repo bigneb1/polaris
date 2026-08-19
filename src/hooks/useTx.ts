@@ -36,7 +36,6 @@ export function useTx() {
           toast.error("Cancelled.", { id: toastId });
         } else {
           toast.error(humanizeError(err, "Transaction failed. Please try again."), { id: toastId });
-          // eslint-disable-next-line no-console
           console.error(err);
         }
         return null;

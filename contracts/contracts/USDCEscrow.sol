@@ -41,11 +41,13 @@ contract USDCEscrow is ReentrancyGuard {
 
     function setVerifierBridge(address _b) external {
         require(msg.sender == owner, "Only owner");
+        require(_b != address(0), "Zero address");
         verifierBridge = _b;
     }
 
     function setTaskRegistry(address _r) external {
         require(msg.sender == owner, "Only owner");
+        require(_r != address(0), "Zero address");
         taskRegistry = _r;
     }
 

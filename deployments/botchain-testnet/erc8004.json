@@ -1,0 +1,17 @@
+{
+  "network": "botchain-testnet",
+  "chainId": 968,
+  "provenance": "polaris-deployed",
+  "note": "Reference ERC-8004 implementations at Polaris-owned addresses; the canonical vanity proxies on this chain are inactive placeholders.",
+  "deployedAtIso": "2026-08-18T01:57:14.335Z",
+  "owner": "0xe141f388e35d80752F15ea767bC7D1fdf96f19eB",
+  "bootstrap": "0x750A9D2451a1660d996AFd1E404053839bC783Dc",
+  "implementations": {
+    "IdentityRegistryUpgradeable": "0x6E0eBe2cC4CA16697e04A6644B89DbEF63DD01D8",
+    "ReputationRegistryUpgradeable": "0x721Ec27616827062268927E6570c20B68D575428",
+    "ValidationRegistryUpgradeable": "0x463A82e6aff782d8E4F563D2FB7D37453A23B860"
+  },
+  "erc8004Identity": "0x6ea260520853dDbc9A938f23613BE9069a58eeaD",
+  "erc8004Reputation": "0x0A5845E703BCD9F946707a75e1A9c64D9797200c",
+  "erc8004Validation": "0x0e1EBCAf962f5957fDa20f110DD142C5bFdedcFe"
+}

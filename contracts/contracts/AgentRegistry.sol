@@ -65,11 +65,13 @@ contract AgentRegistry is ReentrancyGuard {
 
     function setVerifierBridge(address _b) external {
         require(msg.sender == owner, "Only owner");
+        require(_b != address(0), "Zero address");
         verifierBridge = _b;
     }
 
     function setTaskRegistry(address _t) external {
         require(msg.sender == owner, "Only owner");
+        require(_t != address(0), "Zero address");
         taskRegistry = _t;
     }
 

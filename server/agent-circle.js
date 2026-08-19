@@ -221,8 +221,16 @@ class CircleAgent {
       this.log(`won "${meta.title}" — working (~${Math.round(workMs / 1000)}s)…`);
       await sleep(workMs);
 
-      const deliverable = await produceWork(meta, meta.feedback || "");
-      await postJSON(`${API_URL}/api/deliverable`, { taskId, agentWallet: this.address, deliverable });
+      const { deliverable, gradeableText } = await produceWork(meta, meta.feedback || "");
+      // NOTE: unlike the raw-key swarm (agent.js) and hosted personas (hosted.js),
+      // Circle MPC agent wallets have no off-chain message-signing capability
+      // wired up here (circle-wallet.js only exposes `wallet execute` for
+      // on-chain contract calls) — see docs/AUDIT_REPORT.md, Security #2. The
+      // backend still binds this submission to the real on-chain assigned agent
+      // (server/server.js), but cannot cryptographically verify this specific
+      // POST came from that agent's own process without a Circle CLI/API
+      // message-signing subcommand, which isn't confirmed available.
+      await postJSON(`${API_URL}/api/deliverable`, { taskId, agentWallet: this.address, deliverable, gradeableText });
       const result = await postJSON(`${API_URL}/api/verify`, { taskId });
       if (result.status === "released") {
         this.log(`PASS "${meta.title}" ${result.score}/100 → USDC released`);
@@ -286,8 +294,22 @@ async function getJSON(url, { retries = 3, backoffMs = 600 } = {}) {
   throw lastErr;
 }
 
+/**
+ * Headers for a call to our own API. `x-polaris-internal` is how the runtime's own
+ * processes authorise the endpoints that spend money (see server/guard.js): the
+ * swarm cannot be asked to sign for /api/verify in every case, and the Circle swarm
+ * cannot sign at all.
+ */
+function internalHeaders() {
+  const secret = process.env.INTERNAL_API_SECRET;
+  return {
+    "Content-Type": "application/json",
+    ...(secret ? { "x-polaris-internal": secret } : {}),
+  };
+}
+
 async function postJSON(url, body) {
-  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const r = await fetch(url, { method: "POST", headers: internalHeaders(), body: JSON.stringify(body) });
   const text = await r.text();
   let data = {};
   try {
@@ -383,7 +405,10 @@ async function main() {
   const planSeen = new Set(); // `${agentAddr}:${planId}` we've already bid on
   const reworking = new Set(); // taskIds currently being reworked (dispute upheld)
 
+  let ticking = false;
   const tick = async () => {
+    if (ticking) return; // a previous tick is still in flight — don't overlap
+    ticking = true;
     try {
       const index = await getJSON(`${API_URL}/api/index`);
       const tasks = index.tasks || [];
@@ -413,7 +438,11 @@ async function main() {
           // Free capacity for agents that bid but lost this auction.
           for (const a of swarm) if (a.address.toLowerCase() !== winner) a.activeBids.delete(t.taskId);
           const a = swarm.find((x) => x.address.toLowerCase() === winner);
-          if (a) await a.fulfil(meta.taskId, meta);
+          // Deliberately NOT awaited: fulfil() sleeps 20-30 min to simulate work,
+          // and awaiting it here would block this whole tick loop (bidding on
+          // every other open task) for that entire window. fulfil() already
+          // guards re-entrancy via `handled`/`inFlight` and never rethrows.
+          if (a) a.fulfil(meta.taskId, meta).catch((e) => a.log("fulfil error:", e.message));
         } else {
           // settled/cancelled — clear any lingering bid commitment
           for (const a of swarm) a.activeBids.delete(t.taskId);
@@ -460,8 +489,8 @@ async function main() {
             try {
               const meta = normalize(t);
               a.log(`reworking "${meta.title}" (dispute upheld) — regenerating deliverable…`);
-              const deliverable = await produceWork(meta, rw.feedback || "");
-              await postJSON(`${API_URL}/api/deliverable`, { taskId: t.taskId, agentWallet: a.address, deliverable });
+              const { deliverable, gradeableText } = await produceWork(meta, rw.feedback || "");
+              await postJSON(`${API_URL}/api/deliverable`, { taskId: t.taskId, agentWallet: a.address, deliverable, gradeableText });
               await postJSON(`${API_URL}/api/rework-done`, { taskId: t.taskId });
               a.log(`rework delivered for "${meta.title}"`);
             } catch (e) {
@@ -477,6 +506,8 @@ async function main() {
       await resolveDelegations();
     } catch (e) {
       console.error("tick error:", e.message);
+    } finally {
+      ticking = false;
     }
   };
   await tick();

@@ -10,9 +10,12 @@
 import type { W3SSdk } from "@circle-fin/w3s-pw-web-sdk";
 import { createPublicClient, http, encodeFunctionData, erc20Abi, formatUnits, type Abi } from "viem";
 import { arcTestnet, USDC_ADDRESS, USDC_DECIMALS, ARC_RPC_URL } from "./chain";
+import { arcTestnetConfig as arcConfig } from "./networks/arc";
 
 const ENV = (import.meta as { env?: Record<string, string> }).env ?? {};
-const API_URL = ENV.VITE_API_URL || "https://polaris-agent-runtime-production.up.railway.app";
+/** Circle exists only on Arc, so this flow always talks to ARC's runtime — never
+ *  the active network's, which on BOT Chain has no Circle credentials at all. */
+const API_URL = arcConfig.apiBaseUrl.replace(/\/$/, "");
 const APP_ID = ENV.VITE_CIRCLE_UC_APP_ID || "";
 
 export function ucWalletEnabled(): boolean {

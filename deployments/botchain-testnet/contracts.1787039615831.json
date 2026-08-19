@@ -1,0 +1,29 @@
+{
+  "network": "botchain-testnet",
+  "label": "BOT Chain Testnet",
+  "chainId": 968,
+  "explorer": "https://scan.bohr.life",
+  "deployedAtIso": "2026-08-18T01:54:50.341Z",
+  "deployer": "0xe141f388e35d80752F15ea767bC7D1fdf96f19eB",
+  "verifierSigner": "0xe141f388e35d80752F15ea767bC7D1fdf96f19eB",
+  "treasury": "0xe141f388e35d80752F15ea767bC7D1fdf96f19eB",
+  "deployBlock": 20243742,
+  "escrowToken": {
+    "address": null,
+    "symbol": "BOT",
+    "decimals": 18,
+    "native": true
+  },
+  "minStakeWei": "1000000000000000000",
+  "contracts": {
+    "usdcEscrow": "0x2C7F3aF6ce0f91280A6e447D53d623A57C3C9c53",
+    "agentRegistry": "0xBaA6Ca60fa71969723528ECBd45e88E9ddb4BAca",
+    "bidEngine": "0x7902b645aF56204812441CeDc77Afd4acF61307F",
+    "taskRegistry": "0x89D7f0b7f0e482A1D95d0d1E67836320b0F9FA10",
+    "verifierBridge": "0x29e9521ac58e3a3f49fEbD88F761492721Be38D9",
+    "agentBadges": "0xa9e9421D625c0fBA6a3aCD35fc33AfA9549e1Be3",
+    "erc8004Identity": "0x6ea260520853dDbc9A938f23613BE9069a58eeaD",
+    "erc8004Reputation": "0x0A5845E703BCD9F946707a75e1A9c64D9797200c",
+    "erc8004Validation": "0x0e1EBCAf962f5957fDa20f110DD142C5bFdedcFe"
+  }
+}

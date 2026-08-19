@@ -1,12 +1,14 @@
 import type { Address } from "viem";
 
-export type TaskStatus =
-  | "OPEN"
-  | "ASSIGNED"
-  | "IN_PROGRESS"
-  | "COMPLETED"
-  | "SETTLED"
-  | "CANCELLED";
+/**
+ * The four states the indexer can actually derive from chain events.
+ *
+ * `IN_PROGRESS` and `COMPLETED` used to be declared here and were never emitted by
+ * `server/indexer.js`, so several components branched on states that could not
+ * arrive. A settled task is *displayed* as "Completed" (see STATUS_LABELS in
+ * components/ui/primitives.tsx); that is a label, not a distinct state.
+ */
+export type TaskStatus = "OPEN" | "ASSIGNED" | "SETTLED" | "CANCELLED";
 
 export type Task = {
   taskId: `0x${string}`;
@@ -73,6 +75,14 @@ export type Agent = {
   image?: string;
   /** Off-chain service endpoint (HTTPS webhook) where the agent's runtime is reached. */
   endpoint?: string;
+  /**
+   * ERC-8004 identity, where the agent has minted one: a portable id any application
+   * can read, not just Polaris. Present only for agents this network's runtime knows
+   * an id for, so absence means "no identity on record", not "no identity".
+   */
+  erc8004Id?: string;
+  /** The identity registry the id belongs to, for building an explorer link. */
+  erc8004Registry?: string;
 };
 
 export type Bid = {

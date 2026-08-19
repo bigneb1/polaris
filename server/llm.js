@@ -1,58 +1,169 @@
 import "dotenv/config";
 
 /**
- * LLM layer — 0G router (OpenAI-compatible chat completions) running GLM-5.2.
+ * LLM layer — OpenRouter (OpenAI-compatible chat completions).
  *
- * GLM-5.2 is a reasoning model: it emits `reasoning_content` BEFORE the final
- * answer, so `max_tokens` must cover both. We floor output at 4096 (and never go
- * below 1500) so the answer isn't truncated by reasoning eating the budget.
- * 1M context; strong coding/engineering; good for produce + jury.
+ * Default model: deepseek/deepseek-v4-flash-0731. Two properties of that model
+ * shape this file:
+ *
+ *  1. It is a REASONING model. Reasoning tokens are drawn from the same
+ *     max_tokens budget as the visible answer (measured: 76 of 98 completion
+ *     tokens on a short grading call), so a small budget yields an empty answer.
+ *     Hence the MIN_TOKENS floor, and `reasoning.exclude` so the thinking never
+ *     comes back as content for callers to trip over. Every prior provider in this
+ *     file needed the same floor for the same reason.
+ *
+ *  2. It is TEXT-ONLY (`input_modalities: ["text"]`). Image deliverables therefore
+ *     cannot be graded by this model; `chat` rejects image content with a clear
+ *     error rather than sending a request that is guaranteed to fail, so
+ *     score.js's fallback path engages immediately.
+ *
+ * Verdicts move money, so JSON responses use OpenRouter's STRICT json_schema
+ * structured output where a caller supplies a schema. Without it this model
+ * occasionally emits a malformed key (observed: `{":": 100}` instead of
+ * `{"score": 100}`), which would parse to score 0 and fail an honest agent.
  */
-const LLM_URL = process.env.LLM_URL || "https://router-api.0g.ai/v1/chat/completions";
-const MODEL = process.env.LLM_MODEL || "glm-5.2";
-const KEY = process.env.LLM_API_KEY;
-// Reasoning models need a generous floor or the answer comes back empty (all
-// tokens spent on reasoning). Configurable but never below 1500.
-const MIN_TOKENS = Number(process.env.LLM_MIN_TOKENS || 1500);
-const DEFAULT_TOKENS = Number(process.env.LLM_DEFAULT_TOKENS || 4096);
-
+const BASE_URL = process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
+const MODEL = process.env.OPENROUTER_MODEL || process.env.LLM_MODEL || "deepseek/deepseek-v4-flash-0731";
 /**
- * Call the chat completions endpoint.
- * @param {Array<{role:string, content:string|Array<any>}>} messages
- * @param {{ maxTokens?: number, json?: boolean }} [opts]
- * @returns {Promise<string>} the assistant message text
+ * Model used when a request carries an image. The default text model is
+ * `input_modalities: ["text"]` and cannot see, so image grading needs its own
+ * model. Unset means image grading is UNAVAILABLE, and callers must treat that as
+ * "cannot grade" rather than "accept": score.js used to swallow the error and pay
+ * the agent 82/100 for an image nobody had looked at.
  */
-export async function chat(messages, opts = {}) {
-  if (!KEY) throw new Error("LLM_API_KEY not set");
-  const maxTokens = Math.max(MIN_TOKENS, opts.maxTokens ?? DEFAULT_TOKENS);
-  const body = { model: MODEL, messages, max_tokens: maxTokens };
-  if (opts.json) body.response_format = { type: "json_object" };
+const VISION_MODEL = process.env.OPENROUTER_VISION_MODEL || "";
+const KEY = process.env.OPENROUTER_API_KEY || process.env.LLM_API_KEY;
+const MIN_TOKENS = Number(process.env.LLM_MIN_TOKENS || 4096);
+const DEFAULT_TOKENS = Number(process.env.LLM_DEFAULT_TOKENS || 8192);
+const TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS || 120000);
+const RETRIES = Number(process.env.LLM_RETRIES || 2);
 
-  const res = await fetch(LLM_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${KEY}`,
-      "Content-Type": "application/json",
+/** Common JSON shapes, so callers get schema-enforced output on the money path. */
+export const SCHEMAS = {
+  verdict: {
+    name: "verdict",
+    strict: true,
+    schema: {
+      type: "object",
+      properties: {
+        score: { type: "integer", description: "0-100 quality score against the rubric" },
+        passed: { type: "boolean" },
+        reasoning: { type: "string" },
+      },
+      required: ["score", "passed", "reasoning"],
+      additionalProperties: false,
     },
-    body: JSON.stringify(body),
-  });
+  },
+  imageVerdict: {
+    name: "image_verdict",
+    strict: true,
+    schema: {
+      type: "object",
+      properties: {
+        onTopic: { type: "boolean" },
+        score: { type: "integer" },
+        reasoning: { type: "string" },
+      },
+      required: ["onTopic", "score", "reasoning"],
+      additionalProperties: false,
+    },
+  },
+  jury: {
+    name: "jury_verdict",
+    strict: true,
+    schema: {
+      type: "object",
+      properties: {
+        upheld: { type: "boolean" },
+        reasoning: { type: "string" },
+      },
+      required: ["upheld", "reasoning"],
+      additionalProperties: false,
+    },
+  },
+};
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`LLM ${res.status}: ${text.slice(0, 300)}`);
-  }
-  const data = await res.json();
-  const content = data?.choices?.[0]?.message?.content ?? "";
-  // GLM can return an empty `content` when reasoning exhausted the budget;
-  // fall back to the reasoning text so the caller still gets something usable.
-  if (!content && data?.choices?.[0]?.message?.reasoning_content) {
-    return String(data.choices[0].message.reasoning_content);
-  }
-  return content;
+/** True when any message carries non-text content this model can't accept. */
+function hasImageContent(messages) {
+  return messages.some(
+    (m) => Array.isArray(m.content) && m.content.some((b) => b?.type === "image_url"),
+  );
 }
 
-// Image provider: free keyless Pollinations by default. 0G's GLM-5.2 is text-only,
-// so image gen stays on Pollinations (or a future image-capable provider).
+/**
+ * Call OpenRouter.
+ * @param {Array<{role:string, content:string|Array<any>}>} messages
+ * @param {{ maxTokens?: number, json?: boolean, schema?: object }} [opts]
+ * @returns {Promise<string>} the assistant's text reply
+ */
+export async function chat(messages, opts = {}) {
+  if (!KEY) throw new Error("OPENROUTER_API_KEY not set — required for the LLM layer");
+  // Pick the model per request: an image needs a vision-capable one.
+  const withImages = hasImageContent(messages);
+  if (withImages && !VISION_MODEL) {
+    // Deliberately an error, not a silent pass. The caller must decide, and the
+    // only safe decision on the money path is "not graded, so not paid".
+    throw new Error(
+      `${MODEL} cannot see images and OPENROUTER_VISION_MODEL is not set, so image deliverables cannot be graded`,
+    );
+  }
+  const model = withImages ? VISION_MODEL : MODEL;
+
+  const body = {
+    model,
+    messages,
+    max_tokens: Math.max(MIN_TOKENS, opts.maxTokens ?? DEFAULT_TOKENS),
+    // Keep chain-of-thought out of `content`; we only ever want the answer.
+    reasoning: { exclude: true },
+  };
+  if (opts.json) {
+    body.response_format = opts.schema
+      ? { type: "json_schema", json_schema: opts.schema }
+      : { type: "json_object" };
+  }
+
+  let lastErr;
+  for (let attempt = 0; attempt <= RETRIES; attempt++) {
+    try {
+      const res = await fetch(`${BASE_URL}/chat/completions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${KEY}`,
+          "Content-Type": "application/json",
+          // OpenRouter attribution headers (optional, and useful in its dashboard).
+          "HTTP-Referer": process.env.OPENROUTER_SITE_URL || "https://polarisswarm.xyz",
+          "X-Title": "Polaris",
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+
+      const text = await res.text();
+      if (!res.ok) {
+        // Mirrors the "LLM {status}: {message}" log line every prior provider in
+        // this file used, so log-watching habits keep working.
+        const err = new Error(`LLM ${res.status}: ${text.slice(0, 300)}`);
+        // Retry transient failures only; a bad key or bad request never recovers.
+        err.retryable = res.status === 429 || res.status >= 500;
+        throw err;
+      }
+
+      const data = JSON.parse(text);
+      if (data.error) throw new Error(`LLM error: ${JSON.stringify(data.error).slice(0, 300)}`);
+      return data.choices?.[0]?.message?.content ?? "";
+    } catch (e) {
+      lastErr = e;
+      const retryable = e.retryable || e.name === "TimeoutError" || e.name === "AbortError";
+      if (attempt === RETRIES || !retryable) throw e;
+      await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+    }
+  }
+  throw lastErr;
+}
+
+// Image provider: free keyless Pollinations. The text model can't generate images,
+// so image deliverables stay on a dedicated provider.
 const IMAGE_PROVIDER = (process.env.IMAGE_PROVIDER || "pollinations").toLowerCase();
 
 /**
@@ -76,8 +187,7 @@ async function pollinationsImage(prompt) {
   for (let attempt = 0; attempt < 3 && Date.now() < deadline; attempt++) {
     for (const url of urls) {
       try {
-        const ctrl = AbortSignal.timeout(45000);
-        const res = await fetch(url, { redirect: "follow", signal: ctrl });
+        const res = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(45000) });
         const ct = res.headers.get("content-type") || "";
         if (res.ok && ct.startsWith("image/")) {
           const buf = Buffer.from(await res.arrayBuffer());

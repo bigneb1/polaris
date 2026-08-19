@@ -36,12 +36,12 @@ export default function ImagePicker({
 
   return (
     <div>
-      <div className="eyebrow mb-2">{label}</div>
+      <div className="field-label mb-2">{label}</div>
       <div className="flex items-center gap-3">
         <button
           type="button"
           onClick={() => inputRef.current?.click()}
-          className="relative grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-xl border border-dashed border-border2 bg-deep text-grey transition-colors hover:border-blue hover:text-blue-l"
+          className="relative grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-xl border border-dashed border-border bg-muted text-muted-foreground transition-colors hover:border-primary hover:text-primary"
         >
           {value ? (
             <img src={value} alt="" className="h-full w-full object-cover" />
@@ -50,15 +50,15 @@ export default function ImagePicker({
           )}
         </button>
         <div className="min-w-0">
-          <button type="button" onClick={() => inputRef.current?.click()} className="btn-ghost !py-1.5 !text-xs">
+          <button type="button" onClick={() => inputRef.current?.click()} className="tool-btn !py-1.5 !text-xs">
             {busy ? "Reading…" : value ? "Replace" : "Upload image"}
           </button>
           {value && (
-            <button type="button" onClick={() => onChange(null)} className="mono ml-2 inline-flex items-center gap-1 text-[11px] text-grey hover:text-red">
+            <button type="button" onClick={() => onChange(null)} className="font-mono ml-2 inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-destructive">
               <X size={12} /> remove
             </button>
           )}
-          {hint && <div className="mono mt-1.5 text-[11px] text-grey">{hint}</div>}
+          {hint && <div className="font-mono mt-1.5 text-[11px] text-muted-foreground">{hint}</div>}
         </div>
       </div>
       <input

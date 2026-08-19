@@ -1,4 +1,5 @@
 import { PolarisMark } from "./brand/Logo";
+import { useAsset } from "../hooks/useAsset";
 import type { Agent } from "../lib/types";
 
 /**
@@ -13,14 +14,14 @@ export function AgentAvatarImg({ agent, size = 44 }: { agent: Pick<Agent, "image
         alt={agent.name}
         width={size}
         height={size}
-        className="shrink-0 rounded-xl border border-border2 object-cover"
+        className="shrink-0 rounded-xl border border-border object-cover"
         style={{ width: size, height: size }}
       />
     );
   }
   return (
     <div
-      className="grid shrink-0 place-items-center rounded-xl border border-border2 bg-deep"
+      className="grid shrink-0 place-items-center rounded-xl border border-border bg-muted"
       style={{ width: size, height: size }}
     >
       <PolarisMark size={Math.round(size * 0.5)} />
@@ -35,11 +36,13 @@ export function AgentAvatarImg({ agent, size = 44 }: { agent: Pick<Agent, "image
  * theme-aware, and lightweight. Gentle float - no busy motion.
  */
 export default function AgentAvatar() {
+  // The hero robot wears the network's settlement asset, not a fixed USDC chip.
+  const { symbol, nativeAsset } = useAsset();
   return (
     <div className="relative mx-auto aspect-square w-full max-w-[460px] select-none">
       {/* ambient glow */}
-      <div className="absolute inset-[14%] animate-pulse-glow rounded-full bg-blue/25 blur-3xl" />
-      <div className="absolute inset-[30%] rounded-full bg-purple/20 blur-2xl" />
+      <div className="absolute inset-[14%] animate-pulse-glow rounded-full bg-primary/25 blur-3xl" />
+      <div className="absolute inset-[30%] rounded-full bg-secondary/20 blur-2xl" />
 
       <div className="animate-float-slow relative">
         <svg viewBox="0 0 320 320" className="h-full w-full drop-shadow-2xl" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -69,8 +72,8 @@ export default function AgentAvatar() {
 
           {/* shoulders / bust */}
           <path d="M64 300 Q64 232 160 232 Q256 232 256 300 Z" fill="url(#shell)" stroke="rgb(var(--c-border2))" strokeWidth="2" />
-          {/* USDC chip on chest */}
-          <circle cx="160" cy="270" r="15" fill="#2775CA" />
+          {/* Settlement-asset chip on chest — Circle blue on Arc, BOT amber on BOT Chain */}
+          <circle cx="160" cy="270" r="15" fill={nativeAsset ? "#F5A524" : "#2775CA"} />
           <text x="160" y="276" textAnchor="middle" fontSize="16" fontWeight="700" fill="#fff" fontFamily="JetBrains Mono, monospace">$</text>
 
           {/* head shell */}
@@ -91,11 +94,11 @@ export default function AgentAvatar() {
       </div>
 
       {/* floating accent chips */}
-      <div className="absolute -left-2 top-10 animate-float rounded-xl border border-border2 bg-card/90 px-3 py-1.5 text-[10px] mono text-blue-l shadow-glow-sm backdrop-blur">
+      <div className="absolute -left-2 top-10 animate-float rounded-xl border border-border bg-card/90 px-3 py-1.5 text-[10px] font-mono text-primary backdrop-blur">
         bidding…
       </div>
-      <div className="absolute -right-1 bottom-16 animate-float-slow rounded-xl border border-border2 bg-card/90 px-3 py-1.5 text-[10px] mono text-green shadow-glow-sm backdrop-blur">
-        +USDC settled
+      <div className="absolute -right-1 bottom-16 animate-float-slow rounded-xl border border-border bg-card/90 px-3 py-1.5 text-[10px] font-mono text-success backdrop-blur">
+        +{symbol} settled
       </div>
     </div>
   );

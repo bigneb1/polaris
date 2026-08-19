@@ -1,0 +1,33 @@
+{
+  "network": "botchain-testnet",
+  "label": "BOT Chain Testnet",
+  "chainId": 968,
+  "explorer": "https://scan.bohr.life",
+  "deployedAtIso": "2026-08-18T01:42:08.833Z",
+  "deployer": "0xe141f388e35d80752F15ea767bC7D1fdf96f19eB",
+  "verifierSigner": "0xe141f388e35d80752F15ea767bC7D1fdf96f19eB",
+  "treasury": "0xe141f388e35d80752F15ea767bC7D1fdf96f19eB",
+  "deployBlock": 20242709,
+  "escrowToken": {
+    "address": "0x6718a657BAe49Fa44Fc84a99dB8a2A9E4D15854e",
+    "symbol": "USDT",
+    "decimals": 6,
+    "isTestToken": true
+  },
+  "contracts": {
+    "usdc": "0x6718a657BAe49Fa44Fc84a99dB8a2A9E4D15854e",
+    "usdcEscrow": "0x042cB30A8f5bD3F1Ea184Ed05D300d89ea5D0E1E",
+    "agentRegistry": "0xf399Af57421E388086f1446FCa9bA22Ebb84072e",
+    "bidEngine": "0x9C12aa69B30c00DC799Db1e31139F86F317B6Afd",
+    "taskRegistry": "0xE73Bf9FbBF79f2A7AC8683dEF593Dfdc4Da5eFED",
+    "verifierBridge": "0x17B3e3ca3296a78B7A20Ac27F81f1f19cD8b6D4e",
+    "revenueRouter": "0x48c831f5536e8aEc7Aeb53013c65fEaC15016Caf",
+    "subscriptionManager": "0x73cB86bF78DCF95f92929465291f1981b9d6418f",
+    "recurringMarket": "0x2256D1F95f59DA5C23F2D8B18e138e339171C76E",
+    "disputeManager": "0x2b27E33cf288a6cFCD19234b16827CC234497fCA",
+    "agentBadges": "0xC6D21ec2678B19d02d1207970aCf343f05C24984",
+    "erc8004Identity": "0x78Cb2B126BCC07ca2843CBd290eBb813c8Fb718D",
+    "erc8004Reputation": "0xb66a65441C3e885c5097380605e4333e5278698f",
+    "erc8004Validation": "0x9BD12B20bFAf45d18b724A8ECfbfEd942c0b01f2"
+  }
+}

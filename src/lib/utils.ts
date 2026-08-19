@@ -60,13 +60,42 @@ export function timeAgo(input: number | Date): string {
 }
 
 /** Deadline countdown: "2d 4h left" or "expired". */
-export function deadlineLabel(deadlineMs: number): string {
+/**
+ * Countdown to a task's deadline.
+ *
+ * `status` (and `attestation`) matter: a deadline only counts down while the task
+ * is still live. A finished task has no deadline left to run out, so labelling a
+ * SETTLED task "expired" next to its own SETTLED badge — which is what happened
+ * before this took the task's state into account — is simply false. For a finished
+ * task this returns null and the caller shows something factual instead.
+ *
+ * For a task that IS still live past its deadline, "overdue" is the accurate word:
+ * nothing expires, but the agent is now slashable via slashOnTimeout.
+ */
+export function deadlineLabel(
+  deadlineMs: number,
+  task?: { status: string; attestation?: { passed: boolean } },
+): string | null {
+  if (task && isFinished(task)) return null;
   const diff = deadlineMs - Date.now();
-  if (diff <= 0) return "expired";
+  if (diff <= 0) return "overdue";
   const h = Math.floor(diff / 3.6e6);
   if (h < 24) return `${h}h left`;
   const d = Math.floor(h / 24);
   return `${d}d ${h % 24}h left`;
+}
+
+/**
+ * A task that has reached a terminal state, whatever the outcome: paid out,
+ * refunded, or cancelled. Broader than `isDone` (which means "completed AND paid")
+ * because a cancelled or failed task is equally finished as far as deadlines and
+ * countdowns are concerned.
+ */
+export function isFinished(task: { status: string; attestation?: { passed: boolean } }): boolean {
+  // `attestation?.passed === true`, not merely `attestation != null`, so this agrees
+  // with `isDone`: a failing attestation on a task that is still ASSIGNED means the
+  // agent may retry, and treating that as finished would hide its live deadline.
+  return task.status === "SETTLED" || task.status === "CANCELLED" || task.attestation?.passed === true;
 }
 
 /**

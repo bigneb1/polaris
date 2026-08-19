@@ -30,6 +30,7 @@ contract RevenueRouter {
 
     function setTreasury(address _t) external {
         require(msg.sender == owner, "Only owner");
+        require(_t != address(0), "Zero address");
         treasury = _t;
         emit TreasuryUpdated(_t);
     }

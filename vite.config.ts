@@ -1,3 +1,4 @@
+import path from 'node:path'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { nodePolyfills } from 'vite-plugin-node-polyfills'
@@ -17,6 +18,10 @@ export default defineConfig({
       protocolImports: true,
     }),
   ],
+  // `@/` resolves to src/, which is what the shadcn components import by.
+  resolve: {
+    alias: { '@': path.resolve(__dirname, './src') },
+  },
   server: {
     host: true,
     // Allow Cloudflare quick-tunnel hosts (and any tunnel) so the dev server is

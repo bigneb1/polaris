@@ -1,139 +1,297 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* ── Theme variables (RGB channels). Default = light "soft white" (the
-   tresmarescapital-inspired look). [data-theme="dark"] swaps to the night palette. ── */
-:root {
-  --c-void: 246 247 249;        /* page background - soft white */
-  --c-deep: 255 255 255;
-  --c-panel: 255 255 255;
-  --c-card: 255 255 255;
-  --c-border: 226 230 236;
-  --c-border2: 208 214 224;
-  --c-blue: 37 110 230;
-  --c-blue-l: 31 95 205;
-  --c-blue-d: 22 80 190;
-  --c-usdc: 39 117 202;
-  --c-usdc-l: 31 95 196;
-  --c-purple: 124 58 237;
-  --c-violet: 138 70 230;
-  --c-green: 13 148 100;
-  --c-amber: 190 120 10;
-  --c-red: 220 50 50;
-  --c-text: 16 22 34;           /* primary text - near black */
-  --c-text-muted: 86 100 122;   /* secondary */
-  --c-text-faint: 142 154 172;  /* tertiary */
+/**
+ * Design tokens, ported from the ProofWork app so the two products read as one
+ * system: a dense dark "studio" surface at 13px, Inter for text and JetBrains Mono
+ * for anything machine-generated, and a 6px radius.
+ *
+ * HSL channels rather than hex, so Tailwind's alpha modifiers keep working
+ * (`bg-primary/15`, `border-accent/30`). Dark only, deliberately: ProofWork defines
+ * a single palette and its whole component layer is tuned for it, so a light variant
+ * would be a look nobody has validated. The previous light-first Polaris theme and
+ * its toggle are gone.
+ */
+@layer base {
+  :root {
+    --background: 240 4% 10%;
+    --foreground: 240 5% 92%;
 
-  --shadow-panel: 0 20px 50px -28px rgb(16 22 34 / 0.18);
-  --shadow-soft: 0 10px 30px -16px rgb(16 22 34 / 0.12);
+    --card: 240 4% 15%;
+    --card-foreground: 240 5% 92%;
 
-  --ambient: radial-gradient(900px circle at 80% -8%, rgb(45 126 248 / 0.10), transparent 55%),
-    radial-gradient(720px circle at 5% 108%, rgb(124 58 237 / 0.08), transparent 55%);
+    --popover: 240 4% 16%;
+    --popover-foreground: 240 5% 92%;
+
+    --primary: 217 85% 58%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 199 70% 55%;
+    --secondary-foreground: 240 6% 10%;
+
+    --muted: 240 4% 13%;
+    --muted-foreground: 240 4% 60%;
+
+    --accent: 32 55% 55%;
+    --accent-foreground: 240 6% 10%;
+
+    --destructive: 4 55% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 240 4% 20%;
+    --input: 240 4% 20%;
+    --ring: 217 85% 58%;
+
+    --radius: 0.375rem;
+
+    --success: 152 40% 45%;
+    --success-foreground: 0 0% 100%;
+  }
 }
 
-/* Dark theme - modelled on OpenRouter's site: warm near-black zinc surfaces,
-   high-contrast text, restrained borders, subtle blue/violet accent glow. */
-:root[data-theme="dark"] {
-  --c-void: 9 9 11;          /* zinc-950 near-black */
-  --c-deep: 14 14 17;
-  --c-panel: 20 20 23;       /* zinc-900 */
-  --c-card: 24 24 27;        /* zinc-900/800 */
-  --c-border: 39 39 42;      /* zinc-800 */
-  --c-border2: 52 52 58;     /* zinc-700 */
-  --c-blue: 96 145 255;
-  --c-blue-l: 129 168 255;
-  --c-blue-d: 59 110 230;
-  --c-usdc: 80 150 235;
-  --c-usdc-l: 129 178 255;
-  --c-purple: 139 92 246;
-  --c-violet: 167 139 250;
-  --c-green: 52 211 153;
-  --c-amber: 251 191 96;
-  --c-red: 248 113 113;
-  --c-text: 250 250 250;     /* zinc-50 */
-  --c-text-muted: 161 161 170; /* zinc-400 */
-  --c-text-faint: 113 113 122; /* zinc-500 */
+@layer base {
+  * {
+    @apply border-border;
+  }
 
-  --shadow-panel: 0 24px 60px -24px rgb(0 0 0 / 0.7);
-  --shadow-soft: 0 12px 36px -20px rgb(0 0 0 / 0.5);
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif;
+    font-size: 13px;
+  }
 
-  --ambient: radial-gradient(900px circle at 80% -10%, rgb(96 145 255 / 0.10), transparent 55%),
-    radial-gradient(720px circle at 6% 108%, rgb(139 92 246 / 0.09), transparent 55%);
-}
+  code,
+  .font-mono {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+  }
 
-* { box-sizing: border-box; }
-html { scroll-behavior: smooth; }
+  /* Long mono strings (addresses, hashes, task ids) must wrap rather than force the
+     page wider than the viewport, which would clip at the edge on a phone. */
+  .font-mono {
+    overflow-wrap: anywhere;
+  }
 
-body {
-  margin: 0;
-  background: rgb(var(--c-void));
-  color: rgb(var(--c-text));
-  font-family: "Outfit", system-ui, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-  overflow-x: hidden;
-  transition: background-color 0.4s ease, color 0.4s ease;
-}
-
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: -2;
-  background: var(--ambient);
-  pointer-events: none;
+  ::-webkit-scrollbar {
+    width: 11px;
+    height: 11px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--border));
+    border: 3px solid hsl(var(--muted));
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.5);
+  }
 }
 
 @layer components {
-  .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
-  .font-display { font-family: "Fraunces", "Outfit", Georgia, serif; }
-
-  .eyebrow { @apply mono text-[11px] uppercase tracking-[0.28em] text-grey-l; }
-  .text-gradient { @apply bg-blue-violet bg-clip-text text-transparent; }
-
-  .panel { @apply rounded-2xl border border-border bg-card/80 backdrop-blur-xl; box-shadow: var(--shadow-soft); min-width: 0; }
-  /* Long mono strings (addresses, hashes, agent ids, urls) must wrap, never
-     force the page wider than the viewport (which would clip at the edge). */
-  .mono { overflow-wrap: anywhere; }
-  .panel-hover { @apply transition-all duration-300 hover:border-border2 hover:shadow-glow-sm; }
-
-  .btn {
-    @apply mono inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-[13px]
-      font-semibold uppercase tracking-[0.12em] transition-all duration-200 disabled:cursor-not-allowed
-      disabled:opacity-40;
+  /* ── Section tab strip (the app's primary navigation) ───────────────────── */
+  .persona-tab {
+    @apply relative flex items-center gap-1.5 px-3.5 h-full text-xs font-medium text-muted-foreground
+           hover:text-foreground transition-colors border-b-2 border-transparent shrink-0 whitespace-nowrap;
   }
-  .btn-primary { @apply btn bg-blue-violet text-white shadow-glow-sm hover:brightness-110 active:brightness-95; color: #fff; }
-  .btn-ghost { @apply btn border border-border2 bg-transparent text-grey-l hover:border-blue hover:text-white; }
-  /* Compact button: smaller padding + label, for inline/secondary actions. */
-  .btn-sm { @apply gap-1.5 rounded-lg px-3 py-1.5 text-[11px] tracking-[0.08em]; }
-
-  .input-field {
-    @apply mono w-full rounded-xl border border-border bg-deep px-4 py-3 text-sm text-white
-      placeholder:text-grey focus:border-blue focus:outline-none focus:ring-1 focus:ring-blue/40 transition-colors;
+  .persona-tab[data-active="true"] {
+    @apply text-foreground border-primary;
   }
 
-  .hairline {
-    height: 1px;
-    background: linear-gradient(90deg, transparent, rgb(var(--c-blue) / 0.5), rgb(var(--c-purple) / 0.5), transparent);
+  /* ── Toolbar buttons. h-7 is the app's control height everywhere. ────────── */
+  .tool-btn {
+    @apply inline-flex items-center justify-center gap-1.5 h-7 px-2.5 rounded-[4px] text-xs font-medium
+           text-muted-foreground border border-transparent shrink-0 whitespace-nowrap
+           hover:bg-foreground/[0.06] hover:text-foreground transition-colors
+           disabled:opacity-40 disabled:pointer-events-none;
   }
-}
+  .tool-btn[data-active="true"] {
+    @apply bg-primary/15 text-primary border-primary/30;
+  }
+  .tool-btn-primary {
+    @apply inline-flex items-center justify-center gap-1.5 h-7 px-3 rounded-[4px] text-xs font-medium
+           bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shrink-0 whitespace-nowrap
+           disabled:opacity-40 disabled:pointer-events-none;
+  }
+  .tool-btn-danger {
+    @apply inline-flex items-center justify-center gap-1.5 h-7 px-3 rounded-[4px] text-xs font-medium
+           bg-destructive/15 text-destructive border border-destructive/30 hover:bg-destructive/25
+           transition-colors shrink-0 whitespace-nowrap disabled:opacity-40 disabled:pointer-events-none;
+  }
 
-/* btn-primary should always have white label text regardless of theme */
-.btn-primary { color: #fff; }
+  /* ── Right-hand details panel ────────────────────────────────────────────── */
+  .panel-section-header {
+    @apply flex items-center justify-between w-full px-3 h-8 text-[11px] font-semibold uppercase
+           tracking-wide text-muted-foreground hover:text-foreground transition-colors;
+  }
 
-.reveal {
-  opacity: 0;
-  transform: translateY(28px);
-  transition: opacity 0.8s cubic-bezier(0.16,1,0.3,1), transform 0.8s cubic-bezier(0.16,1,0.3,1);
-}
-.reveal.in { opacity: 1; transform: translateY(0); }
+  /* ── Status badges ───────────────────────────────────────────────────────────
+   * Polaris's four on-chain task states map onto ProofWork's badge vocabulary:
+   * OPEN -> open, ASSIGNED -> claimed, SETTLED -> verified, CANCELLED -> rejected.
+   * The extra names cover subscriptions, plans and disputes.
+   */
+  .status-badge {
+    @apply inline-flex items-center gap-1.5 px-2 py-0.5 rounded-[3px] text-[11px] font-medium tracking-wide;
+  }
+  .status-open {
+    @apply bg-primary/12 text-primary border border-primary/25;
+  }
+  .status-claimed {
+    @apply bg-accent/15 text-accent border border-accent/30;
+  }
+  .status-submitted {
+    @apply bg-secondary/15 text-secondary border border-secondary/30;
+  }
+  .status-verified {
+    @apply bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success))] border border-[hsl(var(--success)/0.35)];
+  }
+  .status-rejected {
+    @apply bg-destructive/12 text-destructive border border-destructive/25;
+  }
+  .status-disputed {
+    @apply bg-accent/20 text-accent border border-accent/40;
+  }
+  .status-dot {
+    @apply h-1.5 w-1.5 rounded-full shrink-0;
+  }
 
-::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-track { background: rgb(var(--c-deep)); }
-::-webkit-scrollbar-thumb { background: rgb(var(--c-border2)); border-radius: 6px; }
-::-webkit-scrollbar-thumb:hover { background: rgb(var(--c-text-faint)); }
+  /* ── Forms ───────────────────────────────────────────────────────────────── */
+  .field {
+    @apply w-full h-8 px-2.5 rounded-[4px] bg-background border border-border text-xs text-foreground
+           placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring transition-colors;
+  }
+  .field-area {
+    @apply w-full px-2.5 py-2 rounded-[4px] bg-background border border-border text-xs text-foreground
+           placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring transition-colors;
+  }
+  .field-label {
+    @apply block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5;
+  }
 
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+  /* ── Landing page ────────────────────────────────────────────────────────── */
+  .grid-bg {
+    background-image:
+      linear-gradient(hsl(var(--border) / 0.5) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--border) / 0.5) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, black 40%, transparent 100%);
+  }
+
+  .hero-glow {
+    position: absolute;
+    inset: -10% -10% auto -10%;
+    height: 32rem;
+    pointer-events: none;
+    background:
+      radial-gradient(38rem 20rem at 25% 15%, hsl(var(--primary) / 0.16), transparent 60%),
+      radial-gradient(30rem 18rem at 78% 25%, hsl(var(--secondary) / 0.14), transparent 60%);
+    animation: hero-drift 16s ease-in-out infinite alternate;
+  }
+
+  .text-gradient {
+    background: linear-gradient(90deg, hsl(var(--primary)), hsl(var(--secondary)));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+
+
+  /* ── Landing-page calls to action ────────────────────────────────────────────
+   * The app chrome is 13px and h-7 because it is a tool used for hours. The landing
+   * page is read once, by someone who has not decided yet, so its two buttons are
+   * allowed to be bigger than anything inside the app.
+   */
+  .cta-btn {
+    @apply inline-flex items-center justify-center gap-2 h-10 px-5 rounded-[5px] text-sm font-medium
+           bg-primary text-primary-foreground hover:bg-primary/90 transition-colors whitespace-nowrap;
+  }
+  .cta-btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 h-10 px-5 rounded-[5px] text-sm font-medium
+           text-foreground border border-border hover:bg-foreground/[0.06] transition-colors whitespace-nowrap;
+  }
+
+  /* ── Scroll reveal ───────────────────────────────────────────────────────────
+   * `useReveal` adds `.in` when an element crosses into the viewport. The
+   * transform is small on purpose: on the landing page it should read as the
+   * content settling, not as an animation demanding attention. Anyone who asks
+   * the OS for less motion gets none.
+   */
+  .reveal {
+    opacity: 0;
+    transform: translateY(10px);
+    transition:
+      opacity 0.5s ease-out,
+      transform 0.5s ease-out;
+  }
+  .reveal.in {
+    opacity: 1;
+    transform: none;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal,
+    .reveal.in {
+      opacity: 1;
+      transform: none;
+      transition: none;
+    }
+    .hero-glow {
+      animation: none;
+    }
+  }
+
+  /* ── Landing-page calls to action ────────────────────────────────────────────
+   * The app chrome is 13px and h-7 because it is a tool used for hours. The landing
+   * page is read once, by someone who has not decided yet, so its two buttons are
+   * allowed to be bigger than anything inside the app.
+   */
+  .cta-btn {
+    @apply inline-flex items-center justify-center gap-2 h-10 px-5 rounded-[5px] text-sm font-medium
+           bg-primary text-primary-foreground hover:bg-primary/90 transition-colors whitespace-nowrap;
+  }
+  .cta-btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 h-10 px-5 rounded-[5px] text-sm font-medium
+           text-foreground border border-border hover:bg-foreground/[0.06] transition-colors whitespace-nowrap;
+  }
+
+  /* ── Scroll reveal ───────────────────────────────────────────────────────────
+   * `useReveal` adds `.in` when an element crosses into the viewport. The
+   * transform is small on purpose: on the landing page it should read as the
+   * content settling, not as an animation demanding attention. Anyone who asks
+   * the OS for less motion gets none.
+   */
+  .reveal {
+    opacity: 0;
+    transform: translateY(10px);
+    transition:
+      opacity 0.5s ease-out,
+      transform 0.5s ease-out;
+  }
+  .reveal.in {
+    opacity: 1;
+    transform: none;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal,
+    .reveal.in {
+      opacity: 1;
+      transform: none;
+      transition: none;
+    }
+    .hero-glow {
+      animation: none;
+    }
+  }
+
+  @keyframes hero-drift {
+    0% {
+      transform: translate(0, 0) scale(1);
+    }
+    100% {
+      transform: translate(2%, 3%) scale(1.05);
+    }
+  }
 }

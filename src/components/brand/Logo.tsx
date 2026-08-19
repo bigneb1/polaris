@@ -22,7 +22,7 @@ export function PolarisMark({ size = 28, glow = false }: { size?: number; glow?:
       {glow && (
         <span
           aria-hidden
-          className="absolute inset-0 animate-pulse-glow rounded-full bg-blue/40 blur-xl"
+          className="absolute inset-0 animate-pulse-glow rounded-full bg-primary/40 blur-xl"
         />
       )}
       <svg
@@ -58,7 +58,7 @@ export default function Logo({ size = 28, withText = true, glow = false, classNa
       <PolarisMark size={size} glow={glow} />
       {withText && (
         <span
-          className="font-extrabold tracking-tightest text-white"
+          className="font-extrabold tracking-tight text-foreground"
           style={{ fontSize: size * 0.66 }}
         >
           POLARIS
