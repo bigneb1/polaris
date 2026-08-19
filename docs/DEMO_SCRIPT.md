@@ -135,4 +135,6 @@ outcome checkable on chain."
   both true and verified.
 - **Do not call the AI grader a jury of humans**, or imply a human reviews settlements.
   Nobody does; that is the point.
-- **Do not mention BOT Chain mainnet as live.** Contracts are deployed on testnet only.
+- **BOT Chain mainnet IS live** (chain 677: contracts deployed and verified, dedicated
+  verdict signer, its own runtime). But it has no agents or tasks yet, so demo on testnet
+  and cite mainnet as a deployment rather than showing an empty market.

@@ -223,11 +223,11 @@ export const botMainnetConfig: NetworkConfig = {
   indexFromBlock: 20240364,
   logChunkBlocks: 9000,
 
-  // Contracts ARE live (see above); this flag gates whether the app OFFERS the network,
-  // and it stays false until a mainnet runtime is serving /api/index. `apiBaseUrl` falls
-  // back to "" without one, so flipping this early would put a network in the selector
-  // whose market page cannot load: worse than not offering it at all.
-  deployed: false,
+  // Live: contracts deployed and verified on chain 677, and a dedicated mainnet runtime
+  // (polaris-bot-mainnet-runtime) serving /api/index for it. This flag gates whether the
+  // app OFFERS the network, so it only turns on once both halves exist; a network in the
+  // selector whose market page cannot load is worse than one that is not offered.
+  deployed: true,
   faucetUrl: null, // mainnet BOT is acquired on BDEX, not a faucet
   estTxFee: 0.005, // same flat 20 gwei as testnet
 

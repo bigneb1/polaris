@@ -5,7 +5,7 @@
   "explorer": "https://scan.botchain.ai",
   "deployedAtIso": "2026-08-19T18:29:41.734Z",
   "deployer": "0xe141f388e35d80752F15ea767bC7D1fdf96f19eB",
-  "verifierSigner": "0xe141f388e35d80752F15ea767bC7D1fdf96f19eB",
+  "verifierSigner": "0x6D2725C56E995dB2E53c0AD2A6761B735e66977C",
   "treasury": "0xe141f388e35d80752F15ea767bC7D1fdf96f19eB",
   "deployBlock": 20240364,
   "escrowToken": {
@@ -31,5 +31,7 @@
     "accountFactory": "0x9BD12B20bFAf45d18b724A8ECfbfEd942c0b01f2",
     "entryPoint": "0x0000000071727De22E5E9d8BAf0edAc6f37da032"
   },
-  "erc4337UpdatedAtIso": "2026-08-19T20:08:39.342Z"
+  "erc4337UpdatedAtIso": "2026-08-19T20:08:39.342Z",
+  "signerRotatedAtIso": "2026-08-19T20:21:16.143Z",
+  "owner": "0xe141f388e35d80752F15ea767bC7D1fdf96f19eB"
 }
