@@ -111,7 +111,7 @@ function mintableStore(ctx) {
   });
 }
 
-function loadMintable(ctx) {
+function readMintableFile(ctx) {
   try {
     return JSON.parse(fs.readFileSync(mintableStore(ctx), "utf8"));
   } catch {
@@ -119,11 +119,42 @@ function loadMintable(ctx) {
   }
 }
 
-function saveMintable(ctx, map) {
+/**
+ * In-memory view of the cache, per chain.
+ *
+ * The overview probes every identity-less agent concurrently, and the first version of
+ * this read the whole JSON file, added one key, and wrote the file back. Four parallel
+ * probes therefore each wrote a map containing only their own result and the last one won:
+ * three verdicts were computed, cached in nobody's copy, and lost. Production showed it
+ * plainly — one agent carried a verdict and three stayed unknown.
+ *
+ * So writes merge instead of replacing, and the merged map is kept in memory so repeat
+ * reads cost nothing.
+ */
+const mintableCache = new Map(); // chainId -> { [wallet]: verdict }
+
+function loadMintable(ctx) {
+  let map = mintableCache.get(ctx.chainId);
+  if (!map) {
+    map = readMintableFile(ctx);
+    mintableCache.set(ctx.chainId, map);
+  }
+  return map;
+}
+
+/**
+ * Record one verdict. Merges over whatever is already on disk, so a concurrent writer's
+ * entry survives, and keeps the in-memory map in step.
+ */
+function recordMintable(ctx, wallet, verdict) {
+  const map = loadMintable(ctx);
+  map[wallet] = verdict;
   try {
-    fs.writeFileSync(mintableStore(ctx), JSON.stringify(map));
+    const merged = { ...readMintableFile(ctx), ...map };
+    mintableCache.set(ctx.chainId, merged);
+    fs.writeFileSync(mintableStore(ctx), JSON.stringify(merged));
   } catch {
-    /* best-effort cache */
+    /* best-effort cache; the in-memory map still holds the verdict for this process */
   }
 }
 
@@ -191,8 +222,7 @@ export async function identityMintability(ctx, wallet) {
     verdict = isInvalidReceiver(e) ? "unsupported-receiver" : "rejected";
   }
 
-  cached[key] = verdict;
-  saveMintable(ctx, cached);
+  recordMintable(ctx, key, verdict);
   return verdict;
 }
 
