@@ -46,6 +46,17 @@ const POLL_MS = Number(process.env.SWARM_POLL_MS || 12000);
  *  pay for the bid and submission that follow. Only meaningful where the stake and
  *  the gas are the same coin (BOT Chain). */
 const GAS_RESERVE = ethers.parseEther(process.env.SWARM_GAS_RESERVE || "0.05");
+/**
+ * How long an auction stays open before it is awarded.
+ *
+ * This swarm used to award the instant it bid, which made the market first-poll-wins: the
+ * first agent to notice a task bid and closed the auction in the same breath, every other
+ * agent hit the `auctionClosed` guard, and BidEngine's scoring (price 40% / reputation 40%
+ * / speed 20%) never saw a second bid to compare. The UI has always advertised a 20-minute
+ * window and `lib/utils.ts` even says it "mirrors the swarm's BID_WINDOW_MS" — a constant
+ * that existed in the Circle swarm and not here, which is the mode BOT Chain runs.
+ */
+const BID_WINDOW_MS = Number(process.env.BID_WINDOW_MS || 20 * 60 * 1000);
 
 /** `botchain-testnet` → `BOTCHAIN_TESTNET` */
 const envKey = (id) => id.replace(/-/g, "_").toUpperCase();
@@ -345,11 +356,11 @@ class Agent {
     try {
       await this.send(this.bid, "placeBid", [taskId, this.units(bidAmount), etaSeconds], { identityCall: true });
       this.log(`bid ${bidAmount} ${this.ctx.asset.symbol} on "${meta.title}" (#${taskId.slice(2, 10)})`);
-      // Close the auction so assignment happens (best-score winner).
-      // Anyone may close the auction, so this one may fall back to the raw key.
-      await this.send(this.bid, "awardBid", [taskId]);
+      // Deliberately does NOT award. Closing the auction here is what made this a race
+      // instead of a market: see BID_WINDOW_MS. The swarm tick closes it once the window has
+      // passed and every agent has had its chance to bid.
     } catch (e) {
-      this.log("bid/award skipped:", e.shortMessage || e.message);
+      this.log("bid skipped:", e.shortMessage || e.message);
     }
   }
 
@@ -531,9 +542,38 @@ export async function startSwarm(networkId = DEFAULT_NETWORK) {
         if (t.deadline * 1000n < BigInt(Date.now())) continue; // expired
         const meta = await ctx.readTaskMeta(taskId);
         if (!meta) continue;
-        for (const a of agents) {
-          // Never let an agent commit to work it can't pay the gas to submit.
-          if (a.wants(meta) && (await a.hasGas())) await a.bidOn(taskId, meta);
+
+        // The auction's own clock, from on-chain data so every agent and every restart
+        // agrees on it: 20 minutes from creation, clamped to whatever is left before the
+        // deadline (a task due sooner than the window cannot wait the full window).
+        const createdAtMs = Number(t.createdAt) * 1000;
+        const deadlineMs = Number(t.deadline) * 1000;
+        const windowMs = Math.min(BID_WINDOW_MS, Math.max(0, deadlineMs - createdAtMs));
+        const windowClosed = Date.now() >= createdAtMs + windowMs;
+
+        if (!windowClosed) {
+          for (const a of agents) {
+            // Never let an agent commit to work it can't pay the gas to submit.
+            if (a.wants(meta) && (await a.hasGas())) await a.bidOn(taskId, meta);
+          }
+          continue;
+        }
+
+        // Window over: close it and let BidEngine pick on score. Idempotent — `awardBid`
+        // guards on `auctionClosed`, so whoever gets there first just finalises the winner.
+        // Done here rather than on a timer because a restart forgets a timer, and a task
+        // left OPEN with bids and nothing to award it is one more way to get stuck.
+        // Any agent may close an auction; pick one that can pay the gas.
+        let closer = null;
+        for (const a of agents) if (await a.hasGas()) { closer = a; break; }
+        if (!closer) continue;
+        try {
+          await closer.send(closer.bid, "awardBid", [taskId]);
+          closer.log(`bidding closed for "${meta.title}" — best bid awarded`);
+        } catch (e) {
+          const msg = e.shortMessage || e.message || "";
+          // "No bids" is normal: nobody wanted it, and it stays OPEN until its deadline.
+          if (!/Auction closed|No bids/i.test(msg)) closer.log("award skipped:", msg);
         }
       }
       for (const a of agents) if (await a.hasGas()) await a.fulfilWins();

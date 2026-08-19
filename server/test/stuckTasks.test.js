@@ -220,3 +220,55 @@ test("the backlog can be enforced deliberately, with the cutoff turned off", () 
   const tasks = [{ taskId: "0xold", status: "ASSIGNED", deadlineMs: now - 40 * 24 * HOUR }];
   assert.equal(overdueCandidates({ tasks }, { now, enforceFromMs: 0 }).length, 1);
 });
+
+/* ── 4. The auction must actually be an auction ───────────────────────────────── */
+
+/**
+ * Bidding used to close the auction in the same breath as placing the bid, which made the
+ * market first-poll-wins: the first agent to notice a task bid AND awarded it, every other
+ * agent hit BidEngine's `auctionClosed` guard, and the on-chain scoring (price 40% /
+ * reputation 40% / speed 20%) never had a second bid to compare. One bid per task, always.
+ *
+ * The window is now derived from on-chain data so every agent and every restart agrees, and
+ * closing happens in the tick rather than on a `setTimeout` a restart would forget.
+ */
+const BID_WINDOW_MS = 20 * 60 * 1000;
+
+/** The rule the swarm applies, kept in one place so the test pins the policy not the code. */
+function auctionState({ createdAtMs, deadlineMs, now, windowMs = BID_WINDOW_MS }) {
+  const w = Math.min(windowMs, Math.max(0, deadlineMs - createdAtMs));
+  return now >= createdAtMs + w ? "award" : "bid";
+}
+
+test("an auction stays open for the whole bid window, so every agent can bid", () => {
+  const created = Date.now();
+  const deadline = created + 6 * HOUR;
+  // Seconds in: still collecting bids, which is what the old code got wrong.
+  assert.equal(auctionState({ createdAtMs: created, deadlineMs: deadline, now: created + 5000 }), "bid");
+  assert.equal(auctionState({ createdAtMs: created, deadlineMs: deadline, now: created + 19 * 60_000 }), "bid");
+});
+
+test("once the window passes, the auction is awarded on score", () => {
+  const created = Date.now();
+  const deadline = created + 6 * HOUR;
+  assert.equal(auctionState({ createdAtMs: created, deadlineMs: deadline, now: created + BID_WINDOW_MS }), "award");
+  assert.equal(auctionState({ createdAtMs: created, deadlineMs: deadline, now: created + BID_WINDOW_MS + 1 }), "award");
+});
+
+test("a task due sooner than the window is awarded at its deadline, not after it", () => {
+  // Clamping matters: a 5-minute task must not wait 20 minutes for its auction, or it would
+  // expire unawarded and become exactly the stuck state the reaper has to clean up.
+  const created = Date.now();
+  const deadline = created + 5 * 60_000;
+  assert.equal(auctionState({ createdAtMs: created, deadlineMs: deadline, now: created + 60_000 }), "bid");
+  assert.equal(auctionState({ createdAtMs: created, deadlineMs: deadline, now: created + 5 * 60_000 }), "award");
+});
+
+test("the window is computed from creation, so a restart reaches the same verdict", () => {
+  // The Circle swarm schedules the close with setTimeout, which a restart forgets, leaving a
+  // task OPEN with bids and nothing to award it. Deriving it from on-chain createdAt/deadline
+  // means any process, at any time, computes the same answer.
+  const created = Date.now() - 25 * 60_000; // created 25 minutes ago, window long past
+  const deadline = created + 6 * HOUR;
+  assert.equal(auctionState({ createdAtMs: created, deadlineMs: deadline, now: Date.now() }), "award");
+});
