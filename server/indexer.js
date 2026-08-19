@@ -68,6 +68,10 @@ const EVENTS = {
     "event VerificationSubmitted(bytes32 indexed taskId, address indexed agent, bool passed, uint8 score, bytes32 deliverableHash)",
   ],
   agentBadges: ["event BadgeSet(address indexed agent, uint8 tier, string note)"],
+  // ERC-8004 identities are public by design: any application can read who holds which
+  // agent id. Indexing the registry's own event is what makes that true here, rather
+  // than only surfacing ids this particular runtime happened to mint.
+  erc8004Identity: ["event Registered(uint256 indexed agentId, string agentURI, address indexed owner)"],
   disputeManager: [
     "event DisputeOpened(bytes32 indexed disputeId, bytes32 indexed taskId, address indexed requester, address agent, uint256 bond, string reason)",
     "event DisputeResolved(bytes32 indexed disputeId, bool upheld, string juryNote)",
@@ -224,13 +228,14 @@ function createIndexer(networkId) {
   }
 
   async function buildIndex() {
-    const [taskLogs, agentLogs, bidLogs, verifierLogs, badgeLogs, disputeLogs] = await Promise.all([
+    const [taskLogs, agentLogs, bidLogs, verifierLogs, badgeLogs, disputeLogs, identityLogs] = await Promise.all([
       getAllLogs("tasks", ctx.ADDR.taskRegistry, EVENTS.taskRegistry),
       getAllLogs("agents", ctx.ADDR.agentRegistry, EVENTS.agentRegistry),
       getAllLogs("bids", ctx.ADDR.bidEngine, EVENTS.bidEngine),
       getAllLogs("verifications", ctx.ADDR.verifierBridge, EVENTS.verifierBridge),
       getAllLogs("badges", ctx.ADDR.agentBadges, EVENTS.agentBadges),
       getAllLogs("disputes", ctx.ADDR.disputeManager, EVENTS.disputeManager),
+      getAllLogs("erc8004", ctx.ADDR.erc8004Identity, EVENTS.erc8004Identity),
     ]);
 
     const allBlocks = [...taskLogs, ...agentLogs, ...bidLogs, ...verifierLogs, ...disputeLogs]
@@ -527,7 +532,16 @@ function createIndexer(networkId) {
     // would put the whole page behind the rate-limited RPC. An agent minted by this
     // runtime is in the cache; anything else simply has no id to show, which is
     // honest rather than misleading.
-    const identities = erc8004Available(ctx) ? cachedAgentIds(ctx) : {};
+    // Indexed first, mint cache second. The index is the authoritative and complete
+    // view (it sees every Registered event, whoever sent it, including an agent's own
+    // ERC-4337 account minting for itself); the cache still covers anything this
+    // runtime minted whose event falls outside the indexed range.
+    const identities = erc8004Available(ctx) ? { ...cachedAgentIds(ctx) } : {};
+    for (const log of identityLogs) {
+      const owner = String(log.args?.owner ?? "").toLowerCase();
+      const agentId = log.args?.agentId;
+      if (owner && agentId != null) identities[owner] = String(agentId);
+    }
     for (const ag of agents.values()) {
       const img = assetFor(ag.wallet);
       if (img) ag.image = img;

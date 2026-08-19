@@ -13,6 +13,8 @@ import { verifyAgentSignature, timingSafeEqualStr } from "./auth.js";
 import { authorizeVerify, isInternal, rateLimit } from "./guard.js";
 import { scoreAgentWork } from "./score.js";
 import { getIndex } from "./indexer.js";
+import { getOverview } from "./overview.js";
+import { renderDashboard } from "./dashboardPage.js";
 import { listSubscriptions, getDelivery } from "./subscriptions.js";
 import { resolveDispute, runJury, listReworks, markReworkDone } from "./disputes.js";
 import { registerHosted, listHosted } from "./hosted.js";
@@ -173,6 +175,44 @@ function pruneStore(obj) {
 function saveStore(obj) {
   fs.writeFileSync(STORE, JSON.stringify(pruneStore(obj), null, 2));
 }
+
+/**
+ * The runtime's front page: a federated dashboard of every agent, on every supported
+ * network, plus the merged activity feed.
+ *
+ * A bare runtime URL used to 404, which told an operator nothing about whether the
+ * swarm was alive. Because each chain gets its own service, no single URL could answer
+ * "how is the whole swarm doing?" either; this one federates across peers to do it.
+ * Server-rendered and dependency-free, so it still works when the frontend does not.
+ */
+app.get("/", async (_req, res) => {
+  try {
+    const overview = await getOverview();
+    res.type("html").send(renderDashboard(overview));
+  } catch (e) {
+    // A dashboard that 500s is worse than useless: it looks like the runtime is down.
+    res.status(200).type("html").send(
+      renderDashboard({
+        generatedAtMs: Date.now(),
+        serves: activeNetworkIds(),
+        peers: [],
+        totals: { networks: 0, networksReachable: 0, agents: 0, online: 0, withIdentity: 0, tasks: 0, settledTasks: 0, openTasks: 0, bids: 0 },
+        networks: [{ network: "unknown", label: "Overview unavailable", chainId: null, source: "local", error: e.message }],
+        agents: [],
+        activity: [],
+      }),
+    );
+  }
+});
+
+/** The same aggregate as JSON, for scripts and uptime checks. */
+app.get("/api/overview", async (_req, res) => {
+  try {
+    res.json(await getOverview());
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
 
 app.get("/health", (req, res) => {
   const id = networkIdOf(req);
