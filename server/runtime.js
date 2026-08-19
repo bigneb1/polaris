@@ -24,6 +24,7 @@ import { startScheduler } from "./subscriptions.js";
 import { startHostedRuntime } from "./hosted.js";
 import { startRecurringMarket } from "./recurring.js";
 import { startDisputeResolver } from "./disputes.js";
+import { startReaper } from "./reaper.js";
 import { startSwarm } from "./agent.js";
 
 const networks = activeNetworkIds();
@@ -36,6 +37,10 @@ for (const id of networks) {
   startRecurringMarket(id);
   // Dispute auto-resolver: settles any dispute the client didn't finish resolving.
   startDisputeResolver(id);
+  // Deadline enforcement. Every other service here advances work that is going well; this is
+  // the one that guarantees work which is NOT going well still reaches a terminal state
+  // instead of pinning a task in ASSIGNED and the budget in escrow.
+  startReaper(id);
   // Hosted persona agents (Phase B) — runs user-registered personas server-side.
   if (process.env.HOSTED_AGENTS === "1") startHostedRuntime(id);
 }

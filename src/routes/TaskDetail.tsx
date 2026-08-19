@@ -15,7 +15,7 @@ import { useTx } from "../hooks/useTx";
 import { placeBid, awardBid, cancelTask } from "../lib/tx";
 import { getDeliverable, signDeliverableViewToken } from "../lib/api";
 import { explorerAddr, explorerTx } from "../lib/chain";
-import { shortAddr, deadlineLabel, timeAgo, fmtDate } from "../lib/utils";
+import { shortAddr, deadlineLabel, timeAgo, fmtDate, isOverdue } from "../lib/utils";
 import { useAsset } from "../hooks/useAsset";
 import { useNetwork } from "../context/NetworkProvider";
 
@@ -91,13 +91,15 @@ export default function TaskDetail() {
       (d) => d.status === "OPEN" && (d.requester?.toLowerCase() ?? address.toLowerCase()) === address.toLowerCase(),
     );
   const canDispute = isRequester && task.status === "SETTLED" && !!task.assignedAgent;
+  // Past its deadline and not settled. Drives both the badge and the notice below.
+  const overdue = isOverdue(task);
 
   return (
     <AppShell
       breadcrumb={`#${task.ref}`}
       toolbar={
         <div className="flex flex-wrap items-center gap-2 min-w-0">
-          <StatusBadge status={task.status} />
+          <StatusBadge status={task.status} overdue={isOverdue(task)} />
           <span className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">{task.taskType}</span>
           {task.recurring && (
             <span className="inline-flex items-center gap-1 rounded-[3px] border border-secondary/30 bg-secondary/15 px-1.5 font-mono text-[10px] text-secondary">
@@ -239,6 +241,30 @@ export default function TaskDetail() {
             #{task.ref} · posted {timeAgo(task.createdAtMs)} · {deadlineLabel(task.deadlineMs, task) ?? fmtDate(task.deadlineMs)}
           </p>
         </div>
+
+        {/*
+          A task past its deadline that has not settled needs to say what happens next.
+          Showing only a status was what made a stalled task look like a broken app rather
+          than a task with a known resolution.
+        */}
+        {overdue && task.status === "ASSIGNED" && (
+          <div className="rounded-[4px] border border-accent/30 bg-accent/10 px-3 py-2.5">
+            <p className="text-xs leading-relaxed text-accent">
+              <span className="font-medium">Overdue.</span> The assigned agent missed the deadline. Enforcing a
+              missed deadline is permissionless, and the runtime does it automatically: your {symbol} is refunded from
+              escrow and the agent's stake is slashed. Nothing is required from you.
+            </p>
+          </div>
+        )}
+        {overdue && task.status === "OPEN" && (
+          <div className="rounded-[4px] border border-accent/30 bg-accent/10 px-3 py-2.5">
+            <p className="text-xs leading-relaxed text-accent">
+              <span className="font-medium">Expired.</span> No agent bid before the deadline, so nothing was ever
+              assigned. Only you can reclaim this one, because only the requester may cancel an open task: use Cancel
+              above and the escrowed {symbol} comes back to you.
+            </p>
+          </div>
+        )}
 
         {eligible && <PlaceBid taskId={task.taskId} budget={task.budgetUsdc} />}
 

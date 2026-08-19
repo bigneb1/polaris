@@ -16,6 +16,7 @@ import "dotenv/config";
 import { getChainCtx } from "./chain.js";
 import { DEFAULT_NETWORK, getNetwork, isDeployed } from "./networks.js";
 import { produceWork } from "./score.js";
+import { clearFailures, exhausted, FULFIL_MAX_ATTEMPTS, recordFailure } from "./fulfilAttempts.js";
 import { payForService } from "./x402.js";
 
 /**
@@ -45,6 +46,17 @@ const POLL_MS = Number(process.env.SWARM_POLL_MS || 12000);
  *  pay for the bid and submission that follow. Only meaningful where the stake and
  *  the gas are the same coin (BOT Chain). */
 const GAS_RESERVE = ethers.parseEther(process.env.SWARM_GAS_RESERVE || "0.05");
+/**
+ * How long an auction stays open before it is awarded.
+ *
+ * This swarm used to award the instant it bid, which made the market first-poll-wins: the
+ * first agent to notice a task bid and closed the auction in the same breath, every other
+ * agent hit the `auctionClosed` guard, and BidEngine's scoring (price 40% / reputation 40%
+ * / speed 20%) never saw a second bid to compare. The UI has always advertised a 20-minute
+ * window and `lib/utils.ts` even says it "mirrors the swarm's BID_WINDOW_MS" — a constant
+ * that existed in the Circle swarm and not here, which is the mode BOT Chain runs.
+ */
+const BID_WINDOW_MS = Number(process.env.BID_WINDOW_MS || 20 * 60 * 1000);
 
 /** `botchain-testnet` → `BOTCHAIN_TESTNET` */
 const envKey = (id) => id.replace(/-/g, "_").toUpperCase();
@@ -344,11 +356,11 @@ class Agent {
     try {
       await this.send(this.bid, "placeBid", [taskId, this.units(bidAmount), etaSeconds], { identityCall: true });
       this.log(`bid ${bidAmount} ${this.ctx.asset.symbol} on "${meta.title}" (#${taskId.slice(2, 10)})`);
-      // Close the auction so assignment happens (best-score winner).
-      // Anyone may close the auction, so this one may fall back to the raw key.
-      await this.send(this.bid, "awardBid", [taskId]);
+      // Deliberately does NOT award. Closing the auction here is what made this a race
+      // instead of a market: see BID_WINDOW_MS. The swarm tick closes it once the window has
+      // passed and every agent has had its chance to bid.
     } catch (e) {
-      this.log("bid/award skipped:", e.shortMessage || e.message);
+      this.log("bid skipped:", e.shortMessage || e.message);
     }
   }
 
@@ -363,9 +375,20 @@ class Agent {
     for (const lg of logs) {
       const taskId = lg.args.taskId;
       if (this.handled.has(taskId)) continue;
+      // Durable, so a restart does not reset the budget and resume paying for a task that
+      // has already failed its limit.
+      if (exhausted(this.ctx.chainId, taskId)) {
+        this.handled.add(taskId);
+        continue;
+      }
       this.handled.add(taskId);
+      // Declared outside the try because the catch reports on it. It was a `const` inside
+      // the try, so the "already in progress" branch referenced an out-of-scope binding and
+      // threw a ReferenceError instead of logging: the one branch meant to avoid a pointless
+      // retry was the one that could not run.
+      let meta = null;
       try {
-        const meta = await this.ctx.readTaskMeta(taskId);
+        meta = await this.ctx.readTaskMeta(taskId);
         if (!meta) continue;
         // Optional: pay a sub-cent x402 nanopayment for an oracle quote first.
         // Only on networks with a Circle Gateway facilitator (Arc) — BOT Chain has
@@ -419,16 +442,30 @@ class Agent {
         } else {
           this.log(`settled "${meta.title}" → ${verdict.score}/100 (${verdict.passed ? "PASS" : "FAIL"})`);
         }
+        // Got all the way through, so the task owes nothing to the retry budget.
+        clearFailures(this.ctx.chainId, taskId);
       } catch (e) {
         const msg = e.message || "";
         // "already in progress" is the backend deduplicating a concurrent verify, not
         // a failure. Retrying it re-runs the LLM for nothing, so keep the task
         // handled and let the next tick see the settled state.
         if (/already in progress/i.test(msg)) {
-          this.log(`verification already running for "${meta.title}", waiting`);
+          this.log(`verification already running for "${meta?.title ?? taskId.slice(0, 10)}", waiting`);
+          continue;
+        }
+        // A bounded retry, not an unbounded one. This used to clear `handled`
+        // unconditionally, so a task that could never succeed was retried every tick and
+        // paid for a fresh model call each time while staying pinned in ASSIGNED.
+        const n = recordFailure(this.ctx.chainId, taskId, msg);
+        if (n >= FULFIL_MAX_ATTEMPTS) {
+          this.log(
+            `giving up on ${taskId.slice(0, 10)} after ${n} attempts: ${msg}. ` +
+              `Leaving it for the deadline reaper, which refunds the requester and slashes this agent.`,
+          );
+          // Stays in `handled`, so this process stops spending on it.
         } else {
-          this.handled.delete(taskId); // allow retry next loop
-          this.log("fulfil error:", msg);
+          this.handled.delete(taskId); // retry next loop, within budget
+          this.log(`fulfil error (attempt ${n}/${FULFIL_MAX_ATTEMPTS}):`, msg);
         }
       }
     }
@@ -505,9 +542,38 @@ export async function startSwarm(networkId = DEFAULT_NETWORK) {
         if (t.deadline * 1000n < BigInt(Date.now())) continue; // expired
         const meta = await ctx.readTaskMeta(taskId);
         if (!meta) continue;
-        for (const a of agents) {
-          // Never let an agent commit to work it can't pay the gas to submit.
-          if (a.wants(meta) && (await a.hasGas())) await a.bidOn(taskId, meta);
+
+        // The auction's own clock, from on-chain data so every agent and every restart
+        // agrees on it: 20 minutes from creation, clamped to whatever is left before the
+        // deadline (a task due sooner than the window cannot wait the full window).
+        const createdAtMs = Number(t.createdAt) * 1000;
+        const deadlineMs = Number(t.deadline) * 1000;
+        const windowMs = Math.min(BID_WINDOW_MS, Math.max(0, deadlineMs - createdAtMs));
+        const windowClosed = Date.now() >= createdAtMs + windowMs;
+
+        if (!windowClosed) {
+          for (const a of agents) {
+            // Never let an agent commit to work it can't pay the gas to submit.
+            if (a.wants(meta) && (await a.hasGas())) await a.bidOn(taskId, meta);
+          }
+          continue;
+        }
+
+        // Window over: close it and let BidEngine pick on score. Idempotent — `awardBid`
+        // guards on `auctionClosed`, so whoever gets there first just finalises the winner.
+        // Done here rather than on a timer because a restart forgets a timer, and a task
+        // left OPEN with bids and nothing to award it is one more way to get stuck.
+        // Any agent may close an auction; pick one that can pay the gas.
+        let closer = null;
+        for (const a of agents) if (await a.hasGas()) { closer = a; break; }
+        if (!closer) continue;
+        try {
+          await closer.send(closer.bid, "awardBid", [taskId]);
+          closer.log(`bidding closed for "${meta.title}" — best bid awarded`);
+        } catch (e) {
+          const msg = e.shortMessage || e.message || "";
+          // "No bids" is normal: nobody wanted it, and it stays OPEN until its deadline.
+          if (!/Auction closed|No bids/i.test(msg)) closer.log("award skipped:", msg);
         }
       }
       for (const a of agents) if (await a.hasGas()) await a.fulfilWins();

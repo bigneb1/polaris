@@ -67,6 +67,12 @@ export const ABI = {
   taskRegistry: [
     "function tasks(bytes32) view returns (bytes32 taskId, address requester, uint256 budgetUsdc, uint256 deadline, uint256 minReputation, address assignedAgent, uint8 status, uint256 createdAt, uint256 winningBid)",
     "function reopenTask(bytes32 taskId)",
+    // Permissionless deadline enforcement: refunds the requester and slashes the agent on an
+    // assigned task that blew its deadline. It was missing from this ABI, so the runtime had
+    // no way to call the one escape hatch the contracts provide, and a stalled task stayed
+    // ASSIGNED for good with the budget locked in escrow.
+    "function slashOnTimeout(bytes32 taskId)",
+    "event TaskTimedOut(bytes32 indexed taskId, address indexed agent)",
     "event TaskSubmitted(bytes32 indexed taskId, address indexed requester, uint256 budgetUsdc, uint256 deadline, uint256 minReputation, string title, string description, string rubric, string taskType)",
     "event TaskAssigned(bytes32 indexed taskId, address indexed agent, uint256 bidAmount)",
     "event TaskReopened(bytes32 indexed taskId)",
