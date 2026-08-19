@@ -17,6 +17,8 @@
  */
 import { activeNetworkIds, getNetwork, isDeployed, NETWORK_IDS } from "./networks.js";
 import { getIndex } from "./indexer.js";
+import { getChainCtx } from "./chain.js";
+import { identityMintability } from "./erc8004.js";
 
 /** How long a federated peer read may take before that network is marked unreachable. */
 const PEER_TIMEOUT_MS = Number(process.env.OVERVIEW_PEER_TIMEOUT_MS || 6000);
@@ -24,6 +26,10 @@ const PEER_TIMEOUT_MS = Number(process.env.OVERVIEW_PEER_TIMEOUT_MS || 6000);
 const CACHE_MS = Number(process.env.OVERVIEW_CACHE_MS || 15000);
 
 let cache = { at: 0, data: null, inFlight: null };
+
+/** Stated once, so the page and the peer-supplied path cannot drift apart. */
+const UNSUPPORTED_NOTE =
+  "This address cannot receive an ERC-721, so the registry cannot mint to it. Accounts from the current factory can.";
 
 /**
  * Peer runtime base URLs.
@@ -104,6 +110,10 @@ function summarize(networkId, index, source) {
   const net = getNetwork(networkId);
   const agents = index.agents ?? [];
   const tasks = index.tasks ?? [];
+  // Arc has no ERC-8004 registry by design (it uses Circle wallets), so "0 identities"
+  // there would be a false negative dressed as a measurement. `null` says the question
+  // does not apply, which is the only honest answer.
+  const identitySupported = Boolean(net.addr?.erc8004Identity);
   return {
     network: networkId,
     label: net.label,
@@ -114,7 +124,9 @@ function summarize(networkId, index, source) {
     agents: agents.length,
     online: agents.filter((a) => a.online).length,
     slashed: agents.filter((a) => a.slashed).length,
-    withIdentity: agents.filter((a) => a.erc8004Id).length,
+    identitySupported,
+    withIdentity: identitySupported ? agents.filter((a) => a.erc8004Id).length : null,
+    identityEligible: identitySupported ? agents.length : 0,
     tasks: tasks.length,
     openTasks: tasks.filter((t) => t.status === "OPEN").length,
     assignedTasks: tasks.filter((t) => t.status === "ASSIGNED").length,
@@ -180,6 +192,7 @@ export async function buildOverview({ env = process.env, now = Date.now } = {}) 
       continue;
     }
     const net = getNetwork(r.id);
+    const identitySupported = Boolean(net.addr?.erc8004Identity);
     networks.push(summarize(r.id, r.index, r.source));
     for (const a of r.index.agents ?? []) {
       agents.push({
@@ -189,12 +202,43 @@ export async function buildOverview({ env = process.env, now = Date.now } = {}) 
         chainId: net.chainId,
         assetSymbol: net.asset.symbol,
         explorerUrl: net.explorerUrl,
+        // "unavailable" means the chain has no registry, not that the agent failed to get
+        // an id. A verdict the index already carries is used as-is, including one that came
+        // from a peer; anything still unknown is probed below.
+        identityStatus: a.erc8004Id
+          ? "held"
+          : !identitySupported
+            ? "unavailable"
+            : a.identityMintable === "mintable"
+              ? "mintable"
+              : a.identityMintable
+                ? "unsupported"
+                : "pending",
+        ...(a.identityMintable === "unsupported-receiver" ? { identityNote: UNSUPPORTED_NOTE } : {}),
       });
     }
     for (const ev of r.index.activity ?? []) {
       activity.push({ ...ev, network: r.id, networkLabel: net.label, assetSymbol: net.asset.symbol });
     }
   }
+
+  // Why an identity-less agent has none. Only agents on a network with a registry are
+  // asked, and only ones this runtime can reach directly: a peer's chain is not ours to
+  // probe, and the answer is cached permanently, so a warm runtime spends nothing here.
+  await Promise.all(
+    agents
+      .filter((a) => a.identityStatus === "pending" && mine.includes(a.network))
+      .map(async (a) => {
+        try {
+          const verdict = await identityMintability(getChainCtx(a.network), a.wallet);
+          a.identityStatus = verdict === "mintable" ? "mintable" : "unsupported";
+          if (verdict === "unsupported-receiver") a.identityNote = UNSUPPORTED_NOTE;
+        } catch {
+          // Leave it "pending": unknown is a truthful answer, and better than guessing
+          // "cannot" about an agent that simply could not be reached.
+        }
+      }),
+  );
 
   // Reputation first: it is the only agent ranking the protocol itself enforces
   // (BidEngine's floor), so it is the honest default order for a swarm view.
@@ -213,6 +257,11 @@ export async function buildOverview({ env = process.env, now = Date.now } = {}) 
       agents: agents.length,
       online: agents.filter((a) => a.online).length,
       withIdentity: agents.filter((a) => a.erc8004Id).length,
+      // The denominator that makes `withIdentity` readable: agents on a chain that has a
+      // registry at all. Without it, "3 of 14" looks like a failure when 7 of those 14 are
+      // on a network where ERC-8004 was never deployed.
+      identityEligible: reachable.reduce((s, n) => s + (n.identityEligible ?? 0), 0),
+      identityUnsupported: agents.filter((a) => a.identityStatus === "unsupported").length,
       tasks: reachable.reduce((s, n) => s + n.tasks, 0),
       settledTasks: reachable.reduce((s, n) => s + n.settledTasks, 0),
       openTasks: reachable.reduce((s, n) => s + n.openTasks, 0),

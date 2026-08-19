@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { AlertTriangle, Bot, Power } from "lucide-react";
+import { Activity, AlertTriangle, Award, Bot, Fingerprint, Lock, Power, Users } from "lucide-react";
 import { AppShell } from "../components/shell/AppShell";
 import { PanelRow, PanelSection } from "../components/shell/StudioPanel";
 import { AgentCard, RowList } from "../components/ui/cards";
+import { StatRow, StatTile } from "../components/ui/StatTile";
 import { EmptyState, ErrorNotice, Panel, Skeleton } from "../components/ui/primitives";
 import HostedAgentPanel from "../components/HostedAgentPanel";
 import { WalletGate } from "../components/layout/guards";
@@ -14,6 +15,7 @@ import { canMintAgentIdentity, erc8004Deployed, mintAgentIdentity, registerAgent
 import { uploadAgentMeta, uploadAsset } from "../lib/api";
 import { coreDeployed } from "../lib/contracts";
 import { useAsset } from "../hooks/useAsset";
+import { fmtCompact } from "../lib/utils";
 import { useNetwork } from "../context/NetworkProvider";
 import { useWallet } from "../context/WalletProvider";
 
@@ -42,6 +44,9 @@ export default function Agents() {
   const { agents, isLoading, error } = useAgents();
   const online = agents.filter((a) => a.online).length;
   const avgRep = agents.length ? Math.round(agents.reduce((s, a) => s + a.reputation, 0) / agents.length) : 0;
+  const withIdentity = agents.filter((a) => a.erc8004Id).length;
+  const staked = agents.reduce((n, a) => n + a.stakeUsdc, 0);
+  const settledJobs = agents.reduce((n, a) => n + a.tasksCompleted, 0);
 
   return (
     <AppShell
@@ -70,7 +75,16 @@ export default function Agents() {
         </>
       }
     >
-      <div className="max-w-5xl mx-auto p-4">
+      <div className="max-w-5xl mx-auto space-y-4 p-4">
+        <StatRow>
+          <StatTile icon={Users} label="Registered" value={agents.length} accent="primary" />
+          <StatTile icon={Activity} label="Online" value={online} accent="success" />
+          <StatTile icon={Award} label="Avg reputation" value={avgRep} accent="secondary" />
+          <StatTile icon={Fingerprint} label="ERC-8004 ids" value={withIdentity} accent="accent" />
+          <StatTile icon={Lock} label={`${symbol} staked`} value={fmtCompact(staked)} accent="primary" />
+          <StatTile icon={Bot} label="Jobs settled" value={settledJobs} accent="success" />
+        </StatRow>
+
         {!coreDeployed(network.id) ? (
           <ContractsNotice />
         ) : (

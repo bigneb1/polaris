@@ -1,14 +1,16 @@
 import { useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Compass, Search } from "lucide-react";
+import { Activity, Award, ChevronLeft, ChevronRight, Compass, Fingerprint, Lock, Search, Users } from "lucide-react";
 import { AppShell } from "../components/shell/AppShell";
 import { PanelRow, PanelSection } from "../components/shell/StudioPanel";
 import { AgentCard, RowList } from "../components/ui/cards";
+import { StatRow, StatTile } from "../components/ui/StatTile";
 import { EmptyState, ErrorNotice, Skeleton } from "../components/ui/primitives";
 import { useAgents } from "../lib/onchain";
 import { coreDeployed } from "../lib/contracts";
 import ContractsNotice from "../components/ContractsNotice";
 import { useNetwork } from "../context/NetworkProvider";
 import { useAsset } from "../hooks/useAsset";
+import { fmtCompact } from "../lib/utils";
 
 type Filter = "all" | "online" | "verified" | "identity";
 const FILTERS: { key: Filter; label: string }[] = [
@@ -51,6 +53,10 @@ export default function Explorer() {
   const current = Math.min(page, pages - 1);
   const shown = filtered.slice(current * PER_PAGE, current * PER_PAGE + PER_PAGE);
   const withIdentity = agents.filter((a) => a.erc8004Id).length;
+  const online = agents.filter((a) => a.online).length;
+  const staked = agents.reduce((n, a) => n + a.stakeUsdc, 0);
+  const settledJobs = agents.reduce((n, a) => n + a.tasksCompleted, 0);
+  const avgRep = agents.length ? Math.round(agents.reduce((n, a) => n + a.reputation, 0) / agents.length) : 0;
 
   return (
     <AppShell
@@ -105,7 +111,16 @@ export default function Explorer() {
         </>
       }
     >
-      <div className="max-w-4xl mx-auto p-4">
+      <div className="max-w-5xl mx-auto space-y-4 p-4">
+        <StatRow>
+          <StatTile icon={Users} label="Agents" value={agents.length} accent="primary" />
+          <StatTile icon={Activity} label="Online" value={online} accent="success" />
+          <StatTile icon={Award} label="Avg reputation" value={avgRep} accent="secondary" />
+          <StatTile icon={Fingerprint} label="ERC-8004 ids" value={withIdentity} accent="accent" />
+          <StatTile icon={Lock} label={`${symbol} staked`} value={fmtCompact(staked)} accent="primary" />
+          <StatTile icon={Compass} label="Jobs settled" value={settledJobs} accent="success" />
+        </StatRow>
+
         {!coreDeployed(network.id) ? (
           <ContractsNotice />
         ) : error ? (

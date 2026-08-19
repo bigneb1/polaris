@@ -63,6 +63,11 @@ const IDENTITY_ABI = [
   "function setApprovalForAll(address operator, bool approved)",
   "function isApprovedForAll(address owner, address operator) view returns (bool)",
   "event Registered(uint256 indexed agentId, string agentURI, address indexed owner)",
+  // Declared so a failed mint decodes to a name instead of "unknown custom error".
+  // Without it the revert arrives as raw calldata and cannot be told apart from any
+  // other failure, which is exactly the mistake that made the first version of the
+  // mintability check classify every revert as generic.
+  "error ERC721InvalidReceiver(address receiver)",
 ];
 const REPUTATION_ABI = [
   "function giveFeedback(uint256 agentId, int128 value, uint8 valueDecimals, string tag1, string tag2, string endpoint, string feedbackURI, bytes32 feedbackHash)",
@@ -91,6 +96,104 @@ function saveIds(ctx, ids) {
   } catch {
     /* best-effort cache */
   }
+}
+
+/**
+ * Cache of wallet -> mintability verdict.
+ *
+ * Separate from the id cache because it answers a different question, and because the
+ * answer is permanent: whether a deployed address can receive an ERC-721 is fixed by its
+ * code, so once probed it never needs asking again.
+ */
+function mintableStore(ctx) {
+  return networkStorePath(`ERC8004_MINTABLE_STORE_${ctx.chainId}`, "erc8004-mintable.json", {
+    chainId: ctx.chainId,
+  });
+}
+
+function loadMintable(ctx) {
+  try {
+    return JSON.parse(fs.readFileSync(mintableStore(ctx), "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+function saveMintable(ctx, map) {
+  try {
+    fs.writeFileSync(mintableStore(ctx), JSON.stringify(map));
+  } catch {
+    /* best-effort cache */
+  }
+}
+
+/**
+ * Every known mintability verdict, straight from the cache.
+ *
+ * Cache-only and synchronous for the same reason `cachedAgentIds` is: the indexer calls it
+ * on every build, and an eth_call per agent there would put the market page behind the
+ * rate-limited RPC. `identityMintability` is what fills the cache, from the overview build
+ * where one slow call is acceptable. Reading it here is what carries the verdict to a peer
+ * runtime through /api/index, so a runtime that cannot probe another chain still knows why
+ * an agent on it has no identity.
+ */
+export function cachedMintability(ctx) {
+  return loadMintable(ctx);
+}
+
+/**
+ * `ERC721InvalidReceiver(address)`. Matched on the selector rather than on the error
+ * message: a node returns raw revert data, and whether the client can name it depends on
+ * the ABI it happens to hold, so text matching silently degrades to "generic failure".
+ * The selector is the same four bytes regardless.
+ */
+const INVALID_RECEIVER_SELECTOR = ethers.id("ERC721InvalidReceiver(address)").slice(0, 10);
+
+function isInvalidReceiver(e) {
+  const data = e?.data ?? e?.info?.error?.data ?? e?.error?.data ?? "";
+  if (typeof data === "string" && data.startsWith(INVALID_RECEIVER_SELECTOR)) return true;
+  // Belt and braces: a client that does know the name reports it in the message.
+  return /ERC721InvalidReceiver/i.test(e?.shortMessage || e?.message || "");
+}
+
+/**
+ * Could this address be given an ERC-8004 identity at all?
+ *
+ * The registry `_safeMint`s an ERC-721, so an address that does not implement
+ * `onERC721Received` can never hold one: the mint reverts with `ERC721InvalidReceiver`.
+ * Several ERC-4337 accounts on BOT Chain were deployed by a factory predating the
+ * receiver hook and are permanently in that state.
+ *
+ * This mirrors `canMintAgentIdentity` in src/lib/tx.ts deliberately: the frontend needs it
+ * to avoid asking a user to sign a mint that reverts, and the dashboard needs it to explain
+ * why an agent has no identity instead of printing a bare dash that reads as a failure.
+ * Both simulate the real call rather than sniffing bytecode, so a future cause is caught
+ * as well as this one.
+ *
+ * Returns "mintable" | "unsupported-receiver" | "rejected". Cached permanently per
+ * address, so a cold runtime spends one eth_call per identity-less agent and a warm one
+ * spends none. That matters: this is the same rate-limited endpoint whose throttling once
+ * left the production index serving 4 tasks out of 270.
+ */
+export async function identityMintability(ctx, wallet) {
+  if (!erc8004Available(ctx)) return "rejected";
+  const key = String(wallet).toLowerCase();
+  const cached = loadMintable(ctx);
+  if (cached[key]) return cached[key];
+
+  let verdict;
+  try {
+    // `from` is the agent, because `register` mints to msg.sender: simulating from anyone
+    // else would answer a different question than the one being asked.
+    await identity(ctx, ctx.provider).register.staticCall(agentUriFor(wallet), { from: wallet });
+    verdict = "mintable";
+  } catch (e) {
+    verdict = isInvalidReceiver(e) ? "unsupported-receiver" : "rejected";
+  }
+
+  cached[key] = verdict;
+  saveMintable(ctx, cached);
+  return verdict;
 }
 
 export function erc8004Available(ctx) {

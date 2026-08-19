@@ -2,8 +2,9 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useWallet } from "../context/WalletProvider";
 import { toast } from "sonner";
-import { CheckCircle2, ShieldCheck, Send } from "lucide-react";
+import { CheckCircle2, Clock, Coins, Percent, ShieldCheck, Send, TrendingUp } from "lucide-react";
 import { AppShell } from "../components/shell/AppShell";
+import { StatRow, StatTile } from "../components/ui/StatTile";
 import { PanelRow, PanelSection } from "../components/shell/StudioPanel";
 import { Panel, EmptyState, ErrorNotice, Skeleton, USDCAmount, StatusBadge, ProgressBar } from "../components/ui/primitives";
 import { WalletGate } from "../components/layout/guards";
@@ -16,6 +17,7 @@ import { humanizeError } from "../lib/errors";
 import type { Task } from "../lib/types";
 import { useAsset } from "../hooks/useAsset";
 import { useNetwork } from "../context/NetworkProvider";
+import { fmtCompact } from "../lib/utils";
 
 /**
  * Verify and settle.
@@ -27,11 +29,17 @@ import { useNetwork } from "../context/NetworkProvider";
  */
 export default function Settlement() {
   const { network } = useNetwork();
+  const { symbol } = useAsset();
   const { tasks, isLoading, error } = useTasks();
   const settled = tasks.filter(isDone);
   const totalSettled = settled.reduce((s, t) => s + (t.winningBid ?? t.budgetUsdc), 0);
   const inFlight = tasks.filter((t) => !isDone(t) && t.status === "ASSIGNED").length;
   const passed = settled.filter((t) => t.attestation?.passed).length;
+  const graded = settled.filter((t) => t.attestation);
+  const passRate = graded.length ? Math.round((passed / graded.length) * 100) : null;
+  const avgScore = graded.length
+    ? Math.round(graded.reduce((n, t) => n + (t.attestation?.score ?? 0), 0) / graded.length)
+    : null;
 
   return (
     <AppShell
@@ -55,7 +63,16 @@ export default function Settlement() {
         </>
       }
     >
-      <div className="max-w-5xl mx-auto p-4">
+      <div className="max-w-5xl mx-auto space-y-4 p-4">
+        <StatRow>
+          <StatTile icon={Clock} label="Awaiting settlement" value={inFlight} accent="accent" />
+          <StatTile icon={CheckCircle2} label="Settled tasks" value={settled.length} accent="success" />
+          <StatTile icon={Coins} label={`${symbol} released`} value={fmtCompact(totalSettled)} accent="primary" />
+          <StatTile icon={TrendingUp} label="Pass rate" value={passRate === null ? "-" : `${passRate}%`} accent="success" />
+          <StatTile icon={ShieldCheck} label="Average score" value={avgScore === null ? "-" : `${avgScore}/100`} accent="secondary" />
+          <StatTile icon={Percent} label="Pass threshold" value="70" accent="muted" />
+        </StatRow>
+
         {!coreDeployed(network.id) ? (
           <ContractsNotice />
         ) : error ? (

@@ -115,6 +115,44 @@ export function TaskItem({ task, first }: { task: Task; first?: boolean }) {
   );
 }
 
+/**
+ * A task as a card, for the market's grid view.
+ *
+ * The row idiom scans like a table and fits more on screen; the card gives the brief
+ * room to breathe, which is what helps when you do not already know the market. Both
+ * exist because they answer different questions, and the toolbar lets the reader pick.
+ */
+export function TaskCard({ task }: { task: Task }) {
+  const bw = task.status === "OPEN" ? bidWindow(task.createdAtMs, task.deadlineMs) : null;
+  return (
+    <Link
+      to={`/task/${task.taskId}`}
+      className="flex flex-col gap-2 rounded-[4px] border border-border bg-card p-3 transition-colors hover:border-primary/30"
+    >
+      <div className="flex items-start justify-between gap-2">
+        <p className="line-clamp-2 text-[13px] font-medium text-foreground">{task.title}</p>
+        <StatusBadge status={task.status} />
+      </div>
+      <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">{task.description}</p>
+      <div className="mt-auto flex flex-wrap items-center gap-1.5 border-t border-border pt-2">
+        <span className="rounded-[3px] bg-muted px-1.5 py-0.5 font-mono text-[10px] uppercase text-muted-foreground">
+          {task.taskType}
+        </span>
+        {task.recurring && (
+          <span className="inline-flex items-center gap-1 rounded-[3px] border border-secondary/30 bg-secondary/15 px-1.5 text-[10px] text-secondary">
+            <Repeat className="h-2.5 w-2.5" /> {task.recurring.deliveries}×
+          </span>
+        )}
+        <span className="text-[10px] text-muted-foreground">
+          {deadlineLabel(task.deadlineMs, task) ?? `settled ${fmtDate(task.settledAtMs ?? task.createdAtMs)}`}
+        </span>
+        {bw && bw.closesInMs > 0 && <span className="text-[10px] text-accent">bidding {bw.label}</span>}
+        <USDCAmount amount={task.budgetUsdc} size="sm" className="ml-auto shrink-0 text-foreground" />
+      </div>
+    </Link>
+  );
+}
+
 export function AgentCard({
   agent,
   footer,

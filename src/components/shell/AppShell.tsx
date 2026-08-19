@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { PanelRight } from "lucide-react";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { TitleBar } from "./TitleBar";
@@ -19,6 +19,9 @@ import { StatusBar } from "./StatusBar";
  * and becomes a drawer under `lg`, so a phone gets the full width for content while
  * the same metadata stays one tap away.
  */
+/** Persisted so the panel stays where the reader left it, across pages and sessions. */
+const PANEL_KEY = "polaris-panel-open";
+
 export function AppShell({
   children,
   toolbar,
@@ -33,7 +36,18 @@ export function AppShell({
   /** Right-hand panel contents, built from PanelSection / PanelRow. */
   panel?: ReactNode;
 }) {
-  const [panelOpen, setPanelOpen] = useState(false);
+  // Two different surfaces, one control. Under `lg` the panel is a drawer, so the
+  // button opens a Sheet; at `lg` and up it is a column, so the same button collapses
+  // it and gives the width back to the content. Collapsing was previously only
+  // possible on a phone, which is backwards: the desktop is where a 280px column
+  // competes with a wide table.
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [panelCollapsed, setPanelCollapsed] = useState(
+    () => localStorage.getItem(PANEL_KEY) === "collapsed",
+  );
+  useEffect(() => {
+    localStorage.setItem(PANEL_KEY, panelCollapsed ? "collapsed" : "open");
+  }, [panelCollapsed]);
 
   return (
     <div className="h-dvh flex flex-col bg-background text-foreground overflow-hidden">
@@ -42,21 +56,35 @@ export function AppShell({
       <Toolbar breadcrumb={breadcrumb}>
         {toolbar}
         {panel && (
-          <button onClick={() => setPanelOpen(true)} className="tool-btn lg:hidden ml-auto" title="Show details">
-            <PanelRight className="h-3.5 w-3.5" />
-          </button>
+          <>
+            <button
+              onClick={() => setDrawerOpen(true)}
+              className="tool-btn ml-auto lg:hidden"
+              title="Show details"
+            >
+              <PanelRight className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onClick={() => setPanelCollapsed((v) => !v)}
+              data-active={!panelCollapsed}
+              className="tool-btn ml-auto hidden lg:inline-flex"
+              title={panelCollapsed ? "Show details panel" : "Hide details panel"}
+            >
+              <PanelRight className="h-3.5 w-3.5" />
+            </button>
+          </>
         )}
       </Toolbar>
 
       <div className="flex-1 flex min-h-0">
         <main className="flex-1 min-w-0 overflow-y-auto">{children}</main>
-        {panel && <StudioPanel>{panel}</StudioPanel>}
+        {panel && !panelCollapsed && <StudioPanel>{panel}</StudioPanel>}
       </div>
 
       <StatusBar />
 
       {panel && (
-        <Sheet open={panelOpen} onOpenChange={setPanelOpen}>
+        <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
           <SheetContent side="right" className="w-[85vw] max-w-xs p-0 bg-card border-border overflow-y-auto">
             {panel}
           </SheetContent>
