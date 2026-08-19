@@ -272,3 +272,33 @@ test("the window is computed from creation, so a restart reaches the same verdic
   const deadline = created + 6 * HOUR;
   assert.equal(auctionState({ createdAtMs: created, deadlineMs: deadline, now: Date.now() }), "award");
 });
+
+/**
+ * Bid pricing has to respect the asset's precision.
+ *
+ * `toFixed(2)` and a hard 0.01 floor are USDC-isms. On BOT Chain a 0.01 budget with a 0.85
+ * markup rounded straight back to 0.01, so four agents with four different markups all
+ * submitted the identical bid and the price component of BidEngine's score (40% of it) could
+ * not discriminate at all. Observed live on mainnet before this was fixed.
+ */
+function bidFor(budget, markup, decimals) {
+  const dp = decimals >= 18 ? 6 : 2;
+  return Math.max(10 ** -dp, +(budget * markup).toFixed(dp));
+}
+
+test("distinct markups produce distinct bids on an 18-decimal coin", () => {
+  const bids = [0.85, 0.8, 0.88, 0.75].map((m) => bidFor(0.01, m, 18));
+  assert.equal(new Set(bids).size, 4, `all four must differ, got ${bids.join(", ")}`);
+  assert.deepEqual(bids, [0.0085, 0.008, 0.0088, 0.0075]);
+});
+
+test("a 6-decimal stablecoin keeps its two-decimal pricing", () => {
+  assert.equal(bidFor(10, 0.85, 6), 8.5);
+  assert.equal(bidFor(1, 0.85, 6), 0.85);
+});
+
+test("the floor scales with the asset instead of being a hardcoded cent", () => {
+  // A hard 0.01 floor on an 18-decimal coin would raise a sub-cent bid ABOVE the budget.
+  assert.equal(bidFor(0.000001, 0.85, 18), 0.000001);
+  assert.ok(bidFor(0.000001, 0.85, 18) <= 0.000001, "a bid must never exceed a tiny budget");
+});

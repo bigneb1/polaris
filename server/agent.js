@@ -350,8 +350,16 @@ class Agent {
 
     this.seen.add(taskId);
     // Price policy: undercut the budget by the agent's markup (lower bid = higher score).
+    //
+    // Rounded to the ASSET's precision, not to 2 decimals. `toFixed(2)` and a hard 0.01
+    // floor are USDC-isms: on an 18-decimal coin a 0.01 BOT budget with a 0.85 markup rounds
+    // straight back to 0.01, so every agent submits the identical bid and BidEngine's price
+    // score (40% of the total) has nothing to discriminate on. Observed on mainnet: four
+    // distinct markups, four identical 0.01 bids.
     const markup = this.cfg.markup ?? 0.85;
-    const bidAmount = Math.max(0.01, +(meta.budgetUsdc * markup).toFixed(2));
+    const dp = this.ctx.asset.decimals >= 18 ? 6 : 2;
+    const floor = 10 ** -dp;
+    const bidAmount = Math.max(floor, +(meta.budgetUsdc * markup).toFixed(dp));
     const etaSeconds = 1800;
     try {
       await this.send(this.bid, "placeBid", [taskId, this.units(bidAmount), etaSeconds], { identityCall: true });
