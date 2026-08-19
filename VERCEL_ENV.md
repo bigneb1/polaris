@@ -14,9 +14,20 @@ Preview), then redeploy. Build command `npm run build`, output `dist`.
 
 ## Required
 
+> **Do NOT set `VITE_API_URL` here.** Arc and BOT Chain run as separate Railway
+> services, and each network already carries the correct one as its default
+> (`src/lib/networks/`). `VITE_API_URL` is a single global override that wins over
+> those defaults, so setting it points **every** network at one runtime: BOT Chain
+> requests then reach the Arc runtime, which correctly refuses them with a 409, and
+> BOT Chain silently stops working in the deployed app while Arc looks fine. It exists
+> for local development, where one process serves both networks. To override a single
+> network, use `VITE_API_URL_ARC` or `VITE_API_URL_BOTCHAIN_TESTNET`.
+
 ```env
-# Backend (the Railway agent runtime that serves /api/index, subscriptions, etc.)
-VITE_API_URL=https://polaris-agent-runtime-production.up.railway.app
+# Backend: leave unset. Each network's runtime URL is already the default.
+# Override one network only if you must:
+# VITE_API_URL_ARC=https://polaris-agent-runtime-production.up.railway.app
+# VITE_API_URL_BOTCHAIN_TESTNET=https://polaris-bot-runtime-production.up.railway.app
 
 # Arc network
 VITE_ARC_RPC_URL=https://rpc.testnet.arc.network
@@ -28,6 +39,21 @@ VITE_USDC_ADDRESS=0x3600000000000000000000000000000000000000
 # Only the App ID is public; its API key + entity secret stay on Railway.
 VITE_CIRCLE_UC_APP_ID=d600913e-7a3b-51d3-bc63-53f3d01a58e5
 VITE_CIRCLE_CHAIN_PATH=arcTestnet
+```
+
+## Optional — canonical app URL (ERC-8004 identity URIs)
+
+When an agent is registered on a network with ERC-8004 deployed, the app mints the
+agent's identity and writes a registration URI into the registry, permanently. That URI
+is built from this value, falling back to the browser's current origin.
+
+Set it in **Production** so an identity minted from a preview deployment cannot bake a
+`*.vercel.app` preview domain into the chain. It should match the backend's
+`PUBLIC_APP_URL`, so a runtime-minted identity and a UI-minted one describe agents the
+same way.
+
+```env
+VITE_PUBLIC_APP_URL=https://polarisswarm.xyz
 ```
 
 ## Optional — Circle Modular Wallets (passkey, gasless)

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { ShieldCheck, Clock, FileCheck2, Plus, Power, Banknote, Briefcase, Globe, Repeat, Flag, Fingerprint, ExternalLink } from "lucide-react";
 import { AppShell } from "../components/shell/AppShell";
@@ -13,7 +13,7 @@ import RatingsPanel from "../components/RatingsPanel";
 import { useWallet } from "../context/WalletProvider";
 import { useTx } from "../hooks/useTx";
 import { useAgent } from "../lib/onchain";
-import { addStake, withdrawStake, setAgentOnline, hireAgent, newTaskId } from "../lib/tx";
+import { addStake, withdrawStake, setAgentOnline, hireAgent, newTaskId, mintAgentIdentity, canMintAgentIdentity, erc8004Deployed } from "../lib/tx";
 import { explorerAddr } from "../lib/chain";
 import { shortAddr, timeAgo, deadlineLabel, fmtDate, isDone } from "../lib/utils";
 import type { Task } from "../lib/types";
@@ -316,9 +316,52 @@ function OwnerActions({ agent, signer }: { agent: import("../lib/types").Agent; 
   const { symbol } = useAsset();
   const { run, loading } = useTx();
   const [amount, setAmount] = useState("100");
+  // An agent registered before the app minted identities, or by a script, has none.
+  // Only this wallet can fix that (`register` mints to msg.sender), so the control has
+  // to live here rather than anywhere in the backend. Whether it CAN be fixed is a
+  // separate question: a smart account without `onERC721Received` can never hold the
+  // registry's ERC-721, and saying so is more useful than a button that reverts.
+  const needsIdentity = erc8004Deployed() && !agent.erc8004Id;
+  const [mintable, setMintable] = useState<{ ok: boolean; reason?: string } | null>(null);
+  useEffect(() => {
+    if (!needsIdentity) return;
+    let alive = true;
+    canMintAgentIdentity(agent.wallet).then((r) => alive && setMintable(r));
+    return () => {
+      alive = false;
+    };
+  }, [needsIdentity, agent.wallet]);
   return (
     <Panel title="Manage your agent">
       <div className="flex flex-col gap-3">
+        {needsIdentity && mintable?.ok === true && (
+          <div className="rounded-[4px] border border-primary/25 bg-primary/8 p-2.5">
+            <p className="mb-2 text-[11px] leading-relaxed text-muted-foreground">
+              This agent has no ERC-8004 identity yet. Minting one gives it a portable id
+              that any other application can read, independently of Polaris.
+            </p>
+            <button
+              onClick={() =>
+                run(() => mintAgentIdentity(agent.wallet, signer), {
+                  pending: "Minting the ERC-8004 identity…",
+                  success: "ERC-8004 identity minted",
+                })
+              }
+              disabled={loading}
+              className="tool-btn-primary w-full"
+            >
+              <Fingerprint className="h-3.5 w-3.5" /> Mint ERC-8004 identity
+            </button>
+          </div>
+        )}
+        {needsIdentity && mintable?.ok === false && (
+          <div className="rounded-[4px] border border-border bg-muted p-2.5">
+            <div className="field-label mb-1 flex items-center gap-1.5">
+              <Fingerprint className="h-3 w-3" /> No ERC-8004 identity
+            </div>
+            <p className="text-[11px] leading-relaxed text-muted-foreground">{mintable.reason}</p>
+          </div>
+        )}
         <label className="block">
           <div className="field-label mb-2">Add stake ({symbol})</div>
           <input type="number" min="1" className="field" value={amount} onChange={(e) => setAmount(e.target.value)} />
