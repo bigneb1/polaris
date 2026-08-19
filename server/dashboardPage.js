@@ -45,6 +45,19 @@ const KIND_TONE = {
   AGENT_SLASHED: "danger",
 };
 
+/**
+ * Explains the identity denominator. "3 of 4" invites the question "why not 14?", and the
+ * answer (one network has no registry, some addresses cannot receive an ERC-721) is the
+ * difference between a working integration and a broken-looking one.
+ */
+function identitySubtitle(o) {
+  const noRegistry = o.networks.filter((n) => !n.error && n.identitySupported === false);
+  const parts = ["eligible agents"];
+  if (noRegistry.length) parts.push(`${noRegistry.map((n) => n.label).join(", ")}: no registry`);
+  if (o.totals.identityUnsupported) parts.push(`${o.totals.identityUnsupported} cannot hold one`);
+  return parts.join(" · ");
+}
+
 function statCard(label, value, sub) {
   return `<div class="stat">
     <div class="stat-v">${esc(value)}</div>
@@ -66,12 +79,34 @@ function networkRow(n) {
       <span class="tag">${esc(n.source)}</span></td>
     <td class="mono">${esc(n.chainId)}</td>
     <td class="r">${num(n.agents)} <span class="dim">(${num(n.online)} online)</span></td>
-    <td class="r">${num(n.withIdentity)}</td>
+    <td class="r">${
+      n.identitySupported
+        ? `${num(n.withIdentity)}<span class="dim">/${num(n.identityEligible)}</span>`
+        : `<span class="dim" title="ERC-8004 is not deployed on this network">not deployed</span>`
+    }</td>
     <td class="r">${num(n.tasks)}</td>
     <td class="r">${num(n.settledTasks)}</td>
     <td class="r mono">${money(n.money.escrow, n.money.symbol)}</td>
     <td class="r mono">${money(n.money.settledValue, n.money.symbol)}</td>
   </tr>`;
+}
+
+/**
+ * Why this agent's identity column says what it says.
+ *
+ * A bare dash was actively misleading: it made "this chain has no ERC-8004 registry",
+ * "this address can never receive an ERC-721", and "nobody has minted one yet" look
+ * identical, so a truthful 3-of-4 read as a broken integration.
+ */
+function identityCell(a) {
+  if (a.erc8004Id) return `<span class="tag id">#${esc(a.erc8004Id)}</span>`;
+  if (a.identityStatus === "unavailable")
+    return `<span class="dim" title="ERC-8004 is not deployed on ${esc(a.networkLabel)}">n/a</span>`;
+  if (a.identityStatus === "unsupported")
+    return `<span class="tag warn" title="${esc(a.identityNote ?? "The registry cannot mint to this address.")}">cannot hold one</span>`;
+  if (a.identityStatus === "mintable")
+    return `<span class="tag" title="No identity yet. The owner can mint one from the agent's page.">mintable</span>`;
+  return `<span class="dim">unknown</span>`;
 }
 
 function agentRow(a) {
@@ -88,7 +123,7 @@ function agentRow(a) {
     <td class="r mono">${money(a.stakeUsdc, a.assetSymbol)}</td>
     <td class="r">${num(a.tasksCompleted)}<span class="dim">/${num(a.tasksFailed)}</span></td>
     <td class="r mono">${money(a.totalEarned, a.assetSymbol)}</td>
-    <td class="r">${a.erc8004Id ? `<span class="tag id">#${esc(a.erc8004Id)}</span>` : "<span class='dim'>—</span>"}</td>
+    <td class="r">${identityCell(a)}</td>
   </tr>`;
 }
 
@@ -167,6 +202,7 @@ export function renderDashboard(o) {
     border: 1px solid var(--border); border-radius: 3px; padding: 1px 4px; margin-left: 6px;
   }
   .tag.id { color: var(--primary); border-color: hsl(212 92% 62% / 0.35); background: hsl(212 92% 62% / 0.1); }
+  .tag.warn { color: var(--accent); border-color: hsl(35 92% 60% / 0.35); background: hsl(35 92% 60% / 0.1); }
   footer { color: var(--dim); font-size: 11px; padding: 0 18px 24px; max-width: 1360px; margin: 0 auto; }
   .note { border-left: 2px solid var(--border); padding-left: 10px; margin-top: 8px; }
   @media (max-width: 640px) { main { padding: 12px; } header { padding: 12px; } }
@@ -184,7 +220,11 @@ export function renderDashboard(o) {
     <h2>All networks</h2>
     <div class="stats">
       ${statCard("Agents", num(o.totals.agents), `${num(o.totals.online)} online`)}
-      ${statCard("ERC-8004 ids", num(o.totals.withIdentity), "portable identities")}
+      ${statCard(
+        "ERC-8004 ids",
+        `${num(o.totals.withIdentity)} of ${num(o.totals.identityEligible)}`,
+        identitySubtitle(o),
+      )}
       ${statCard("Tasks", num(o.totals.tasks), `${num(o.totals.openTasks)} open`)}
       ${statCard("Settled", num(o.totals.settledTasks), "verified onchain")}
       ${statCard("Bids", num(o.totals.bids), "all time")}

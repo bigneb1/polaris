@@ -5,7 +5,7 @@ import { activeNetworkIds, DEFAULT_NETWORK, getNetwork, scopedKey } from "./netw
 import { storePath } from "./store-path.js";
 import { createLogIndex } from "./eventIndex.js";
 import { openIndexStore } from "./indexStore.js";
-import { cachedAgentIds, erc8004Available } from "./erc8004.js";
+import { cachedAgentIds, cachedMintability, erc8004Available } from "./erc8004.js";
 
 const ASSET_STORE = storePath("ASSET_STORE", "assets.json");
 const AGENT_META_STORE = storePath("AGENT_META_STORE", "agent-meta.json");
@@ -537,6 +537,9 @@ function createIndexer(networkId) {
     // ERC-4337 account minting for itself); the cache still covers anything this
     // runtime minted whose event falls outside the indexed range.
     const identities = erc8004Available(ctx) ? { ...cachedAgentIds(ctx) } : {};
+    // Cache-only (see cachedMintability): tells a consumer WHY an agent has no identity,
+    // and travels with the index so a peer runtime does not have to probe our chain.
+    const mintability = erc8004Available(ctx) ? cachedMintability(ctx) : {};
     for (const log of identityLogs) {
       const owner = String(log.args?.owner ?? "").toLowerCase();
       const agentId = log.args?.agentId;
@@ -552,6 +555,8 @@ function createIndexer(networkId) {
       if (id != null) {
         ag.erc8004Id = String(id);
         ag.erc8004Registry = ctx.ADDR.erc8004Identity;
+      } else if (mintability[k]) {
+        ag.identityMintable = mintability[k]; // "mintable" | "unsupported-receiver" | "rejected"
       }
     }
 

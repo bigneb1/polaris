@@ -181,6 +181,13 @@ export const ERC8004_IDENTITY_ABI = parseAbi([
   "function register(string agentURI) returns (uint256 agentId)",
   "function ownerOf(uint256 tokenId) view returns (address)",
   "event Registered(uint256 indexed agentId, string agentURI, address indexed owner)",
+  // Declared so a failed mint decodes to a name rather than an opaque custom error.
+  // `canMintAgentIdentity` matches on that name, and without the declaration the revert
+  // arrives as raw calldata: the check still blocks the mint, but it can only say "the
+  // registry would reject this" instead of explaining that the account cannot hold an
+  // ERC-721 at all. Confirmed on chain: the three older 4337 accounts on BOT Chain revert
+  // with exactly this, selector 0x64a0ae92.
+  "error ERC721InvalidReceiver(address receiver)",
 ]);
 
 export const SUBSCRIPTION_MANAGER_ABI = parseAbi([
