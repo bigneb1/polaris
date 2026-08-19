@@ -169,6 +169,20 @@ export const RECURRING_MARKET_ABI = parseAbi([
   "function getPlan(bytes32) view returns (address requester, address agent, uint256 perDelivery, uint256 price, uint32 total, uint32 done, uint256 escrowed, uint256 minReputation, uint8 status)",
 ]);
 
+/**
+ * ERC-8004 identity registry, trimmed to what the app calls.
+ *
+ * `register` mints to `msg.sender`, which is exactly why this belongs in the
+ * frontend: the identity has to be owned by the agent's own wallet, and at
+ * registration time that wallet is the one connected. Nothing else can mint it on
+ * the agent's behalf.
+ */
+export const ERC8004_IDENTITY_ABI = parseAbi([
+  "function register(string agentURI) returns (uint256 agentId)",
+  "function ownerOf(uint256 tokenId) view returns (address)",
+  "event Registered(uint256 indexed agentId, string agentURI, address indexed owner)",
+]);
+
 export const SUBSCRIPTION_MANAGER_ABI = parseAbi([
   "function createSubscription(bytes32 subId, address agent, uint256 perDeliveryUsdc, uint32 totalDeliveries, (string title, string brief, string rubric, string taskType, string schedule) meta)",
   "function cancelSubscription(bytes32 subId)",

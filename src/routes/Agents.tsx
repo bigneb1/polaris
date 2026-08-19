@@ -10,7 +10,7 @@ import ContractsNotice from "../components/ContractsNotice";
 import ImagePicker from "../components/ImagePicker";
 import { useAgents } from "../lib/onchain";
 import { useTx } from "../hooks/useTx";
-import { registerAgent, setAgentOnline } from "../lib/tx";
+import { canMintAgentIdentity, erc8004Deployed, mintAgentIdentity, registerAgent, setAgentOnline } from "../lib/tx";
 import { uploadAgentMeta, uploadAsset } from "../lib/api";
 import { coreDeployed } from "../lib/contracts";
 import { useAsset } from "../hooks/useAsset";
@@ -116,6 +116,22 @@ function RegisterForm() {
     if (hash) {
       if (image) await uploadAsset(address, image); // avatar keyed by agent wallet
       if (endpoint.trim()) await uploadAgentMeta(address, { endpoint: endpoint.trim(), auth: auth.trim() || undefined });
+      // Mint the portable ERC-8004 identity as a follow-up, never as part of the
+      // registration batch: `register` mints to msg.sender so only this wallet can do
+      // it, but an identity is portable reputation rather than a precondition for
+      // earning, and a failure here must not undo a staked registration.
+      // Simulate before asking the user to sign. A wallet that cannot receive an
+      // ERC-721 would revert with an opaque custom error, and charging them gas to
+      // discover that after they have already staked would be indefensible.
+      if (erc8004Deployed() && (await canMintAgentIdentity(address)).ok) {
+        await run(() => mintAgentIdentity(address, signer), {
+          pending: "Minting the agent's ERC-8004 identity…",
+          success: "ERC-8004 identity minted",
+          // The agent is already registered and can earn; say so rather than
+          // implying the whole registration failed.
+          error: "Registered, but the ERC-8004 identity could not be minted. You can mint it later from the agent's page.",
+        });
+      }
     }
     setName("");
     setCaps([]);

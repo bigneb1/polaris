@@ -1,5 +1,6 @@
 import {
   readContract,
+  simulateContract,
   writeContract,
   waitForTransactionReceipt,
   switchChain,
@@ -22,6 +23,7 @@ import {
   SUBSCRIPTION_MANAGER_ABI,
   DISPUTE_MANAGER_ABI,
   RECURRING_MARKET_ABI,
+  ERC8004_IDENTITY_ABI,
 } from "./contracts";
 import { circleWrite, type CircleSession } from "./circleWallet";
 import { ucWrite, type UcSession } from "./circleUserWallet";
@@ -237,6 +239,97 @@ export async function registerAgent(
     circle,
     network,
   );
+}
+
+/**
+ * Mint this wallet's ERC-8004 identity.
+ *
+ * WHY THIS IS A FRONTEND CONCERN. The registry's `register` mints to `msg.sender`, so
+ * the identity can only be created by the agent's own wallet. The runtime mints for the
+ * agents whose keys it holds, but an agent registered here belongs to the user's wallet
+ * and nothing in the backend can ever mint for it. Without this, every agent registered
+ * through the UI stayed permanently identity-less, which defeats the point of a registry
+ * whose whole premise is that any application can read an agent's identity.
+ *
+ * Deliberately NOT batched with `registerAgent`. An identity is portable reputation, not
+ * a precondition for earning, so a failure here must never roll back a staked
+ * registration. Callers treat it as best-effort and follow-up.
+ */
+export async function mintAgentIdentity(
+  wallet: Address,
+  circle?: Signer,
+  network?: NetworkId,
+): Promise<Hash> {
+  const id = resolveNetwork(network);
+  const registry = getNetwork(id).erc8004?.identity;
+  if (!registry) throw new Error("ERC-8004 is not deployed on this network.");
+  return run(
+    [
+      {
+        address: registry as Address,
+        abi: ERC8004_IDENTITY_ABI,
+        functionName: "register",
+        args: [identityUri(wallet)],
+      },
+    ],
+    circle,
+    network,
+  );
+}
+
+/**
+ * Can this wallet actually be given an ERC-8004 identity?
+ *
+ * The registry `_safeMint`s an ERC-721, so a contract wallet that does not implement
+ * `onERC721Received` can never hold one: the mint reverts with `ERC721InvalidReceiver`.
+ * Several ERC-4337 accounts on BOT Chain were deployed by a factory that predates the
+ * receiver hook, and they are permanently in that state.
+ *
+ * Rather than hardcode a bytecode heuristic, this simulates the real call. That catches
+ * this cause and any future one, and it is what lets the UI explain why an agent cannot
+ * be given an identity instead of offering a button that reverts with an opaque custom
+ * error after the user has paid for the attempt.
+ */
+export async function canMintAgentIdentity(
+  wallet: Address,
+  network?: NetworkId,
+): Promise<{ ok: boolean; reason?: string }> {
+  const id = resolveNetwork(network);
+  const net = getNetwork(id);
+  const registry = net.erc8004?.identity;
+  if (!registry) return { ok: false, reason: "ERC-8004 is not deployed on this network." };
+  try {
+    await simulateContract(wagmiConfig, {
+      address: registry as Address,
+      abi: ERC8004_IDENTITY_ABI,
+      functionName: "register",
+      args: [identityUri(wallet)],
+      account: wallet,
+      chainId: net.chainId,
+    });
+    return { ok: true };
+  } catch (e) {
+    const msg = (e as Error)?.message ?? "";
+    if (/ERC721InvalidReceiver/i.test(msg)) {
+      return {
+        ok: false,
+        reason:
+          "This agent is a smart account that cannot receive an ERC-721, so the identity registry cannot mint to it. Accounts created by the current factory accept one.",
+      };
+    }
+    return { ok: false, reason: "The identity registry would reject this mint." };
+  }
+}
+
+/** The standard's registration file: a resolvable URI describing the agent. */
+function identityUri(wallet: Address): string {
+  const base = (import.meta.env.VITE_PUBLIC_APP_URL || window.location.origin).replace(/\/$/, "");
+  return `${base}/agent/${wallet}`;
+}
+
+/** True when this network has an ERC-8004 identity registry to mint into. */
+export function erc8004Deployed(network?: NetworkId): boolean {
+  return Boolean(getNetwork(resolveNetwork(network)).erc8004?.identity);
 }
 
 export async function setAgentOnline(

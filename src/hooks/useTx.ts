@@ -15,7 +15,18 @@ export function useTx() {
   const run = useCallback(
     async (
       fn: () => Promise<Hash>,
-      opts: { pending: string; success: string; onDone?: (hash: Hash) => void },
+      opts: {
+        pending: string;
+        success: string;
+        /**
+         * Fallback message when the write fails. Worth overriding when a failure does
+         * not mean what the generic wording implies: a best-effort follow-up step can
+         * fail after the main transaction already succeeded, and "Transaction failed"
+         * would wrongly suggest the whole thing was rolled back.
+         */
+        error?: string;
+        onDone?: (hash: Hash) => void;
+      },
     ) => {
       setLoading(true);
       const toastId = toast.loading(opts.pending);
@@ -35,7 +46,7 @@ export function useTx() {
         if (isUserRejection(err)) {
           toast.error("Cancelled.", { id: toastId });
         } else {
-          toast.error(humanizeError(err, "Transaction failed. Please try again."), { id: toastId });
+          toast.error(humanizeError(err, opts.error ?? "Transaction failed. Please try again."), { id: toastId });
           console.error(err);
         }
         return null;
