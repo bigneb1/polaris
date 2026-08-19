@@ -108,6 +108,9 @@ const HOUR = 3600_000;
 mock.module("../indexer.js", { namedExports: { getIndex: async () => ({ tasks: [] }) } });
 const { overdueCandidates, enforceDeadline } = await import("../reaper.js");
 
+/** Default the cutoff off, so the existing selection tests read as before. */
+const ANY = { enforceFromMs: 0 };
+
 test("only non-terminal, past-deadline tasks are candidates", () => {
   const now = Date.now();
   const tasks = [
@@ -118,7 +121,7 @@ test("only non-terminal, past-deadline tasks are candidates", () => {
     { taskId: "0x5", status: "SETTLED", deadlineMs: now - 9 * HOUR }, // terminal
     { taskId: "0x6", status: "CANCELLED", deadlineMs: now - 9 * HOUR }, // terminal
   ];
-  assert.deepEqual(overdueCandidates({ tasks }, { now }).map((t) => t.taskId), ["0x1", "0x2"]);
+  assert.deepEqual(overdueCandidates({ tasks }, { now, ...ANY }).map((t) => t.taskId), ["0x1", "0x2"]);
 });
 
 test("the grace period keeps us from fighting block-timestamp skew", () => {
@@ -126,8 +129,8 @@ test("the grace period keeps us from fighting block-timestamp skew", () => {
   // Just barely past our clock: `slashOnTimeout` requires block.timestamp > deadline
   // strictly, so acting immediately would only earn a "Before deadline" revert.
   const tasks = [{ taskId: "0x1", status: "ASSIGNED", deadlineMs: now - 1000 }];
-  assert.equal(overdueCandidates({ tasks }, { now, graceMs: 60000 }).length, 0);
-  assert.equal(overdueCandidates({ tasks }, { now, graceMs: 0 }).length, 1);
+  assert.equal(overdueCandidates({ tasks }, { now, graceMs: 60000, ...ANY }).length, 0);
+  assert.equal(overdueCandidates({ tasks }, { now, graceMs: 0, ...ANY }).length, 1);
 });
 
 /** A registry whose task status and revert behaviour the test controls. */
@@ -193,4 +196,27 @@ test("enforcement is idempotent across two ticks", async () => {
   assert.equal((await enforceDeadline({}, reg, { taskId: "0x1" })).action, "timed-out");
   assert.equal((await enforceDeadline({}, reg, { taskId: "0x1" })).action, "skipped");
   assert.deepEqual(sent, ["0x1"], "sent exactly once");
+});
+
+test("a pre-existing backlog is grandfathered, not retroactively punished", () => {
+  // Enforcement was missing for the deployment's whole life, so switching it on found 114
+  // overdue tasks on Arc. Clearing them would have slashed four agents 114 times between
+  // them and taken three to reputation 0, below the bid floor, for failures caused by the
+  // missing reaper itself. Only deadlines that pass after enforcement starts are eligible.
+  const now = Date.now();
+  const enforceFromMs = now - 1 * HOUR; // reaper started an hour ago
+  const tasks = [
+    { taskId: "0xold", status: "ASSIGNED", deadlineMs: now - 40 * 24 * HOUR }, // 40 days stale
+    { taskId: "0xnew", status: "ASSIGNED", deadlineMs: now - 30 * 60_000 }, // expired since
+  ];
+  assert.deepEqual(
+    overdueCandidates({ tasks }, { now, enforceFromMs }).map((t) => t.taskId),
+    ["0xnew"],
+  );
+});
+
+test("the backlog can be enforced deliberately, with the cutoff turned off", () => {
+  const now = Date.now();
+  const tasks = [{ taskId: "0xold", status: "ASSIGNED", deadlineMs: now - 40 * 24 * HOUR }];
+  assert.equal(overdueCandidates({ tasks }, { now, enforceFromMs: 0 }).length, 1);
 });

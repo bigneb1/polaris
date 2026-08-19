@@ -43,16 +43,58 @@ const ENFORCEABLE = new Set([STATUS.ASSIGNED, STATUS.IN_PROGRESS]);
 const BENIGN = /Before deadline|Not in progress/i;
 
 /**
+ * Deadlines before this are not enforced.
+ *
+ * WHY A CUTOFF EXISTS AT ALL. Enforcement was missing for the whole life of the deployment, so
+ * switching it on found a backlog: 114 tasks on Arc, some 40 days overdue, holding 218 USDC.
+ * `slashOnTimeout` refunds and slashes atomically, so clearing that backlog would have slashed
+ * four agents 114 times between them and taken three of them to reputation 0 and roughly 1-3
+ * USDC of stake, below the minimum and below BidEngine's bid floor of 70. They would never bid
+ * again.
+ *
+ * Those tasks failed because nothing enforced deadlines, which is this bug, not because the
+ * agents misbehaved. Punishing them retroactively for our own missing component would be
+ * both unjust and self-defeating. So enforcement applies to deadlines that pass from the
+ * moment it ships, and the backlog is left alone: still visible, and now labelled Overdue in
+ * the UI rather than dressed up as "In progress".
+ *
+ * Set REAPER_ENFORCE_FROM_MS=0 to enforce the backlog too, deliberately and with the
+ * consequences above in view.
+ */
+const ENFORCE_FROM_MS = (() => {
+  const raw = process.env.REAPER_ENFORCE_FROM_MS;
+  if (raw !== undefined && raw !== "") {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  // Default: this process's start. A restart moves it forward, which is the safe direction:
+  // it can only ever decline to punish, never punish more.
+  return Date.now();
+})();
+
+/**
  * Tasks the index believes are working and overdue.
  *
  * Deliberately derived from the index rather than the chain: the chain is consulted once per
  * candidate, immediately before acting, which is where the authoritative check belongs.
  */
-export function overdueCandidates(index, { now = Date.now(), graceMs = GRACE_MS } = {}) {
+export function overdueCandidates(
+  index,
+  { now = Date.now(), graceMs = GRACE_MS, enforceFromMs = ENFORCE_FROM_MS } = {},
+) {
   const cutoff = now - graceMs;
   return (index?.tasks ?? []).filter(
-    (t) => (t.status === "ASSIGNED" || t.status === "IN_PROGRESS") && t.deadlineMs && t.deadlineMs < cutoff,
+    (t) =>
+      (t.status === "ASSIGNED" || t.status === "IN_PROGRESS") &&
+      t.deadlineMs &&
+      t.deadlineMs < cutoff &&
+      t.deadlineMs >= enforceFromMs,
   );
+}
+
+/** What the reaper is currently willing to enforce, for logging and tests. */
+export function enforceFromMs() {
+  return ENFORCE_FROM_MS;
 }
 
 /**
@@ -127,5 +169,8 @@ export function startReaper(networkId) {
 
   tick();
   setInterval(tick, POLL_MS).unref();
-  console.log(`[reaper:${networkId}] deadline enforcement on · every ${POLL_MS / 1000}s · ${label}`);
+  console.log(
+    `[reaper:${networkId}] deadline enforcement on · every ${POLL_MS / 1000}s · ${label} · ` +
+      `enforcing deadlines from ${new Date(ENFORCE_FROM_MS).toISOString()} (earlier ones are grandfathered)`,
+  );
 }
