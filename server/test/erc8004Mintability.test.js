@@ -96,3 +96,23 @@ test("a verdict is cached, so the same address is probed at most once", async ()
   assert.equal(await identityMintability(second, wallet), "unsupported-receiver");
   assert.equal(calls.length, before, "a cached verdict must not re-probe");
 });
+
+test("concurrent probes all persist: no verdict is lost to a last-writer-wins race", async () => {
+  // The overview probes every identity-less agent at once. The first version of the cache
+  // read the whole file, added one key and wrote the file back, so four parallel probes
+  // each persisted only their own result and three were silently dropped. Production
+  // showed exactly that: one agent carried a verdict and three stayed unknown.
+  const wallets = [
+    "0xa000000000000000000000000000000000000001",
+    "0xa000000000000000000000000000000000000002",
+    "0xa000000000000000000000000000000000000003",
+    "0xa000000000000000000000000000000000000004",
+  ];
+  const ctx = ctxThatReverts(revert(`${SELECTOR}${"0".repeat(64)}`));
+  await Promise.all(wallets.map((w) => identityMintability(ctx, w)));
+
+  const onDisk = JSON.parse(fs.readFileSync(path.join(process.env.POLARIS_STATE_DIR, "erc8004-mintable-968.json"), "utf8"));
+  for (const w of wallets) {
+    assert.equal(onDisk[w], "unsupported-receiver", `${w} must survive the concurrent write`);
+  }
+});
