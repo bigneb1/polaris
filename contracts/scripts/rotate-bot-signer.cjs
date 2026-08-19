@@ -1,15 +1,15 @@
 /**
- * Give BOT Chain its own verdict signer, separate from the deployer/owner key.
+ * Give a BOT Chain deployment its own verdict signer, separate from the deployer/owner key.
  *
- * Today one key is the contract owner, the verdict signer, the treasury, the 4337
- * relayer and the ERC-8004 validator, on BOTH chains. Compromising it means being
- * able to release or slash every escrow on Arc and BOT at once, and the key sits in
- * plaintext env on two services. Splitting the *signer* is the highest-value single
- * step: a leaked signer can then forge verdicts on one testnet only, and cannot
- * re-point the contracts, because ownership stays with the deployer.
+ * A fresh deployment makes one key the contract owner, the verdict signer, the treasury,
+ * the 4337 relayer and the ERC-8004 validator at once. Compromising it means being able to
+ * release or slash every escrow on that chain, and the key has to sit in plaintext env on
+ * an always-online service. Splitting the *signer* is the highest-value single step: a
+ * leaked signer can forge verdicts on one chain and nothing else, because it cannot
+ * re-point the contracts. Ownership stays with the deployer.
  *
  * What this does:
- *   1. derives a fresh signer from BOT_VERIFIER_SIGNER_KEY_BOTCHAIN_TESTNET;
+ *   1. derives a fresh signer from NEW_SIGNER_KEY;
  *   2. points VerifierBridge and the three native extensions at it;
  *   3. reads each back to prove the rotation landed.
  *
@@ -31,18 +31,29 @@ const SETTERS = [
   ["disputeManager", "NativeDisputeManager"],
 ];
 
+/** The runtime env var that must carry the new key, named per network. */
+function envVarFor(networkId) {
+  return `BOT_VERIFIER_SIGNER_KEY_${networkId.replace(/-/g, "_").toUpperCase()}`;
+}
+
 async function main() {
   if (process.env.CONFIRM_DEPLOY !== network.name) throw new Error(`Set CONFIRM_DEPLOY=${network.name}.`);
   const keyIn = process.env.NEW_SIGNER_KEY;
   if (!keyIn) throw new Error("Set NEW_SIGNER_KEY to the new verdict signer's private key.");
   const newSigner = new ethers.Wallet(keyIn).address;
 
-  const file = path.join(__dirname, "..", "..", "deployments", "botchain-testnet", "contracts.json");
+  // Derived from the hardhat network rather than hardcoded, so the same rotation works on
+  // mainnet. Reading testnet's artifact while pointed at mainnet would rotate signers on
+  // addresses that do not exist there, and report success for every skipped contract.
+  const NETWORK_IDS = { bot_testnet: "botchain-testnet", bot_mainnet: "botchain-mainnet" };
+  const networkId = NETWORK_IDS[network.name];
+  if (!networkId) throw new Error(`Unknown network "${network.name}". Known: ${Object.keys(NETWORK_IDS).join(", ")}`);
+  const file = path.join(__dirname, "..", "..", "deployments", networkId, "contracts.json");
   const artifact = JSON.parse(fs.readFileSync(file, "utf8"));
   const c = artifact.contracts;
   const [owner] = await ethers.getSigners();
 
-  console.log(`\nRotating the BOT Chain verdict signer`);
+  console.log(`\nRotating the verdict signer on ${networkId}`);
   console.log(` owner (unchanged) : ${owner.address}`);
   console.log(` old signer        : ${artifact.verifierSigner}`);
   console.log(` new signer        : ${newSigner}`);
@@ -81,7 +92,7 @@ async function main() {
   // re-point the contracts at itself.
   artifact.owner = owner.address;
   fs.writeFileSync(file, JSON.stringify(artifact, null, 2) + "\n");
-  console.log(`\nArtifact updated. Set BOT_VERIFIER_SIGNER_KEY_BOTCHAIN_TESTNET on the BOT runtime and redeploy.`);
+  console.log(`\nArtifact updated. Set ${envVarFor(networkId)} on that runtime and redeploy.`);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

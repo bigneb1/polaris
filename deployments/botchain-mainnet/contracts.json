@@ -1,0 +1,37 @@
+{
+  "network": "botchain-mainnet",
+  "label": "BOT Chain",
+  "chainId": 677,
+  "explorer": "https://scan.botchain.ai",
+  "deployedAtIso": "2026-08-19T18:29:41.734Z",
+  "deployer": "0xe141f388e35d80752F15ea767bC7D1fdf96f19eB",
+  "verifierSigner": "0x6D2725C56E995dB2E53c0AD2A6761B735e66977C",
+  "treasury": "0xe141f388e35d80752F15ea767bC7D1fdf96f19eB",
+  "deployBlock": 20240364,
+  "escrowToken": {
+    "address": null,
+    "symbol": "BOT",
+    "decimals": 18,
+    "native": true
+  },
+  "minStakeWei": "20000000000000000",
+  "contracts": {
+    "usdcEscrow": "0x6718a657BAe49Fa44Fc84a99dB8a2A9E4D15854e",
+    "agentRegistry": "0x042cB30A8f5bD3F1Ea184Ed05D300d89ea5D0E1E",
+    "bidEngine": "0xf399Af57421E388086f1446FCa9bA22Ebb84072e",
+    "taskRegistry": "0x9C12aa69B30c00DC799Db1e31139F86F317B6Afd",
+    "verifierBridge": "0xE73Bf9FbBF79f2A7AC8683dEF593Dfdc4Da5eFED",
+    "agentBadges": "0x863BCACa5C32b99B37B4ED30E7A595362F4f5Afa",
+    "subscriptionManager": "0x9EFdE0801e70Bdd0C25E592D2f1dD6F9605a3bEf",
+    "recurringMarket": "0x73cB86bF78DCF95f92929465291f1981b9d6418f",
+    "disputeManager": "0x2256D1F95f59DA5C23F2D8B18e138e339171C76E",
+    "erc8004Identity": "0xED6d1aF5556a4407B09776cd64d28098880c7EAa",
+    "erc8004Reputation": "0x78Cb2B126BCC07ca2843CBd290eBb813c8Fb718D",
+    "erc8004Validation": "0xb66a65441C3e885c5097380605e4333e5278698f",
+    "accountFactory": "0x9BD12B20bFAf45d18b724A8ECfbfEd942c0b01f2",
+    "entryPoint": "0x0000000071727De22E5E9d8BAf0edAc6f37da032"
+  },
+  "erc4337UpdatedAtIso": "2026-08-19T20:08:39.342Z",
+  "signerRotatedAtIso": "2026-08-19T20:21:16.143Z",
+  "owner": "0xe141f388e35d80752F15ea767bC7D1fdf96f19eB"
+}

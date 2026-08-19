@@ -56,18 +56,49 @@ async function main() {
   console.log(` Deployer : ${deployer.address}`);
   console.log(` Owner    : ${owner}\n`);
 
-  // Shared bootstrap placeholder + the three real implementations.
-  const bootstrap = await ethers.deployContract("PolarisUUPSBootstrap");
-  await bootstrap.waitForDeployment();
-  const bootstrapAddr = await bootstrap.getAddress();
-  console.log(` Bootstrap            ${bootstrapAddr}`);
-
-  const impls = {};
-  for (const name of ["IdentityRegistryUpgradeable", "ReputationRegistryUpgradeable", "ValidationRegistryUpgradeable"]) {
-    const c = await ethers.deployContract(name);
+  /*
+   * RESUMABLE. This script used to deploy the bootstrap and all three implementations
+   * unconditionally, so a run that died partway left orphaned contracts on chain and a
+   * retry paid for them a second time. That happened on BOT mainnet: a first attempt got
+   * through the bootstrap and two implementations, then stopped before writing any
+   * artifact, stranding 0.124 BOT. Re-running from scratch would have burned the same
+   * again and left too little to operate the runtime.
+   *
+   * So each piece can be supplied by address and reused. Reuse is verified rather than
+   * trusted: the address must have code, and the whole deployment is still checked at the
+   * end (name(), symbol(), getIdentityRegistry()), so a wrong address fails loudly before
+   * anything is written.
+   *
+   *   ERC8004_BOOTSTRAP / ERC8004_IMPL_IDENTITY / ERC8004_IMPL_REPUTATION /
+   *   ERC8004_IMPL_VALIDATION
+   */
+  async function reuseOrDeploy(label, contractName, envVar) {
+    const given = process.env[envVar];
+    if (given) {
+      if (!ethers.isAddress(given)) abort(`${envVar}="${given}" is not an address.`);
+      if ((await ethers.provider.getCode(given)) === "0x") abort(`${envVar}=${given} has no code on this chain.`);
+      console.log(` ${label.padEnd(20)} ${given}  (reused via ${envVar})`);
+      return given;
+    }
+    const c = await ethers.deployContract(contractName);
     await c.waitForDeployment();
-    impls[name] = await c.getAddress();
-    console.log(` impl ${name.replace("Upgradeable", "").padEnd(16)} ${impls[name]}`);
+    const addr = await c.getAddress();
+    console.log(` ${label.padEnd(20)} ${addr}`);
+    return addr;
+  }
+
+  // Shared bootstrap placeholder + the three real implementations.
+  const bootstrapAddr = await reuseOrDeploy("Bootstrap", "PolarisUUPSBootstrap", "ERC8004_BOOTSTRAP");
+  const bootstrap = await ethers.getContractAt("PolarisUUPSBootstrap", bootstrapAddr);
+
+  const IMPL_ENV = {
+    IdentityRegistryUpgradeable: "ERC8004_IMPL_IDENTITY",
+    ReputationRegistryUpgradeable: "ERC8004_IMPL_REPUTATION",
+    ValidationRegistryUpgradeable: "ERC8004_IMPL_VALIDATION",
+  };
+  const impls = {};
+  for (const [name, envVar] of Object.entries(IMPL_ENV)) {
+    impls[name] = await reuseOrDeploy(`impl ${name.replace("Upgradeable", "")}`, name, envVar);
   }
 
   /** proxy → bootstrap (owner set) → upgrade to the real implementation. */
