@@ -168,18 +168,21 @@ export const botMainnetConfig: NetworkConfig = {
   testnet: false,
   accent: "bot",
 
+  // Deployed 2026-08-19 from deployments/botchain-mainnet/contracts.json, verified on
+  // chain (all 14 addresses hold code, MIN_STAKE() == 0.02 BOT, BidEngine PRICE_UNIT
+  // == 1e18 so bid scoring is denominated in whole BOT rather than 6-decimal units).
   contracts: {
-    usdc: null, // native BOT — no token contract
-    usdcEscrow: null,
-    agentRegistry: null,
-    bidEngine: null,
-    taskRegistry: null,
-    verifierBridge: null,
-    revenueRouter: null,
-    subscriptionManager: null,
-    agentBadges: null,
-    disputeManager: null,
-    recurringMarket: null,
+    usdc: null, // native BOT, value moves as msg.value
+    usdcEscrow: "0x6718a657BAe49Fa44Fc84a99dB8a2A9E4D15854e",
+    agentRegistry: "0x042cB30A8f5bD3F1Ea184Ed05D300d89ea5D0E1E",
+    bidEngine: "0xf399Af57421E388086f1446FCa9bA22Ebb84072e",
+    taskRegistry: "0x9C12aa69B30c00DC799Db1e31139F86F317B6Afd",
+    verifierBridge: "0xE73Bf9FbBF79f2A7AC8683dEF593Dfdc4Da5eFED",
+    revenueRouter: null, // not deployed on the native networks; the 1% fee path is Arc-only
+    subscriptionManager: "0x9EFdE0801e70Bdd0C25E592D2f1dD6F9605a3bEf",
+    agentBadges: "0x863BCACa5C32b99B37B4ED30E7A595362F4f5Afa",
+    disputeManager: "0x2256D1F95f59DA5C23F2D8B18e138e339171C76E",
+    recurringMarket: "0x73cB86bF78DCF95f92929465291f1981b9d6418f",
   },
 
   assets: [
@@ -196,30 +199,38 @@ export const botMainnetConfig: NetworkConfig = {
   wallet: {
     kind: "reown",
     canSignMessages: true,
-    smartAccount: smartAccount(null),
+    smartAccount: smartAccount("0x9BD12B20bFAf45d18b724A8ECfbfEd942c0b01f2"),
   },
 
-  // The canonical ERC-8004 addresses DO exist on BOT mainnet, but they are
-  // ERC-1967 proxies still delegating to a `MinimalUUPSMainnet` placeholder —
-  // every registry call reverts (verified). The real implementations are
-  // deployed but unwired, and the upgrade is signed by the standard's owner key,
-  // which Polaris does not hold. So: null until Polaris deploys its own, or
-  // until the canonical proxies are upgraded and this points at them.
-  erc8004: null,
+  // Polaris's own registries. The canonical vanity addresses DO exist on BOT mainnet but
+  // are ERC-1967 proxies still delegating to a `MinimalUUPSMainnet` placeholder, so every
+  // call reverts, and the upgrade that would activate them is signed by the standard's
+  // owner key, which Polaris does not hold. These are the same reference implementations
+  // at our own addresses, verified live: name() == "AgentIdentity", symbol() == "AGENT",
+  // and both other registries report this identity registry.
+  erc8004: {
+    identity: "0xED6d1aF5556a4407B09776cd64d28098880c7EAa",
+    reputation: "0x78Cb2B126BCC07ca2843CBd290eBb813c8Fb718D",
+    validation: "0xb66a65441C3e885c5097380605e4333e5278698f",
+    provenance: "polaris-deployed",
+  },
 
-  // Intended floor, not yet deployed — pick it deliberately before deploying here.
+  // Matches NativeAgentRegistry's constructor arg on this deployment (verified on chain:
+  // MIN_STAKE() == 0.02 BOT). Same floor as testnet, chosen deliberately.
   minStake: 0.02,
 
-  indexFromBlock: 20018236,
+  // The deploy block, so a cold index does not scan the chain from genesis.
+  indexFromBlock: 20240364,
   logChunkBlocks: 9000,
 
-  // Real money: BOT is ~$9 and gas is a flat 20 gwei. Deployment is deliberately
-  // deferred until a funded deployer exists.
+  // Contracts ARE live (see above); this flag gates whether the app OFFERS the network,
+  // and it stays false until a mainnet runtime is serving /api/index. `apiBaseUrl` falls
+  // back to "" without one, so flipping this early would put a network in the selector
+  // whose market page cannot load: worse than not offering it at all.
   deployed: false,
   faucetUrl: null, // mainnet BOT is acquired on BDEX, not a faucet
-  estTxFee: 0.005, // same gas, same fixed price as testnet
+  estTxFee: 0.005, // same flat 20 gwei as testnet
 
-  // No mainnet runtime yet; the network is `deployed: false`, so nothing calls it.
   apiBaseUrl: apiBase("BOTCHAIN_MAINNET", ""),
   supportsX402: false,
 };
