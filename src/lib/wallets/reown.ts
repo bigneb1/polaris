@@ -100,6 +100,19 @@ export async function openReownModal(): Promise<void> {
   await modal.open();
 }
 
+/**
+ * Open the wallet's own account view: full address, copy, balance, explorer link, network
+ * switch and disconnect.
+ *
+ * This is what clicking a connected address does in every other dapp, and AppKit ships the
+ * screen already. Polaris rendered the address as an inert `<div>` with only an X beside it,
+ * so a connected user could not copy their own address or open it in the explorer.
+ */
+export async function openReownAccount(): Promise<void> {
+  if (!modal) return;
+  await modal.open({ view: "Account" });
+}
+
 /** Open the modal on its network-switching view. */
 export async function openReownNetworks(): Promise<void> {
   if (!modal) return;

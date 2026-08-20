@@ -68,6 +68,15 @@ type Ctx = {
   connecting: boolean;
   /** Which wallet family the active network uses. */
   walletKind: WalletKind;
+  /**
+   * The wallet the user actually connected, as it names itself: "MetaMask", "Rainbow",
+   * "Coinbase Wallet". Null when we have no name to show.
+   *
+   * The UI used to print "Reown" here, which is the connection library rather than anyone's
+   * wallet: a brand the user never chose and cannot act on. Naming the real connector is
+   * what every other dapp does, and showing nothing is better than showing ours.
+   */
+  connectorName: string | null;
   /** Escrow-asset balance of the connected wallet on the ACTIVE network (human
    *  units), refreshed periodically. Never an aggregate across chains. */
   balance: number | null;
@@ -102,7 +111,7 @@ const WalletCtx = createContext<Ctx | null>(null);
 export function WalletProvider({ children }: { children: ReactNode }) {
   const { network, networkId } = useNetwork();
   // wagmi carries the Reown connection (AppKit's adapter owns the wagmi config).
-  const { address: wagmiAddr } = useAccount();
+  const { address: wagmiAddr, connector } = useAccount();
   const { signMessageAsync } = useSignMessage();
   const [circle, setCircle] = useState<CircleSession | null>(null);
   // Rehydrate the email session so users stay logged in across reloads until
@@ -252,6 +261,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     ucEnabled: circleActive && ucWalletEnabled(),
     connecting,
     walletKind: network.wallet.kind,
+    // Our own wallet modes describe themselves honestly; an external wallet names itself.
+    connectorName: circle ? "Passkey" : uc ? "PIN" : (connector?.name ?? null),
     balance,
     balanceSymbol: escrow?.symbol ?? network.chain.nativeCurrency.symbol,
     lastUsername,

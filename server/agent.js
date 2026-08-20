@@ -57,6 +57,13 @@ const GAS_RESERVE = ethers.parseEther(process.env.SWARM_GAS_RESERVE || "0.05");
  * that existed in the Circle swarm and not here, which is the mode BOT Chain runs.
  */
 const BID_WINDOW_MS = Number(process.env.BID_WINDOW_MS || 20 * 60 * 1000);
+/**
+ * Held back so an agent can still mint its ERC-8004 identity after staking.
+ *
+ * The mint happens immediately after registration and draws on the same balance, so an
+ * agent funded for exactly "stake + gas" always failed it.
+ */
+const IDENTITY_MINT_RESERVE = ethers.parseEther(process.env.SWARM_IDENTITY_RESERVE || "0.004");
 
 /** `botchain-testnet` → `BOTCHAIN_TESTNET` */
 const envKey = (id) => id.replace(/-/g, "_").toUpperCase();
@@ -313,10 +320,18 @@ class Agent {
     // gas out of its balance would refuse to stake an account that is perfectly
     // funded, which is exactly what happened to the first 4337 agent.
     const reserveGas = this.native && !(this.useAccount && this.account);
-    const needed = reserveGas ? stake + GAS_RESERVE : stake;
+    // Staking is immediately followed by an ERC-8004 mint out of this same balance, so the
+    // mint needs its own reserve. Without it an agent funded exactly for "stake + gas"
+    // registers, drops to a few thousandths of a coin, and the mint dies for want of gas
+    // inside a best-effort catch. That is why three of four mainnet agents had no identity
+    // while the one funded slightly higher did.
+    const identityReserve = reserveGas && erc8004Available(this.ctx) ? IDENTITY_MINT_RESERVE : 0n;
+    const needed = (reserveGas ? stake + GAS_RESERVE : stake) + identityReserve;
     if (bal < needed) {
+      const covers = [reserveGas && "gas", identityReserve && "ERC-8004 mint"].filter(Boolean).join(" + ");
+      const fmt = (v) => ethers.formatUnits(v, this.ctx.asset.decimals);
       this.log(
-        `needs ${ethers.formatUnits(needed, this.ctx.asset.decimals)} ${this.ctx.asset.symbol} to stake${reserveGas ? " (incl. gas reserve)" : ""}, has ${ethers.formatUnits(bal, this.ctx.asset.decimals)}`,
+        `needs ${fmt(needed)} ${this.ctx.asset.symbol} to stake${covers ? ` (incl. ${covers})` : ""}, has ${fmt(bal)}`,
       );
       return;
     }
@@ -585,6 +600,17 @@ export async function startSwarm(networkId = DEFAULT_NETWORK) {
         }
       }
       for (const a of agents) if (await a.hasGas()) await a.fulfilWins();
+
+      // Identity is a per-tick concern, not a startup one. `ensureErc8004Identity` used to be
+      // reachable only through `ensureRegistered`, which runs once when the swarm boots, so an
+      // agent whose mint failed then (typically because staking had just consumed its balance)
+      // stayed identity-less until someone redeployed. Retrying here makes it self-healing the
+      // moment the agent has gas again. It returns immediately when an id already exists, so a
+      // warm agent costs one cache read.
+      for (const a of agents) {
+        if (a.erc8004Id) continue;
+        if (await a.hasGas()) await a.ensureErc8004Identity();
+      }
     } catch (e) {
       console.error(`[swarm:${networkId}] tick error:`, e.message);
     } finally {

@@ -13,6 +13,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import ConnectModal from "../ConnectModal";
+import WalletAccountPanel from "../WalletAccountPanel";
+import { openReownAccount } from "../../lib/wallets/reown";
 import { useState } from "react";
 
 /**
@@ -23,6 +25,39 @@ import { useState } from "react";
  * never reflows when a wallet connects, and never changes size between a Circle
  * network and a Reown one.
  */
+/**
+ * What the connected pill shows. Hoisted rather than nested: a component declared inside
+ * another is a new type on every render, which remounts it and loses any state it holds.
+ */
+function WalletPillContents({
+  providerName,
+  balance,
+  balanceSymbol,
+  address,
+}: {
+  providerName: string | null;
+  balance: number | null;
+  balanceSymbol: string;
+  address: string;
+}) {
+  return (
+    <>
+      <span className="status-dot bg-success shrink-0" />
+      {providerName && (
+        <span className="hidden md:inline text-[11px] text-muted-foreground whitespace-nowrap">
+          {providerName}
+        </span>
+      )}
+      {balance != null && (
+        <span className="hidden sm:inline text-[11px] text-muted-foreground whitespace-nowrap">
+          {fmtUSDC(balance)} {balanceSymbol}
+        </span>
+      )}
+      <span className="text-[11px] font-mono text-foreground whitespace-nowrap">{shortAddr(address)}</span>
+    </>
+  );
+}
+
 export function TitleBar() {
   const { network, all, setNetwork, multiNetwork } = useNetwork();
   const {
@@ -36,11 +71,18 @@ export function TitleBar() {
     connectReown,
     reownEnabled,
     connecting,
+    connectorName,
     disconnect,
   } = useWallet();
   const [modalOpen, setModalOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
 
-  const providerName = circle ? "Passkey" : uc ? "PIN" : walletKind === "reown" ? "Reown" : "Wallet";
+  // The wallet as it names itself. "Reown" used to be printed here, which is the connection
+  // library, not anyone's wallet: a brand the user never chose and cannot act on.
+  const providerName = connectorName;
+  // An external wallet has AppKit's own account screen; ours do not, so they get an
+  // equivalent panel rather than a button that does nothing.
+  const usesReownAccount = walletKind === "reown" && !circle && !uc;
 
   return (
     <header className="h-11 shrink-0 flex items-center justify-between gap-2 px-2 sm:px-3 border-b border-border bg-muted select-none">
@@ -102,18 +144,33 @@ export function TitleBar() {
 
         {isConnected && address ? (
           <>
-            <div className="flex items-center gap-1.5 h-7 px-2 sm:px-2.5 rounded-[4px] bg-background border border-border min-w-0">
-              <span className="status-dot bg-success shrink-0" />
-              <span className="hidden md:inline text-[11px] text-muted-foreground whitespace-nowrap">
-                {providerName}
-              </span>
-              {balance != null && (
-                <span className="hidden sm:inline text-[11px] text-muted-foreground whitespace-nowrap">
-                  {fmtUSDC(balance)} {balanceSymbol}
-                </span>
-              )}
-              <span className="text-[11px] font-mono text-foreground whitespace-nowrap">{shortAddr(address)}</span>
-            </div>
+            {/*
+              A button, not a div. Clicking a connected address is how every wallet works, and
+              this one used to be inert: no copy, no explorer link, no way to read the address
+              in full. External wallets open AppKit's own account view; ours open the
+              equivalent panel.
+            */}
+            {usesReownAccount ? (
+              <button
+                onClick={() => openReownAccount()}
+                title="Wallet details"
+                className="flex items-center gap-1.5 h-7 px-2 sm:px-2.5 rounded-[4px] bg-background border border-border min-w-0 hover:bg-foreground/[0.06] transition-colors"
+              >
+                <WalletPillContents providerName={providerName} balance={balance} balanceSymbol={balanceSymbol} address={address} />
+              </button>
+            ) : (
+              <DropdownMenu open={accountOpen} onOpenChange={setAccountOpen}>
+                <DropdownMenuTrigger
+                  title="Wallet details"
+                  className="flex items-center gap-1.5 h-7 px-2 sm:px-2.5 rounded-[4px] bg-background border border-border min-w-0 hover:bg-foreground/[0.06] transition-colors"
+                >
+                  <WalletPillContents providerName={providerName} balance={balance} balanceSymbol={balanceSymbol} address={address} />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="p-0">
+                  <WalletAccountPanel onClose={() => setAccountOpen(false)} />
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
             <button
               onClick={() => {
                 disconnect();
