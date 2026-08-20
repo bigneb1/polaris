@@ -81,6 +81,8 @@ export type NetworkConfig = {
   testnet: boolean;
   /** Accent token used by network-aware UI. */
   accent: "arc" | "bot";
+  /** The chain's own mark, served from /public/chains. Shown wherever a network is named. */
+  logo: string;
 
   contracts: Record<ContractKey, Address | null>;
   assets: PolarisAsset[];

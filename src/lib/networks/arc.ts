@@ -24,6 +24,7 @@ export const arcTestnetConfig: NetworkConfig = {
   explorerName: "Arcscan",
   testnet: true,
   accent: "arc",
+  logo: "/chains/arc.svg",
 
   contracts: {
     usdc: "0x3600000000000000000000000000000000000000",

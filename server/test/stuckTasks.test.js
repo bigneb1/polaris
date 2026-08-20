@@ -404,3 +404,35 @@ test("a live task still assigned to us is worked", () => {
   assert.equal(shouldFulfil({ status: TASK.ASSIGNED, assignedAgent: ME }, ME), true);
   assert.equal(shouldFulfil({ status: TASK.IN_PROGRESS, assignedAgent: ME.toLowerCase() }, ME), true);
 });
+
+/* ── 7. Small amounts must not read as nothing ────────────────────────────────── */
+
+/**
+ * The mainnet dashboard showed "0" settled while 0.02176 BOT had genuinely been paid out.
+ * `fmtCompact` uses compact notation with one decimal, which is right for USDC amounts and
+ * wrong for an 18-decimal coin: everything under 0.05 rounds to zero, so real settled value
+ * read as "nothing has settled".
+ */
+function fmtCompact(n) {
+  if (n !== 0 && Math.abs(n) < 1) {
+    return Intl.NumberFormat("en-US", { maximumSignificantDigits: 3 }).format(n);
+  }
+  return Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(n);
+}
+
+test("a small but real BOT amount is never displayed as zero", () => {
+  // The exact figure that was showing as "0" on mainnet.
+  assert.equal(fmtCompact(0.02176), "0.0218");
+  assert.notEqual(fmtCompact(0.02176), "0");
+  assert.equal(fmtCompact(0.0085), "0.0085");
+});
+
+test("genuine zero still reads as zero", () => {
+  assert.equal(fmtCompact(0), "0");
+});
+
+test("USDC-scale and large numbers keep their compact form", () => {
+  assert.equal(fmtCompact(918.36), "918.4");
+  assert.equal(fmtCompact(1234), "1.2K");
+  assert.equal(fmtCompact(1_500_000), "1.5M");
+});
