@@ -364,3 +364,43 @@ test("the tick retries the mint for a registered agent that has no identity", ()
 test("an agent that already holds an identity is never re-minted", () => {
   assert.deepEqual(needsIdentity([{ name: "A", erc8004Id: "7", hasGas: true }]), []);
 });
+
+/* ── 6. Never work a task that is no longer live ──────────────────────────────── */
+
+/**
+ * `fulfilWins` replays `BidAwarded` logs from the index's start block, so a task won long ago
+ * reappears on every boot. It did not check the task's current status first.
+ *
+ * Seen on mainnet: an agent ran out of gas, its task's deadline passed, the reaper cancelled
+ * it and refunded the requester. Hours later the agent was funded, came back, replayed the old
+ * award, paid for a fresh deliverable, and failed on chain with the escrow's "Already
+ * resolved" — burning its whole retry budget on a task that had been dead since the night
+ * before.
+ */
+const TASK = { OPEN: 0, ASSIGNED: 1, IN_PROGRESS: 2, COMPLETED: 3, SETTLED: 4, CANCELLED: 5 };
+
+/** The guard: work it only if it is still assigned, and still assigned to us. */
+function shouldFulfil(onChain, me) {
+  const live = onChain.status === TASK.ASSIGNED || onChain.status === TASK.IN_PROGRESS;
+  return live && onChain.assignedAgent.toLowerCase() === me.toLowerCase();
+}
+
+const ME = "0xCac2a31f431Bb9274bE9430a651b9c6a5d552174";
+
+test("a task the reaper already cancelled is skipped, not re-worked", () => {
+  assert.equal(shouldFulfil({ status: TASK.CANCELLED, assignedAgent: ME }, ME), false);
+});
+
+test("a task that already settled is skipped", () => {
+  assert.equal(shouldFulfil({ status: TASK.SETTLED, assignedAgent: ME }, ME), false);
+});
+
+test("a task reopened and awarded to someone else is skipped", () => {
+  const other = "0xf83e5eafEE455C688B959915E3AFBE28c468571c";
+  assert.equal(shouldFulfil({ status: TASK.ASSIGNED, assignedAgent: other }, ME), false);
+});
+
+test("a live task still assigned to us is worked", () => {
+  assert.equal(shouldFulfil({ status: TASK.ASSIGNED, assignedAgent: ME }, ME), true);
+  assert.equal(shouldFulfil({ status: TASK.IN_PROGRESS, assignedAgent: ME.toLowerCase() }, ME), true);
+});

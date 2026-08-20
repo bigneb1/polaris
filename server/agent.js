@@ -64,6 +64,9 @@ const BID_WINDOW_MS = Number(process.env.BID_WINDOW_MS || 20 * 60 * 1000);
  * agent funded for exactly "stake + gas" always failed it.
  */
 const IDENTITY_MINT_RESERVE = ethers.parseEther(process.env.SWARM_IDENTITY_RESERVE || "0.004");
+/** TaskRegistry's Status enum: OPEN, ASSIGNED, IN_PROGRESS, COMPLETED, SETTLED, CANCELLED. */
+const TASK_ASSIGNED = 1;
+const TASK_IN_PROGRESS = 2;
 
 /** `botchain-testnet` → `BOTCHAIN_TESTNET` */
 const envKey = (id) => id.replace(/-/g, "_").toUpperCase();
@@ -91,6 +94,8 @@ class Agent {
     this.wallet = new ethers.Wallet(cfg.key, ctx.provider);
     this.reg = new ethers.Contract(ctx.ADDR.agentRegistry, ctx.ABI.agentRegistry, this.wallet);
     this.bid = new ethers.Contract(ctx.ADDR.bidEngine, ctx.ABI.bidEngine, this.wallet);
+    // Read-only: used to confirm a task is still live and still ours before working on it.
+    this.taskReg = new ethers.Contract(ctx.ADDR.taskRegistry, ctx.ABI.taskRegistry, ctx.provider);
     // Native networks (BOT Chain) have no escrow token, value moves as msg.value.
     this.native = Boolean(ctx.asset.native);
     this.token = this.native ? null : new ethers.Contract(ctx.ADDR.usdc, ctx.ABI.erc20, this.wallet);
@@ -411,6 +416,19 @@ class Agent {
       // retry was the one that could not run.
       let meta = null;
       try {
+        // Is this task still ours to do? `BidAwarded` logs are replayed from the index's
+        // start block, so a task won long ago reappears on every boot. Without this check an
+        // agent that was offline past a deadline comes back, produces a fresh deliverable for
+        // a task the reaper already cancelled and refunded, and then fails on chain with the
+        // escrow's "Already resolved" — having paid for the model call. Observed on mainnet:
+        // an agent burned three attempts and its retry budget on a task that had been dead
+        // for hours.
+        const onChain = await this.taskReg.tasks(taskId);
+        const status = Number(onChain.status);
+        if (status !== TASK_ASSIGNED && status !== TASK_IN_PROGRESS) continue;
+        // And still ours specifically: a reopened task may have been awarded to someone else.
+        if (onChain.assignedAgent.toLowerCase() !== this.address.toLowerCase()) continue;
+
         meta = await this.ctx.readTaskMeta(taskId);
         if (!meta) continue;
         // Optional: pay a sub-cent x402 nanopayment for an oracle quote first.
