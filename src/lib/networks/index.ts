@@ -21,8 +21,14 @@ export const NETWORKS: Record<NetworkId, NetworkConfig> = {
   "botchain-mainnet": botMainnetConfig,
 };
 
-/** Arc stays the default everywhere — existing behaviour is the fallback. */
-export const DEFAULT_NETWORK: NetworkId = "arc-testnet";
+/**
+ * The network a visitor lands on before choosing one.
+ *
+ * BOT Chain mainnet: it is where Polaris is actually deployed for real value, and the
+ * network the project is presented on. Arc testnet remains fully supported and one click
+ * away in the switcher; it is simply no longer what a first-time visitor sees.
+ */
+export const DEFAULT_NETWORK: NetworkId = "botchain-mainnet";
 
 export const NETWORK_IDS = Object.keys(NETWORKS) as NetworkId[];
 

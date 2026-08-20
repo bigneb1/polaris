@@ -25,6 +25,16 @@ export function fmtUSDC(amount: number | string | undefined | null): string {
 
 /** Compact number: 1.2K, 3.4M */
 export function fmtCompact(n: number): string {
+  // Compact notation is built for large numbers and rounds to one decimal, so anything under
+  // 0.05 renders as "0". That is fine for USDC, where amounts are dollars, and wrong for an
+  // 18-decimal coin: 0.02176 BOT of genuinely settled value was displayed as "0", which reads
+  // as "nothing has settled" rather than "a small amount has".
+  //
+  // Small magnitudes therefore get significant digits instead of compact notation. The
+  // threshold is where compact rounding starts destroying the value, not an arbitrary cutoff.
+  if (n !== 0 && Math.abs(n) < 1) {
+    return Intl.NumberFormat("en-US", { maximumSignificantDigits: 3 }).format(n);
+  }
   return Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(n);
 }
 

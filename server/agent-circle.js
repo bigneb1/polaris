@@ -179,22 +179,10 @@ class CircleAgent {
       await execute(this.address, ADDR.bidEngine, "placeBid(bytes32,uint256,uint256)", [taskId, usdc(bidAmount), 1800]);
       this.activeBids.add(taskId);
       this.log(`bid ${bidAmount} USDC on "${meta.title}"`);
-      // Live bidding window: don't award immediately. Wait a fixed 20 minutes
-      // (clamped to the time left) so competitors — including agents that were busy
-      // and just freed up — can bid, THEN close the auction. awardBid picks the best
-      // bid + is idempotent (auctionClosed guard), so whichever agent fires first
-      // just finalizes the winner.
-      const remaining = Math.max(0, meta.deadline - Date.now());
-      const windowMs = Math.min(BID_WINDOW_MS, remaining);
-      setTimeout(async () => {
-        try {
-          if (await bidR.auctionClosed(taskId)) return;
-          await execute(this.address, ADDR.bidEngine, "awardBid(bytes32)", [taskId]);
-          this.log(`bidding closed for "${meta.title}" — best bid awarded`);
-        } catch {
-          /* another agent likely closed it first */
-        }
-      }, windowMs);
+      // Deliberately does NOT schedule the award. This used to arrange it with a
+      // setTimeout, and a restart forgets a timer: the auction stayed open with bids on
+      // it and nothing left to close it. The tick recomputes the window from chain data
+      // every pass and closes it there instead.
     } catch (e) {
       this.log("bid skipped:", e.message);
     }
@@ -444,12 +432,34 @@ async function main() {
 
         if (t.status === "OPEN") {
           if (meta.deadline < now) continue;
-          // Open competition: every capable agent with spare bid capacity bids, so
-          // a task draws multiple bids. The winner is decided ON-CHAIN by the
-          // BidEngine's price·30 + rep·25 + speed·15 + random·30 score — the random
-          // term gives every agent a real shot, not just the highest-rep one.
-          const canBid = (a) => a.wants(meta) && a.activeBids.size < MAX_BIDS;
-          for (const a of swarm.filter(canBid)) await a.bidOn(meta.taskId, meta);
+
+          // The auction's clock, derived from chain data rather than scheduled. `bidOn` used
+          // to arrange the close with a setTimeout, and a restart forgets a timer: the task
+          // stayed OPEN with bids on it and nothing left to award it, which is exactly the
+          // "agents bid but nothing gets assigned" symptom. Recomputing it every tick means
+          // any process, at any time, reaches the same verdict.
+          const createdAtMs = t.createdAtMs ?? now;
+          const windowMs = Math.min(BID_WINDOW_MS, Math.max(0, meta.deadline - createdAtMs));
+          const bidCount = (index.bids || []).filter((b) => b.taskId === t.taskId).length;
+
+          if (now < createdAtMs + windowMs) {
+            // Open competition: every capable agent with spare bid capacity bids, so
+            // a task draws multiple bids. The winner is decided ON-CHAIN by the
+            // BidEngine's score.
+            const canBid = (a) => a.wants(meta) && a.activeBids.size < MAX_BIDS;
+            for (const a of swarm.filter(canBid)) await a.bidOn(meta.taskId, meta);
+          } else if (bidCount > 0) {
+            // Window over and somebody bid: close it so the best bid actually wins.
+            // `awardBid` guards on `auctionClosed`, so racing agents just finalise once.
+            const closer = swarm[0];
+            try {
+              await execute(closer.address, ADDR.bidEngine, "awardBid(bytes32)", [meta.taskId]);
+              closer.log(`bidding closed for "${meta.title}" — best bid awarded`);
+            } catch (e) {
+              const msg = e.message || "";
+              if (!/Auction closed|No bids/i.test(msg)) closer.log("award skipped:", msg);
+            }
+          }
         } else if (t.status === "ASSIGNED" || t.status === "IN_PROGRESS") {
           const winner = (t.assignedAgent || "").toLowerCase();
           // Free capacity for agents that bid but lost this auction.

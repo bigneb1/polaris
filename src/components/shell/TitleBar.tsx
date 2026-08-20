@@ -98,7 +98,7 @@ export function TitleBar() {
         {multiNetwork ? (
           <DropdownMenu>
             <DropdownMenuTrigger className="flex items-center gap-1.5 h-7 px-2 sm:px-2.5 rounded-[4px] bg-background border border-border text-[11px] text-muted-foreground hover:text-foreground transition-colors shrink-0">
-              <span className={cn("status-dot", network.accent === "bot" ? "bg-accent" : "bg-primary")} />
+              <img src={network.logo} alt="" className="h-3.5 w-3.5 rounded-full shrink-0" />
               <span className="hidden xs:inline whitespace-nowrap">{network.shortLabel}</span>
               <ChevronDown className="h-3 w-3" />
             </DropdownMenuTrigger>
@@ -112,12 +112,10 @@ export function TitleBar() {
                     onClick={() => setNetwork(net.id)}
                     className="gap-2"
                   >
-                    <span
-                      className={cn(
-                        "status-dot",
-                        net.accent === "bot" ? "bg-accent" : "bg-primary",
-                        !net.deployed && "opacity-40",
-                      )}
+                    <img
+                      src={net.logo}
+                      alt=""
+                      className={cn("h-4 w-4 rounded-full shrink-0", !net.deployed && "opacity-40")}
                     />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-xs">{net.label}</span>

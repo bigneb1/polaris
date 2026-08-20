@@ -15,10 +15,10 @@ import { setActiveNetwork } from "../lib/activeNetwork";
  * Active-network context — the single place the app asks "which chain are we on?".
  *
  * Persisted so a reload keeps the user where they were, and defaulted to Arc so
- * an existing user's experience is byte-for-byte what it was before multi-chain
- * support landed. A stored id that is no longer selectable (e.g. a network whose
- * contracts were never deployed) falls back to Arc rather than leaving the app
- * pointed at a chain it can't serve.
+ * A stored id that is no longer selectable (e.g. a network whose contracts were never
+ * deployed) falls back to DEFAULT_NETWORK rather than leaving the app pointed at a chain it
+ * cannot serve. A returning user keeps whatever they last chose; the default only decides
+ * where a first-time visitor lands.
  */
 const STORAGE_KEY = "polaris-network";
 
