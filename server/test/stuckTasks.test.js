@@ -302,3 +302,65 @@ test("the floor scales with the asset instead of being a hardcoded cent", () => 
   assert.equal(bidFor(0.000001, 0.85, 18), 0.000001);
   assert.ok(bidFor(0.000001, 0.85, 18) <= 0.000001, "a bid must never exceed a tiny budget");
 });
+
+/* ── 5. Staking must not starve the identity mint ─────────────────────────────── */
+
+/**
+ * Three of four mainnet agents registered with no ERC-8004 identity, and the one that got
+ * one differed only in being funded slightly higher. `ensureRegistered` checked the balance
+ * covered `stake + gas`, staked, and then minted out of what was left — a few thousandths of
+ * a coin — so the mint died inside a best-effort catch. And because `ensureRegistered` runs
+ * once at startup, nothing ever retried it.
+ */
+const ONE = 10n ** 18n;
+const parse = (n) => BigInt(Math.round(n * 1e18));
+
+/** The funding rule: what an agent must hold before it is allowed to stake. */
+function requiredToStake({ stake, gasReserve, identityReserve, native = true, smartAccount = false }) {
+  const reserveGas = native && !smartAccount;
+  return (reserveGas ? stake + gasReserve : stake) + (reserveGas ? identityReserve : 0n);
+}
+
+test("an agent funded only for stake plus gas is refused, because the mint would fail", () => {
+  const stake = parse(0.02), gas = parse(0.003), identity = parse(0.004);
+  const needed = requiredToStake({ stake, gasReserve: gas, identityReserve: identity });
+  // Exactly what the three mainnet agents held: enough to stake, nothing left to mint.
+  assert.ok(parse(0.026) < needed, "0.026 must no longer pass the funding check");
+  assert.equal(needed, parse(0.027));
+});
+
+test("an agent funded for stake, gas and the mint is allowed through", () => {
+  const stake = parse(0.02), gas = parse(0.003), identity = parse(0.004);
+  const needed = requiredToStake({ stake, gasReserve: gas, identityReserve: identity });
+  // Polaris-Prime's funding, which is why it alone holds an identity.
+  assert.ok(parse(0.05) >= needed);
+});
+
+test("a smart account reserves neither, because its gas comes from the EntryPoint deposit", () => {
+  const stake = parse(0.02), gas = parse(0.003), identity = parse(0.004);
+  const needed = requiredToStake({ stake, gasReserve: gas, identityReserve: identity, smartAccount: true });
+  assert.equal(needed, stake, "reserving out of its balance would refuse a perfectly funded account");
+});
+
+test("an ERC-20 network reserves nothing extra: stake and gas are different assets", () => {
+  const stake = 100n * ONE, gas = parse(0.003), identity = parse(0.004);
+  assert.equal(requiredToStake({ stake, gasReserve: gas, identityReserve: identity, native: false }), stake);
+});
+
+/** Which agents a tick should attempt an identity mint for. */
+function needsIdentity(agents) {
+  return agents.filter((a) => !a.erc8004Id && a.hasGas).map((a) => a.name);
+}
+
+test("the tick retries the mint for a registered agent that has no identity", () => {
+  const agents = [
+    { name: "Polaris-Prime", erc8004Id: "0", hasGas: true }, // already has one
+    { name: "Nova-Prime", erc8004Id: null, hasGas: true }, // failed at startup, now funded
+    { name: "Vega-Prime", erc8004Id: null, hasGas: false }, // still gas-starved
+  ];
+  assert.deepEqual(needsIdentity(agents), ["Nova-Prime"]);
+});
+
+test("an agent that already holds an identity is never re-minted", () => {
+  assert.deepEqual(needsIdentity([{ name: "A", erc8004Id: "7", hasGas: true }]), []);
+});
