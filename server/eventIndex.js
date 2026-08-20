@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { writeJsonAtomic } from "./store-path.js";
 import { provider as arcProvider, scanRange as arcScanRange } from "./chain.js";
 
 /**
@@ -88,7 +89,7 @@ export function createEventIndex({
       }
     }
     try {
-      fs.writeFileSync(store, JSON.stringify(state));
+      writeJsonAtomic(store, state);
       dirty = new Map();
     } catch (e) {
       console.error(`[eventIndex ${name}] persist failed:`, e.message);
@@ -226,7 +227,7 @@ export function createLogIndex({
       // BigInt args (uint256 etc.) don't survive JSON.stringify by default —
       // stringify them. Downstream consumers already tolerate a numeric
       // string wherever they'd otherwise see a BigInt (Number(x), ethers.formatUnits).
-      fs.writeFileSync(store, JSON.stringify(state, (_k, v) => (typeof v === "bigint" ? v.toString() : v)));
+      writeJsonAtomic(store, JSON.parse(JSON.stringify(state, (_k, v) => (typeof v === "bigint" ? v.toString() : v))));
       pending = [];
     } catch (e) {
       console.error(`[logIndex ${name}] persist failed:`, e.message);

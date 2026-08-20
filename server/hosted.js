@@ -3,7 +3,7 @@ import fs from "node:fs";
 import { getChainCtx } from "./chain.js";
 import { DEFAULT_NETWORK, getNetwork, isDeployed } from "./networks.js";
 import { chat } from "./llm.js";
-import { storePath } from "./store-path.js";
+import { storePath, writeJsonAtomic } from "./store-path.js";
 
 /**
  * Hosted persona agents (Phase B).
@@ -37,7 +37,7 @@ function load() {
 }
 function save(s) {
   try {
-    fs.writeFileSync(STORE, JSON.stringify(s));
+    writeJsonAtomic(STORE, s);
   } catch (e) {
     console.error("[hosted] save failed:", e.message);
   }

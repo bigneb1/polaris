@@ -16,7 +16,7 @@
  * off-chain stores, per chain, since a task id is only unique within a chain.
  */
 import fs from "node:fs";
-import { networkStorePath } from "./store-path.js";
+import { networkStorePath, writeJsonAtomic } from "./store-path.js";
 
 /** Attempts allowed before an agent gives up on a task. */
 export const FULFIL_MAX_ATTEMPTS = Number(process.env.FULFIL_MAX_ATTEMPTS || 3);
@@ -55,7 +55,7 @@ function persist(chainId, map) {
     }
     const merged = { ...onDisk, ...map };
     cache.set(chainId, merged);
-    fs.writeFileSync(file(chainId), JSON.stringify(merged));
+    writeJsonAtomic(file(chainId), merged);
   } catch {
     /* best effort: the in-memory count still bounds this process */
   }
@@ -98,7 +98,7 @@ export function clearFailures(chainId, taskId) {
     }
     delete onDisk[k];
     cache.set(chainId, onDisk);
-    fs.writeFileSync(file(chainId), JSON.stringify(onDisk));
+    writeJsonAtomic(file(chainId), onDisk);
   } catch {
     /* best effort */
   }

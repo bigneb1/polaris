@@ -1,6 +1,6 @@
 import { ethers } from "ethers";
 import fs from "node:fs";
-import { networkStorePath } from "./store-path.js";
+import { networkStorePath, writeJsonAtomic } from "./store-path.js";
 
 /**
  * ERC-8004 (trustless agents) integration.
@@ -92,7 +92,7 @@ function loadIds(ctx) {
 }
 function saveIds(ctx, ids) {
   try {
-    fs.writeFileSync(idStore(ctx), JSON.stringify(ids));
+    writeJsonAtomic(idStore(ctx), ids);
   } catch {
     /* best-effort cache */
   }
@@ -152,7 +152,7 @@ function recordMintable(ctx, wallet, verdict) {
   try {
     const merged = { ...readMintableFile(ctx), ...map };
     mintableCache.set(ctx.chainId, merged);
-    fs.writeFileSync(mintableStore(ctx), JSON.stringify(merged));
+    writeJsonAtomic(mintableStore(ctx), merged);
   } catch {
     /* best-effort cache; the in-memory map still holds the verdict for this process */
   }

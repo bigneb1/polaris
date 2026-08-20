@@ -135,35 +135,6 @@ function runChallenge(sdk: W3SSdk, challengeId: string): Promise<void> {
   });
 }
 
-async function fetchWallet(userId: string): Promise<{ walletId: string; address: `0x${string}` }> {
-  // The wallet may take a moment to materialize after the ceremony.
-  for (let i = 0; i < 8; i++) {
-    const w = await api<{ walletId?: string; address?: string }>(`/api/uc/wallet?userId=${encodeURIComponent(userId)}`);
-    if (w.walletId && w.address) return { walletId: w.walletId, address: w.address as `0x${string}` };
-    await new Promise((r) => setTimeout(r, 1500));
-  }
-  throw new Error("wallet not ready");
-}
-
-/** First-time connect: create user, set a PIN, create the Arc wallet. */
-export async function registerUserWallet(): Promise<UcSession> {
-  if (!ucWalletEnabled()) throw new Error("Circle user wallet not configured");
-  const sess = await api<{ userId: string; userToken: string; encryptionKey: string }>("/api/uc/session", {});
-  const { challengeId } = await api<{ challengeId: string }>("/api/uc/init", { userId: sess.userId });
-  const sdk = await makeSdk(sess.userToken, sess.encryptionKey);
-  await runChallenge(sdk, challengeId);
-  const wallet = await fetchWallet(sess.userId);
-  return { kind: "uc", ...sess, ...wallet };
-}
-
-/** Returning user (this browser remembered the userId): mint a fresh token. */
-export async function loginUserWallet(userId: string): Promise<UcSession> {
-  if (!ucWalletEnabled()) throw new Error("Circle user wallet not configured");
-  const sess = await api<{ userId: string; userToken: string; encryptionKey: string }>("/api/uc/refresh", { userId });
-  const wallet = await fetchWallet(userId);
-  return { kind: "uc", ...sess, ...wallet };
-}
-
 /** Poll for the Arc wallet addressed by a post-login userToken. */
 async function walletByToken(userToken: string): Promise<{ walletId: string; address: `0x${string}` } | null> {
   const w = await api<{ walletId?: string; address?: string }>("/api/uc/wallet-by-token", { userToken });

@@ -436,3 +436,47 @@ test("USDC-scale and large numbers keep their compact form", () => {
   assert.equal(fmtCompact(1234), "1.2K");
   assert.equal(fmtCompact(1_500_000), "1.5M");
 });
+
+/* ── 8. The grandfather line must not move ────────────────────────────────────── */
+
+/**
+ * The cutoff was recomputed as `Date.now()` on every import, so each deploy pushed it
+ * forward. A task whose deadline passed while the runtime was restarting fell permanently
+ * outside enforcement — never reaped, escrow locked for good. With frequent deploys that
+ * window is routine, and it turned "a task can never get stuck" into "usually doesn't".
+ *
+ * Persisting it once makes it a real one-time line. These tests pin that a second read
+ * returns the first value, and that a volume we cannot write to fails toward enforcing
+ * rather than toward stranding escrow.
+ */
+import { writeJsonAtomic } from "../store-path.js";
+
+test("the cutoff persists across restarts instead of moving forward", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "polaris-reaper-"));
+  const file = path.join(dir, "reaper-enforce-from.json");
+
+  // First boot stamps it.
+  const first = Date.now() - 5 * 60_000;
+  writeJsonAtomic(file, { enforceFromMs: first, stampedAtIso: new Date(first).toISOString() });
+
+  // A later boot must read that value back, not stamp a new one.
+  const readBack = JSON.parse(fs.readFileSync(file, "utf8")).enforceFromMs;
+  assert.equal(readBack, first);
+
+  // A task that expired during the restart window is still enforceable.
+  const expiredDuringRestart = first + 60_000;
+  assert.ok(expiredDuringRestart >= readBack, "must not be grandfathered by a restart");
+});
+
+test("atomic writes leave either the old file or the new one, never a partial", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "polaris-atomic-"));
+  const file = path.join(dir, "store.json");
+  writeJsonAtomic(file, { a: 1 });
+  writeJsonAtomic(file, { a: 1, b: 2 });
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), { a: 1, b: 2 });
+  // No temp files left behind to accumulate on the volume.
+  assert.deepEqual(
+    fs.readdirSync(dir).filter((f) => f.includes(".tmp")),
+    [],
+  );
+});

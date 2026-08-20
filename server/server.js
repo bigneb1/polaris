@@ -19,7 +19,7 @@ import { listSubscriptions, getDelivery } from "./subscriptions.js";
 import { resolveDispute, runJury, listReworks, markReworkDone } from "./disputes.js";
 import { registerHosted, listHosted } from "./hosted.js";
 import { listPlans, getDelivery as getPlanDelivery } from "./recurring.js";
-import { storePath } from "./store-path.js";
+import { storePath, writeJsonAtomic } from "./store-path.js";
 import {
   ucEnabled,
   createSession,
@@ -122,6 +122,29 @@ app.use(
   rateLimit({ windowMs: 60_000, max: Number(process.env.RATE_LIMIT_ADMIN || 10), name: "admin" }),
 );
 
+/*
+ * The rest of the write surface. Three routes were limited and sixteen were not, which left
+ * the expensive ones wide open:
+ *   - /api/asset accepts base64 images against a 6MB body limit, straight onto the volume;
+ *   - /api/hosted-agent GENERATES AND STORES A PRIVATE KEY on every call;
+ *   - /api/recurring-dispute and /api/dispute/resolve each spend model credits and gas.
+ * None of them needed a flood to hurt: storage exhaustion and metered spend are the two
+ * costs an anonymous caller could impose without ever touching the money path.
+ */
+const WRITE_LIMITS = [
+  ["/api/asset", Number(process.env.RATE_LIMIT_ASSET || 20), "asset upload"],
+  ["/api/agent-meta", Number(process.env.RATE_LIMIT_AGENT_META || 10), "agent metadata"],
+  ["/api/hosted-agent", Number(process.env.RATE_LIMIT_HOSTED || 5), "hosted agent"],
+  ["/api/recurring-dispute", Number(process.env.RATE_LIMIT_DISPUTE || 5), "recurring dispute"],
+  ["/api/dispute", Number(process.env.RATE_LIMIT_DISPUTE || 5), "dispute"],
+  ["/api/rating", Number(process.env.RATE_LIMIT_RATING || 10), "rating"],
+  ["/api/flag-agent", Number(process.env.RATE_LIMIT_FLAG || 5), "flag"],
+  ["/api/rework-done", Number(process.env.RATE_LIMIT_REWORK || 20), "rework"],
+];
+for (const [route, max, name] of WRITE_LIMITS) {
+  app.use(route, rateLimit({ windowMs: 60_000, max, name }));
+}
+
 // Asset store: optional cover/avatar images keyed by taskId or agent wallet.
 // Off-chain (the contracts don't carry images); merged into /api/index.
 function loadAssets() {
@@ -132,7 +155,7 @@ function loadAssets() {
   }
 }
 function saveAssets(obj) {
-  fs.writeFileSync(ASSET_STORE, JSON.stringify(obj, null, 2));
+  writeJsonAtomic(ASSET_STORE, obj, { pretty: true });
 }
 
 // Simple JSON-file persistence for deliverable blobs (keyed by taskId).
@@ -173,7 +196,7 @@ function pruneStore(obj) {
 }
 
 function saveStore(obj) {
-  fs.writeFileSync(STORE, JSON.stringify(pruneStore(obj), null, 2));
+  writeJsonAtomic(STORE, pruneStore(obj), { pretty: true });
 }
 
 /**
@@ -283,15 +306,46 @@ function loadAgentMeta() {
     return {};
   }
 }
-app.post("/api/agent-meta", (req, res) => {
-  const { wallet, endpoint, auth } = req.body ?? {};
+/*
+ * An agent's service endpoint is where Polaris POSTs that agent's work, including the full
+ * task brief, with a caller-supplied Authorization header. This route accepted `wallet` from
+ * the request body and trusted it, so anyone could repoint any agent at a server they
+ * controlled: silent hijacking of the work, exfiltration of every brief, and denial of
+ * service for the real agent. The deliverable route directly below already refuses
+ * client-asserted identity for exactly this reason; this one did not.
+ *
+ * Ownership is now proven the same way: a signature over `polaris-agent-meta:{wallet}` from
+ * the wallet itself, accepted as ECDSA or ERC-1271 so smart-account agents work too.
+ */
+app.post("/api/agent-meta", async (req, res) => {
+  const { wallet, endpoint, auth, signature } = req.body ?? {};
   if (!wallet || typeof endpoint !== "string" || !/^https?:\/\//i.test(endpoint)) {
     return res.status(400).json({ error: "wallet and an http(s) endpoint are required" });
   }
+  if (!ethers.isAddress(wallet)) return res.status(400).json({ error: "wallet is not an address" });
   if (endpoint.length > 2048) return res.status(413).json({ error: "endpoint too long" });
+  if (typeof auth === "string" && auth.length > 1024) return res.status(413).json({ error: "auth header too long" });
+
+  const networkId = networkIdOf(req);
+  // The internal secret covers the runtime's own callers (Circle MPC wallets cannot sign
+  // off-chain messages); everyone else must prove they hold the key.
+  if (!isInternal(req)) {
+    const ok = await verifyAgentSignature(
+      `polaris-agent-meta:${String(wallet).toLowerCase()}`,
+      signature,
+      wallet,
+      getChainCtx(networkId).provider,
+    );
+    if (!ok) {
+      return res.status(401).json({
+        error: "Sign `polaris-agent-meta:<your wallet, lowercased>` with this agent's wallet to set its endpoint.",
+      });
+    }
+  }
+
   const store = loadAgentMeta();
-  store[keyFor(networkIdOf(req), wallet)] = { endpoint, auth: typeof auth === "string" ? auth : "", at: Date.now() };
-  fs.writeFileSync(AGENT_META_STORE, JSON.stringify(store, null, 2));
+  store[keyFor(networkId, wallet)] = { endpoint, auth: typeof auth === "string" ? auth : "", at: Date.now() };
+  writeJsonAtomic(AGENT_META_STORE, store);
   res.json({ ok: true });
 });
 
@@ -449,7 +503,7 @@ app.post("/api/recurring-dispute", async (req, res) => {
     const store = loadRDisputes();
     store[keyFor(networkId, `${planId}#${index}`)] = { planId, network: networkId, index: Number(index), complaint: (complaint || "").slice(0, 500), upheld, juryNote, reporter: reporter || null, atMs: Date.now() };
     try {
-      fs.writeFileSync(RD_DISPUTE_STORE, JSON.stringify(store));
+      writeJsonAtomic(RD_DISPUTE_STORE, store);
     } catch {
       /* best-effort */
     }
@@ -478,8 +532,8 @@ app.post("/api/hosted-agent", (req, res) => {
     if (!ctx) return;
     const { name, capabilities, systemPrompt, owner } = req.body || {};
     if (!name || !capabilities) return res.status(400).json({ error: "name + capabilities required" });
-    // The stake is denominated in the network's escrow asset (USDC on Arc, USDT
-    // on BOT Chain), so the response says which.
+    // The stake is denominated in the network's escrow asset (USDC on Arc, native BOT on
+    // BOT Chain), so the response says which rather than letting the UI assume.
     // The stake floor differs per network (native networks set it at deploy time,
     // ERC-20 ones use the registry's 100-unit constant), so report it rather than
     // letting the UI assume 100.
@@ -557,6 +611,23 @@ app.post("/api/rating", async (req, res) => {
     if (t.assignedAgent.toLowerCase() !== String(agent).toLowerCase())
       return res.status(403).json({ error: "agent does not match the task's assigned agent" });
 
+    // Proof of engagement is not proof of identity. Every field checked above is public
+    // chain data, so anyone could file a rating "as" the requester: five-star your own
+    // agent, one-star a competitor. The rater must prove they hold the key.
+    if (!isInternal(req)) {
+      const ok = await verifyAgentSignature(
+        `polaris-rating:${String(taskId).toLowerCase()}`,
+        req.body?.signature,
+        rater,
+        ctx.provider,
+      );
+      if (!ok) {
+        return res.status(401).json({
+          error: "Sign `polaris-rating:<taskId, lowercased>` with the requester's wallet to rate this task.",
+        });
+      }
+    }
+
     const store = loadRatings();
     const key = keyFor(ctx.id, agent);
     store[key] = store[key] || [];
@@ -564,7 +635,7 @@ app.post("/api/rating", async (req, res) => {
     store[key] = store[key].filter((r) => !(r.taskId === taskId && r.rater === rater));
     store[key].push({ taskId, network: ctx.id, rater, stars: Number(stars), comment: (comment || "").slice(0, 500), atMs: Date.now() });
     try {
-      fs.writeFileSync(RATINGS_STORE, JSON.stringify(store));
+      writeJsonAtomic(RATINGS_STORE, store);
     } catch {
       /* best-effort */
     }
@@ -588,25 +659,47 @@ function loadFlags() {
     return {};
   }
 }
-app.post("/api/flag-agent", (req, res) => {
+app.post("/api/flag-agent", async (req, res) => {
   const networkId = networkIdOf(req);
-  const { agent, reporter, reason } = req.body || {};
+  const { agent, reporter, reason, signature } = req.body || {};
   if (!ethers.isAddress(agent) || !(reason || "").trim())
     return res.status(400).json({ error: "valid agent address + reason required" });
+
+  // A flag may be anonymous, but it may not be attributed to someone who did not file it.
+  // `reporter` was stored verbatim, so anyone could file complaints in a stranger's name and
+  // the operator queue would show them as that person's.
+  let claimedReporter = null;
+  if (reporter) {
+    if (!ethers.isAddress(reporter)) return res.status(400).json({ error: "reporter is not an address" });
+    const ok =
+      isInternal(req) ||
+      (await verifyAgentSignature(
+        `polaris-flag:${String(agent).toLowerCase()}`,
+        signature,
+        reporter,
+        getChainCtx(networkId).provider,
+      ));
+    if (!ok) {
+      return res.status(401).json({
+        error: "Sign `polaris-flag:<agent address, lowercased>` to file this under your wallet, or omit `reporter` to flag anonymously.",
+      });
+    }
+    claimedReporter = reporter;
+  }
   const store = loadFlags();
   const key = keyFor(networkId, agent);
   store[key] = store[key] || [];
   // One open flag per (agent, reporter): replace an earlier pending one.
-  store[key] = store[key].filter((f) => !(f.reporter === reporter && f.status === "pending"));
+  store[key] = store[key].filter((f) => !(claimedReporter && f.reporter === claimedReporter && f.status === "pending"));
   store[key].push({
-    reporter: reporter || null,
+    reporter: claimedReporter,
     network: networkId,
     reason: String(reason).slice(0, 1000),
     status: "pending",
     atMs: Date.now(),
   });
   try {
-    fs.writeFileSync(FLAGS_STORE, JSON.stringify(store));
+    writeJsonAtomic(FLAGS_STORE, store);
   } catch {
     /* best-effort */
   }

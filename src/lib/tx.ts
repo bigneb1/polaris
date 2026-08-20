@@ -659,11 +659,6 @@ async function sendAsset(to: Address, amount: number, circle?: Signer, network?:
   );
 }
 
-/** Wire (transfer) the escrow asset directly to any address. */
-export async function wireUsdc(to: Address, amountUsdc: number, circle?: Signer, network?: NetworkId): Promise<Hash> {
-  return sendAsset(to, amountUsdc, circle, network);
-}
-
 /** Withdraw / transfer the escrow asset from the connected wallet to any address. */
 export async function transferUsdc(to: Address, amount: number, circle?: Signer, network?: NetworkId): Promise<Hash> {
   return sendAsset(to, amount, circle, network);

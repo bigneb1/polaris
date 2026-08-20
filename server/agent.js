@@ -15,6 +15,7 @@ import "dotenv/config";
 
 import { getChainCtx } from "./chain.js";
 import { DEFAULT_NETWORK, getNetwork, isDeployed } from "./networks.js";
+import { getIndex } from "./indexer.js";
 import { produceWork } from "./score.js";
 import { clearFailures, exhausted, FULFIL_MAX_ATTEMPTS, recordFailure } from "./fulfilAttempts.js";
 import { payForService } from "./x402.js";
@@ -392,16 +393,22 @@ class Agent {
     }
   }
 
-  /** If we won and haven't delivered yet, do the work and trigger settlement. */
-  async fulfilWins() {
-    const logs = await this.ctx.queryLogsChunked(
-      this.bid,
-      this.bid.filters.BidAwarded(null, this.address),
-      undefined,
-      this.ctx.indexFromBlock ?? undefined,
+  /**
+   * If we won and haven't delivered yet, do the work and trigger settlement.
+   *
+   * `tasks` are the index's current view, passed in by the tick so four agents share one
+   * cached read. This used to replay every `BidAwarded` event from the deploy block, per
+   * agent, per tick — the same unbounded scan that made the swarm's RPC cost grow with the
+   * age of the chain rather than with the work in front of it.
+   */
+  async fulfilWins(tasks = []) {
+    const mine = tasks.filter(
+      (t) =>
+        (t.status === "ASSIGNED" || t.status === "IN_PROGRESS") &&
+        String(t.assignedAgent ?? "").toLowerCase() === this.address.toLowerCase(),
     );
-    for (const lg of logs) {
-      const taskId = lg.args.taskId;
+    for (const it of mine) {
+      const taskId = it.taskId;
       if (this.handled.has(taskId)) continue;
       // Durable, so a restart does not reset the budget and resume paying for a task that
       // has already failed its limit.
@@ -569,15 +576,19 @@ export async function startSwarm(networkId = DEFAULT_NETWORK) {
     if (ticking) return; // a previous tick is still in flight — don't overlap
     ticking = true;
     try {
-      const submitted = await ctx.queryLogsChunked(
-        taskReg,
-        taskReg.filters.TaskSubmitted(),
-        undefined,
-        ctx.indexFromBlock ?? undefined,
-      );
+      // Candidates come from the checkpointed index, not a fresh scan plus a chain read per
+      // task. This used to replay every TaskSubmitted event from the deploy block and then
+      // call `tasks(taskId)` for each one, EVERY tick: on Arc that is 270 reads every 12
+      // seconds, growing without bound as the chain ages, against the same rate-limited RPC
+      // whose throttling once left production serving 4 tasks out of 270. The index already
+      // folds these logs once and keeps them; reading it costs one cached call.
+      const index = await getIndex(networkId).catch(() => null);
+      const openTasks = (index?.tasks ?? []).filter((t) => t.status === "OPEN");
 
-      for (const lg of submitted) {
-        const taskId = lg.args.taskId;
+      for (const it of openTasks) {
+        const taskId = it.taskId;
+        // The chain is still authoritative before we act, but only for tasks the index
+        // already believes are open — a handful, not the whole history.
         const t = await taskReg.tasks(taskId);
         if (Number(t.status) !== 0) continue; // 0 = OPEN; skip assigned/settled
         if (t.deadline * 1000n < BigInt(Date.now())) continue; // expired
@@ -617,7 +628,7 @@ export async function startSwarm(networkId = DEFAULT_NETWORK) {
           if (!/Auction closed|No bids/i.test(msg)) closer.log("award skipped:", msg);
         }
       }
-      for (const a of agents) if (await a.hasGas()) await a.fulfilWins();
+      for (const a of agents) if (await a.hasGas()) await a.fulfilWins(index?.tasks ?? []);
 
       // Identity is a per-tick concern, not a startup one. `ensureErc8004Identity` used to be
       // reachable only through `ensureRegistered`, which runs once when the swarm boots, so an

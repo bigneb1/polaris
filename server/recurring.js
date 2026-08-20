@@ -9,7 +9,7 @@ import { produceWork, scoreAgentWork } from "./score.js";
 import { gatherContext } from "./datafeeds.js";
 import { recurringDeliveryDigest } from "./digests.js";
 import { dueCount, nextDueAt } from "./subscriptions.js";
-import { storePath, networkStorePath } from "./store-path.js";
+import { storePath, networkStorePath, writeJsonAtomic } from "./store-path.js";
 
 /**
  * Recurring-market scheduler: closes auctions for OPEN plans (after a bid window)
@@ -56,7 +56,7 @@ function createRecurring(networkId) {
   }
   function save() {
     try {
-      fs.writeFileSync(STORE, JSON.stringify(deliveries));
+      writeJsonAtomic(STORE, deliveries);
     } catch {
       /* best-effort */
     }
@@ -127,7 +127,7 @@ function createRecurring(networkId) {
   }
   function saveLive() {
     try {
-      fs.writeFileSync(LIVE_STORE, JSON.stringify(live));
+      writeJsonAtomic(LIVE_STORE, live);
     } catch {
       /* best-effort */
     }

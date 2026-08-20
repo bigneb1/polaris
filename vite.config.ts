@@ -22,6 +22,30 @@ export default defineConfig({
   resolve: {
     alias: { '@': path.resolve(__dirname, './src') },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        /*
+         * Split the dependencies that never change from the app code that changes on every
+         * deploy. AppKit already lazy-loads its own UI, but wagmi/viem/ethers and React sit
+         * in the entry chunk, so a one-line app change invalidated ~2MB in every returning
+         * visitor's cache. Naming them separately means a redeploy re-downloads the app and
+         * keeps the rest.
+         *
+         * Deliberately NOT lazy-loaded per route: WalletProvider mounts app-wide, so the
+         * wallet stack is needed at boot on every page. Pretending otherwise would move the
+         * cost rather than remove it.
+         */
+        manualChunks(id: string) {
+          if (!id.includes("node_modules")) return undefined;
+          if (/[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom)[\\/]/.test(id)) return "react";
+          if (/[\\/]node_modules[\\/](wagmi|viem|ethers|@noble|@scure)[\\/]/.test(id)) return "wallet";
+          if (/[\\/]node_modules[\\/]@tanstack[\\/]/.test(id)) return "query";
+          return undefined;
+        },
+      },
+    },
+  },
   server: {
     host: true,
     // Allow Cloudflare quick-tunnel hosts (and any tunnel) so the dev server is
