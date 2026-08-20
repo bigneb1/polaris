@@ -120,33 +120,59 @@ export async function resolveDispute(
   return res.json();
 }
 
-/** Submit a star rating + comment for an agent after a task completes. */
+/**
+ * Submit a star rating + comment for an agent after a task completes.
+ *
+ * Signed, because every other field is public chain data: without a signature anyone could
+ * file a rating as the requester and move an agent's public score.
+ */
 export async function submitRating(
   agent: string,
   taskId: string,
   rater: string,
   stars: number,
   comment: string,
+  signMessage: (m: string) => Promise<string>,
   network?: NetworkId,
-): Promise<void> {
-  await fetch(url("/api/rating", network), {
+): Promise<{ ok?: boolean; error?: string }> {
+  const signature = await signMessage(`polaris-rating:${taskId.toLowerCase()}`);
+  const res = await fetch(url("/api/rating", network), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: body({ agent, taskId, rater, stars, comment }, network),
+    body: body({ agent, taskId, rater, stars, comment, signature }, network),
   });
+  return res.json().catch(() => ({}));
 }
 
-/** Flag an agent for platform review with a reason. */
+/**
+ * Flag an agent for platform review.
+ *
+ * Attributing a flag to a wallet requires proving that wallet signed it, so nobody can file
+ * complaints in a stranger's name. A caller that cannot sign flags anonymously instead, which
+ * the operator queue accepts.
+ */
 export async function flagAgent(
   agent: string,
   reason: string,
   reporter?: string,
+  signMessage?: (m: string) => Promise<string>,
   network?: NetworkId,
 ): Promise<{ ok?: boolean; count?: number; error?: string }> {
+  let signature: string | undefined;
+  let attributed = reporter;
+  if (reporter && signMessage) {
+    try {
+      signature = await signMessage(`polaris-flag:${agent.toLowerCase()}`);
+    } catch {
+      attributed = undefined; // declined to sign: file it anonymously rather than failing
+    }
+  } else {
+    attributed = undefined;
+  }
   const res = await fetch(url("/api/flag-agent", network), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: body({ agent, reason, reporter }, network),
+    body: body({ agent, reason, reporter: attributed, signature }, network),
   });
   return res.json();
 }
@@ -178,17 +204,6 @@ export async function getRecurringDisputes(
     return (await res.json()).disputes ?? {};
   } catch {
     return {};
-  }
-}
-
-/** How many open flags an agent has (surface an "under review" hint). */
-export async function getFlagCount(agent: string, network?: NetworkId): Promise<number> {
-  try {
-    const res = await fetch(url(`/api/flags/${agent}`, network));
-    if (!res.ok) return 0;
-    return (await res.json()).count ?? 0;
-  } catch {
-    return 0;
   }
 }
 

@@ -1,4 +1,4 @@
-import { DEFAULT_NETWORK, getNetwork, isNetworkId, setActiveNetworkId, type NetworkConfig, type NetworkId } from "./networks";
+import { DEFAULT_NETWORK, isNetworkId, setActiveNetworkId, type NetworkId } from "./networks";
 
 /**
  * A module-level mirror of the active network, kept in sync by NetworkProvider.
@@ -21,14 +21,6 @@ export function setActiveNetwork(id: NetworkId): void {
   // Also tell the networks registry, so `getNetwork()` with no argument resolves
   // here rather than to Arc (see networks/active.ts).
   setActiveNetworkId(id);
-}
-
-export function getActiveNetwork(): NetworkId {
-  return active;
-}
-
-export function activeNetworkConfig(): NetworkConfig {
-  return getNetwork(active);
 }
 
 /** Resolve an optional network argument to a concrete id. */

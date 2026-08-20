@@ -33,7 +33,7 @@ function Stars({ value, onPick, size = 14 }: { value: number; onPick?: (n: numbe
  * security boundary. See docs/AUDIT_REPORT.md, Bug #3.
  */
 export default function RatingsPanel({ wallet, myCompletedTasks }: { wallet: string; myCompletedTasks: Task[] }) {
-  const { address } = useWallet();
+  const { address, signMessage } = useWallet();
   const { run, loading } = useTx();
   const [data, setData] = useState<AgentRatings>({ ratings: [], avg: 0, count: 0 });
   const [writing, setWriting] = useState(false);
@@ -100,7 +100,8 @@ export default function RatingsPanel({ wallet, myCompletedTasks }: { wallet: str
                 <button
                   onClick={() =>
                     run(async () => {
-                      await submitRating(wallet, taskId, address, stars, comment.trim());
+                      const r = await submitRating(wallet, taskId, address, stars, comment.trim(), signMessage);
+                      if (r?.error) throw new Error(r.error);
                       setComment(""); setWriting(false); await load();
                       return "0x" as `0x${string}`;
                     }, { pending: "Posting review…", success: "Review posted" })

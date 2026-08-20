@@ -8,7 +8,7 @@ import { openIndexStore } from "./indexStore.js";
 import { produceWork, scoreAgentWork } from "./score.js";
 import { gatherContext } from "./datafeeds.js";
 import { subscriptionDeliveryDigest } from "./digests.js";
-import { storePath, networkStorePath } from "./store-path.js";
+import { storePath, networkStorePath, writeJsonAtomic } from "./store-path.js";
 
 /**
  * Subscription scheduler (Phase A — recurring tasks).
@@ -118,7 +118,7 @@ function createSubscriptions(networkId) {
   }
   function saveStore() {
     try {
-      fs.writeFileSync(STORE, JSON.stringify(deliveries));
+      writeJsonAtomic(STORE, deliveries);
     } catch {
       /* best-effort */
     }
@@ -190,7 +190,7 @@ function createSubscriptions(networkId) {
   }
   function saveLive() {
     try {
-      fs.writeFileSync(LIVE_STORE, JSON.stringify(live));
+      writeJsonAtomic(LIVE_STORE, live);
     } catch {
       /* best-effort */
     }

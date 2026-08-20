@@ -11,7 +11,6 @@ import {
   toWebAuthnCredential,
   toModularTransport,
   toCircleSmartAccount,
-  encodeTransfer,
   WebAuthnMode,
 } from "@circle-fin/modular-wallets-core";
 import { createPublicClient, encodeFunctionData, erc20Abi, formatUnits, type Abi } from "viem";
@@ -137,32 +136,6 @@ export async function circleWrite(session: CircleSession, calls: Call[]): Promis
     console.warn("paymaster sponsorship failed, retrying self-paid:", (err as Error)?.message);
     hash = await send({});
   }
-  const { receipt } = await session.bundler.waitForUserOperationReceipt({ hash });
-  return receipt.transactionHash as `0x${string}`;
-}
-
-/** Read a contract view via the Circle public client. */
-export async function circleRead(session: CircleSession, call: Omit<Call, "args"> & { args?: readonly unknown[] }) {
-  return session.publicClient.readContract({
-    address: call.address,
-    abi: call.abi,
-    functionName: call.functionName,
-    args: call.args as never,
-  });
-}
-
-/** Send a gasless USDC transfer (paymaster-sponsored). */
-export async function circleSendUsdc(
-  session: CircleSession,
-  to: `0x${string}`,
-  amount: number,
-): Promise<`0x${string}`> {
-  const units = BigInt(Math.round(amount * 10 ** USDC_DECIMALS));
-  const hash = await session.bundler.sendUserOperation({
-    account: session.account,
-    calls: [encodeTransfer(to, USDC_ADDRESS, units)],
-    paymaster: true,
-  });
   const { receipt } = await session.bundler.waitForUserOperationReceipt({ hash });
   return receipt.transactionHash as `0x${string}`;
 }

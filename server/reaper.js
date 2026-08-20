@@ -21,6 +21,8 @@ import { ethers } from "ethers";
 import { getChainCtx } from "./chain.js";
 import { getNetwork, isDeployed, signerKeyFor } from "./networks.js";
 import { getIndex } from "./indexer.js";
+import fs from "node:fs";
+import { storePath, writeJsonAtomic } from "./store-path.js";
 
 /** How often to look. Deadlines are hours apart, so this does not need to be eager. */
 const POLL_MS = Number(process.env.REAPER_POLL_MS || 120000);
@@ -61,16 +63,41 @@ const BENIGN = /Before deadline|Not in progress/i;
  * Set REAPER_ENFORCE_FROM_MS=0 to enforce the backlog too, deliberately and with the
  * consequences above in view.
  */
-const ENFORCE_FROM_MS = (() => {
+function resolveEnforceFrom() {
   const raw = process.env.REAPER_ENFORCE_FROM_MS;
   if (raw !== undefined && raw !== "") {
     const n = Number(raw);
     if (Number.isFinite(n) && n >= 0) return n;
   }
-  // Default: this process's start. A restart moves it forward, which is the safe direction:
-  // it can only ever decline to punish, never punish more.
-  return Date.now();
-})();
+
+  // PERSISTED, not recomputed. The first version returned `Date.now()` at import time and
+  // called a restart "the safe direction, it can only decline to punish". That is true about
+  // punishment and false about the guarantee: every deploy moved the line forward, so a task
+  // whose deadline passed while the runtime was restarting fell permanently outside
+  // enforcement and could never be reaped. With frequent deploys that window is routine, and
+  // it quietly downgraded "a task can never get stuck" to "usually doesn't" — the exact
+  // failure this module exists to prevent.
+  //
+  // Stamping it once and reading it back makes it a real one-time grandfather line.
+  const file = storePath("REAPER_ENFORCE_FROM_STORE", "reaper-enforce-from.json");
+  try {
+    const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+    if (Number.isFinite(saved?.enforceFromMs)) return saved.enforceFromMs;
+  } catch {
+    /* first run on this volume */
+  }
+  const stamped = Date.now();
+  try {
+    writeJsonAtomic(file, { enforceFromMs: stamped, stampedAtIso: new Date(stamped).toISOString() });
+  } catch {
+    // Cannot persist: fall back to enforcing everything rather than silently grandfathering
+    // an unbounded backlog. Refusing to enforce is the failure that strands escrow.
+    return 0;
+  }
+  return stamped;
+}
+
+const ENFORCE_FROM_MS = resolveEnforceFrom();
 
 /**
  * Tasks the index believes are working and overdue.

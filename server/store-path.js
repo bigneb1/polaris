@@ -87,3 +87,53 @@ export function networkStorePath(envVar, filename, { chainId, legacyEnvVar, lega
   const scoped = dot > 0 ? `${filename.slice(0, dot)}-${chainId}${filename.slice(dot)}` : `${filename}-${chainId}`;
   return storePath("__none__", scoped);
 }
+
+/**
+ * Write JSON so a crash can never destroy what was already there.
+ *
+ * `fs.writeFileSync` truncates the target before it writes, so a process that dies mid-write
+ * leaves a half-file. Every `loadX()` helper in this server catches the resulting parse error
+ * and returns `{}`, which means the failure is not just a corrupt file: it silently reads as
+ * "there was never any data". Ratings, flags, agent endpoints, hosted agents and the
+ * deliverable store, which backs settlement evidence, all sat behind that.
+ *
+ * `indexStore.js` already documents this hazard, and the index was moved to SQLite because of
+ * it. The remaining JSON stores kept the unsafe pattern. Writing to a sibling temp file and
+ * renaming over the target closes it: rename is atomic on POSIX, so a reader sees either the
+ * old file or the new one, never a partial one.
+ */
+export function writeJsonAtomic(file, value, { pretty = false } = {}) {
+  const tmp = `${file}.${process.pid}.tmp`;
+  const body = pretty ? JSON.stringify(value, null, 2) : JSON.stringify(value);
+  try {
+    fs.writeFileSync(tmp, body);
+    fs.renameSync(tmp, file);
+  } catch (e) {
+    // Never leave the temp file behind to accumulate on the volume.
+    try {
+      fs.rmSync(tmp, { force: true });
+    } catch {
+      /* nothing more to do */
+    }
+    throw e;
+  }
+}
+
+/**
+ * Read-modify-write a JSON map without losing a concurrent writer's entry.
+ *
+ * The plain pattern (read whole map, add one key, write whole map back) drops entries when two
+ * writers interleave. That is not theoretical here: four swarm agents share one process and
+ * one file, and it already cost three ERC-8004 mintability verdicts in production.
+ */
+export function updateJsonAtomic(file, mutate, { pretty = false } = {}) {
+  let current = {};
+  try {
+    current = JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    /* first write, or an unreadable file we are about to replace wholesale */
+  }
+  const next = mutate(current) ?? current;
+  writeJsonAtomic(file, next, { pretty });
+  return next;
+}

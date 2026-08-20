@@ -4,7 +4,7 @@ import { getChainCtx } from "./chain.js";
 import { DEFAULT_NETWORK, getNetwork, isDeployed, scopedKey } from "./networks.js";
 import { chat, SCHEMAS } from "./llm.js";
 import { disputeVerdictDigest } from "./digests.js";
-import { storePath } from "./store-path.js";
+import { storePath, writeJsonAtomic } from "./store-path.js";
 
 /**
  * AI jury + dispute resolution (Phase C).
@@ -35,7 +35,7 @@ function loadReworks() {
 }
 function saveReworks(r) {
   try {
-    fs.writeFileSync(REWORK_STORE, JSON.stringify(r));
+    writeJsonAtomic(REWORK_STORE, r);
   } catch {
     /* best-effort */
   }

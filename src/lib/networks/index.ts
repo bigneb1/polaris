@@ -70,7 +70,7 @@ export function isNetworkReady(id?: NetworkId | string | null): boolean {
   return n.deployed && Boolean(n.contracts.taskRegistry && n.contracts.agentRegistry);
 }
 
-/** The asset task budgets and stakes are denominated in (USDC on Arc, USDT on
+/** The asset task budgets and stakes are denominated in (USDC on Arc, native BOT on
  *  BOT Chain). Every network has exactly one — it's fixed at escrow deploy. */
 export function escrowAsset(id?: NetworkId | string | null): PolarisAsset {
   const n = getNetwork(id);
