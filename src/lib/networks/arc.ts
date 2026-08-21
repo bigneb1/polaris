@@ -24,7 +24,11 @@ export const arcTestnetConfig: NetworkConfig = {
   explorerName: "Arcscan",
   testnet: true,
   accent: "arc",
-  logo: "/chains/arc.svg",
+  // The real Arc mark, from arc.network's own apple-touch-icon (256x256, fetched
+  // 2026-08-21). Replaced a placeholder arc-and-dot glyph that was drawn by hand
+  // and never had anything to do with the brand — if you swap this, take it from
+  // the project, not from an approximation.
+  logo: "/chains/arc.png",
 
   contracts: {
     usdc: "0x3600000000000000000000000000000000000000",

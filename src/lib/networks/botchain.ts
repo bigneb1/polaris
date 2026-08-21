@@ -73,7 +73,10 @@ export const botTestnetConfig: NetworkConfig = {
   explorerName: "BOTScan",
   testnet: true,
   accent: "bot",
-  logo: "/chains/bot.svg",
+  // The real BOT Chain mark, from botchain.ai/logo.png (144x144, fetched
+  // 2026-08-21). Replaced a hand-drawn cartoon robot head; source any replacement
+  // from the project itself.
+  logo: "/chains/bot.png",
 
   // Deployed 2026-08-18 by contracts/scripts/deploy-network.cjs.
   // Source of truth is deployments/botchain-testnet/contracts.json; mirrored here
@@ -168,7 +171,8 @@ export const botMainnetConfig: NetworkConfig = {
   explorerName: "BOTScan",
   testnet: false,
   accent: "bot",
-  logo: "/chains/bot.svg",
+  logo: "/chains/bot.png", // same mark as testnet, see the note above
+
 
   // Deployed 2026-08-19 from deployments/botchain-mainnet/contracts.json, verified on
   // chain (all 14 addresses hold code, MIN_STAKE() == 0.02 BOT, BidEngine PRICE_UNIT
