@@ -903,9 +903,14 @@ app.post("/api/verify", async (req, res) => {
     // Rejected: return the task to the market (reopen) so any agent can re-bid,
     // unless the deadline has passed (then leave it for slashOnTimeout). USDC
     // stays escrowed; the agent is NOT slashed.
+    // Reopening is for an agent that still has attempts left. Past the cap, putting
+    // the task back on the market just invites the same swarm to redo the same work
+    // and fail the same way, paying for a model call every cycle — a reject/reopen/
+    // re-bid loop that spins until the slash clock allows a verdict. Past the cap the
+    // task stays put and the slash path above terminates it.
     let reopened = false;
     let reopenError = null;
-    if (meta.deadline > Date.now()) {
+    if (attempts < MAX_ATTEMPTS && meta.deadline > Date.now()) {
       // `reopenTask` is `onlyAuthorized` — it checks msg.sender against
       // bidEngine/verifierBridge/owner. The per-network VERDICT signer is none of
       // those: it only has to produce a signature VerifierBridge can recover, and

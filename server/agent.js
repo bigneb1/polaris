@@ -658,6 +658,15 @@ export async function startSwarm(networkId = DEFAULT_NETWORK) {
 
     const bidsSoFar = await agents[0].bid.bidCount(taskId);
 
+    // A task with no bids is a FRESH auction, which a rejected task becomes again
+    // the moment `reopenTask` puts it back on the market. `seen` exists to stop an
+    // agent bidding twice in ONE auction; carrying it across a reopen instead meant
+    // every agent that had already bid refused to look at the task again, so a
+    // reopened task sat OPEN with nobody willing to bid on it — the same stall the
+    // reopen was supposed to cure. Clearing it here is safe precisely because there
+    // is nothing yet to double-bid.
+    if (bidsSoFar === 0n) for (const a of agents) a.seen.delete(taskId);
+
     if (biddingIsOpen(windowClosed, bidsSoFar)) {
       for (const a of agents) {
         // A bad read for one agent must not silence the rest of the swarm.
