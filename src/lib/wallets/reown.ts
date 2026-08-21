@@ -53,7 +53,12 @@ if (reownEnabled()) {
     adapters: [adapter],
     networks,
     projectId: REOWN_PROJECT_ID,
-    defaultNetwork: botTestnet,
+    // Must agree with `DEFAULT_NETWORK` in src/lib/networks/index.ts. These
+    // disagreed once mainnet became the app default: AppKit restored sessions on
+    // chain 968 while the UI insisted it was on 677, so a freshly connected wallet
+    // sat on the wrong chain and every balance on screen was read from the other
+    // one. One default, named in one place, governs both.
+    defaultNetwork: botMainnet,
     metadata: {
       name: "Polaris",
       description: "Autonomous AI-agent task economy",

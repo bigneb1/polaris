@@ -410,6 +410,26 @@ export function getChainCtx(networkId = DEFAULT_NETWORK) {
       const key = process.env[net.signerKeyEnv];
       return key ? new ethers.Wallet(key, provider) : null;
     },
+    /**
+     * The account that OWNS the registries, which is not the same account as the
+     * one that signs verdicts.
+     *
+     * VerifierBridge checks a verdict's SIGNATURE, so `submitVerification` can be
+     * sent by anybody holding a valid one — which is why a per-network verdict
+     * signer works there. `TaskRegistry.reopenTask` instead checks `msg.sender`
+     * against `bidEngine || verifierBridge || owner`, so the verdict signer is not
+     * authorised to call it at all.
+     *
+     * Conflating the two broke the entire reject-and-retry path in production:
+     * `reopenTask` reverted with "Not authorized", the error was swallowed by a
+     * `console.error`, and a task whose deliverable failed review stayed ASSIGNED —
+     * "in progress" in the UI — until the deadline reaper slashed it hours later.
+     * A failing verdict is a decision, and a decided task must move.
+     */
+    ownerSigner() {
+      const key = process.env.REGISTRY_OWNER_KEY || process.env.VERIFIER_SIGNER_KEY;
+      return key ? new ethers.Wallet(key, provider) : null;
+    },
   };
   contexts.set(id, ctx);
   return ctx;

@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
-import { useAccount, useSignMessage } from "wagmi";
+import { useAccount, useChainId, useSignMessage } from "wagmi";
 import {
   circleEnabled,
   registerCircleWallet,
@@ -93,6 +93,8 @@ type Ctx = {
   /** False when no Reown project id is configured, so the UI can say so instead
    *  of opening a modal that can't work. */
   reownEnabled: boolean;
+  /** The connected wallet is on a different chain than the app is showing. */
+  wrongNetwork: boolean;
   disconnect: () => void;
   refreshBalance: () => void;
   /**
@@ -112,6 +114,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const { network, networkId } = useNetwork();
   // wagmi carries the Reown connection (AppKit's adapter owns the wagmi config).
   const { address: wagmiAddr, connector } = useAccount();
+  // The chain the WALLET is actually on, which is not necessarily the one the app
+  // is showing — see the re-sync effect below.
+  const walletChainId = useChainId();
   const { signMessageAsync } = useSignMessage();
   const [circle, setCircle] = useState<CircleSession | null>(null);
   // Rehydrate the email session so users stay logged in across reloads until
@@ -194,6 +199,25 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, [network.chainId]);
 
+  /**
+   * Keep the connected wallet on the network the app is showing.
+   *
+   * `reownSwitchNetwork` used to be called in exactly one place — inside
+   * `connectReown`, at connect time — so changing the network chip while already
+   * connected moved the app and left the wallet behind. Writes survived that
+   * (`src/lib/tx.ts` switches chains before sending), but every read did not: the
+   * balance, the explorer links and the whole UI described one chain while the
+   * wallet sat on another, with nothing on screen admitting it.
+   *
+   * Only for externally connected wallets: Circle's passkey and PIN wallets are
+   * ours and have no chain of their own to switch.
+   */
+  useEffect(() => {
+    if (!wagmiAddr || circle || uc) return;
+    if (walletChainId === network.chainId) return;
+    reownSwitchNetwork(network.chainId);
+  }, [wagmiAddr, circle, uc, walletChainId, network.chainId]);
+
   // Restore a passkey session from the cached credential on load (no prompt), so
   // passkey logins persist across refresh like the email session does. Skipped
   // if an email session is already active.
@@ -263,6 +287,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     walletKind: network.wallet.kind,
     // Our own wallet modes describe themselves honestly; an external wallet names itself.
     connectorName: circle ? "Passkey" : uc ? "PIN" : (connector?.name ?? null),
+    // True while an external wallet is on a different chain than the app is
+    // showing — the switch above was refused, is still pending, or the wallet does
+    // not know this chain yet. The UI says so rather than quietly lying.
+    wrongNetwork: Boolean(wagmiAddr && !circle && !uc && walletChainId !== network.chainId),
     balance,
     balanceSymbol: escrow?.symbol ?? network.chain.nativeCurrency.symbol,
     lastUsername,

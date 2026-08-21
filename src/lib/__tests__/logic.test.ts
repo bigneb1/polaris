@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { bidWindow, deadlineLabel, fmtCompact, fmtUSDC, isDone, isFinished, isOverdue, shortAddr } from "../utils.ts";
+import { agentsForTask, bidWindow, deadlineLabel, fmtCompact, fmtUSDC, isDone, isFinished, isOverdue, shortAddr } from "../utils.ts";
 import { apiBase } from "../networks/apiBase.ts";
 import { agentIdFrom } from "../tx.ts";
 
@@ -140,4 +140,76 @@ test("shortAddr keeps both ends so an address stays identifiable", () => {
   const s = shortAddr(addr);
   assert.ok(s.startsWith("0xCac2"), s);
   assert.ok(s.endsWith("2174"), s);
+});
+
+/* ── Who can actually take this task? ─────────────────────────────────────────── */
+
+const agent = (name: string, capabilities: string[], reputation = 100, online = true) => ({
+  name,
+  capabilities,
+  reputation,
+  online,
+});
+
+/**
+ * The Create form used to happily escrow a budget on a task no agent would ever
+ * read. This mirrors `capabilityMatch` in server/agent.js — if the two disagree,
+ * the form promises bids that never arrive, which is worse than saying nothing.
+ */
+test("a task type nobody specialises in is open to every agent", () => {
+  // The BOT testnet swarm as it was when a task of type `testing` drew zero bids.
+  const swarm = [
+    agent("Bohr-Research", ["research", "analysis", "summarization"]),
+    agent("Bohr-Writer", ["writing", "code", "general"]),
+  ];
+
+  assert.deepEqual(
+    agentsForTask(swarm, "testing", 100).map((a) => a.name),
+    ["Bohr-Research", "Bohr-Writer"],
+    "nobody claims 'testing', so it is an open call rather than an invisible task",
+  );
+
+  // A category with a specialist routes to that specialist — plus anyone flying the
+  // "general" flag, which is a wildcard by design and predates this change.
+  assert.deepEqual(agentsForTask(swarm, "analysis", 100).map((a) => a.name), ["Bohr-Research", "Bohr-Writer"]);
+
+  // Without a "general" wildcard in the swarm, a claimed category really does
+  // narrow to its specialist — which is what stops this becoming "everyone bids
+  // on everything".
+  const specialists = [agent("Researcher", ["research"]), agent("Designer", ["logo", "graphics"])];
+  assert.deepEqual(agentsForTask(specialists, "logo", 100).map((a) => a.name), ["Designer"]);
+  assert.deepEqual(agentsForTask(specialists, "research", 100).map((a) => a.name), ["Researcher"]);
+  assert.deepEqual(
+    agentsForTask(specialists, "video-editing", 100).map((a) => a.name),
+    ["Researcher", "Designer"],
+    "but an unclaimed category is still open to all of them",
+  );
+});
+
+test("the reputation floor excludes agents just as completely as a bad capability", () => {
+  // Bohr-Writer was slashed to 50 on chain while the UI still showed 100, so a
+  // requester setting the default floor of 100 saw an agent that could never bid.
+  const swarm = [
+    agent("Bohr-Research", ["research"], 145),
+    agent("Bohr-Writer", ["writing", "general"], 50),
+  ];
+
+  assert.deepEqual(agentsForTask(swarm, "research", 100).map((a) => a.name), ["Bohr-Research"]);
+  assert.deepEqual(
+    agentsForTask(swarm, "research", 50).map((a) => a.name),
+    ["Bohr-Research", "Bohr-Writer"],
+    "lowering the floor brings the slashed agent back into range",
+  );
+});
+
+test("offline agents and empty types never count as coverage", () => {
+  const swarm = [agent("Sleeping", ["research"], 100, false), agent("Awake", ["research"], 100)];
+  assert.deepEqual(agentsForTask(swarm, "research", 0).map((a) => a.name), ["Awake"]);
+  assert.deepEqual(agentsForTask(swarm, "", 0), [], "an unnamed custom type is not an open call");
+  assert.deepEqual(agentsForTask(swarm, "   ", 0), []);
+});
+
+test("an agent with no declared capabilities is a generalist", () => {
+  const swarm = [agent("Jack", []), agent("Specialist", ["logo"])];
+  assert.deepEqual(agentsForTask(swarm, "logo", 0).map((a) => a.name), ["Jack", "Specialist"]);
 });

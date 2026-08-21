@@ -904,19 +904,35 @@ app.post("/api/verify", async (req, res) => {
     // unless the deadline has passed (then leave it for slashOnTimeout). USDC
     // stays escrowed; the agent is NOT slashed.
     let reopened = false;
+    let reopenError = null;
     if (meta.deadline > Date.now()) {
+      // `reopenTask` is `onlyAuthorized` — it checks msg.sender against
+      // bidEngine/verifierBridge/owner. The per-network VERDICT signer is none of
+      // those: it only has to produce a signature VerifierBridge can recover, and
+      // whoever sends `submitVerification` is irrelevant. Sending the reopen from
+      // it reverted with "Not authorized" on every rejected task, which silently
+      // pinned them in ASSIGNED until the deadline. Use the registry owner.
+      const owner = ctx.ownerSigner() ?? wallet;
       try {
-        const tr = ctx.contract("taskRegistry", "taskRegistry", wallet);
+        const tr = ctx.contract("taskRegistry", "taskRegistry", owner);
         const tx = await tr.reopenTask(taskId);
         await tx.wait();
         reopened = true;
       } catch (e) {
-        console.error("reopenTask failed:", e.shortMessage || e.message);
+        reopenError = e.shortMessage || e.message;
+        // Loud, and actionable: a task that cannot be reopened is a task stuck in
+        // ASSIGNED, and the operator needs to know which key is missing to fix it.
+        console.error(
+          `[verify:${ctx.id}] reopenTask failed for ${String(taskId).slice(0, 10)} as ${owner.address}: ${reopenError}. ` +
+            `The task stays ASSIGNED until its deadline. reopenTask is onlyAuthorized — set REGISTRY_OWNER_KEY ` +
+            `(or VERIFIER_SIGNER_KEY) on this service to the TaskRegistry owner.`,
+        );
       }
     }
     return res.json({
       ...verdict,
       status: "rejected",
+      reopenError,
       network: ctx.id,
       attempts,
       attemptsLeft: Math.max(0, MAX_ATTEMPTS - attempts),
