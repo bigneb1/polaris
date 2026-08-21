@@ -682,9 +682,12 @@ export async function startSwarm(networkId = DEFAULT_NETWORK) {
           .map((b) => String(b.agent).toLowerCase()),
       );
       for (const a of agents) {
-        if (a.handled.has(taskId)) continue;
-        if (hadTurn.has(String(a.address).toLowerCase())) continue;
-        a.seen.delete(taskId);
+        // Note the direction: an agent that had its turn is ADDED to `seen`, not
+        // merely left out of the clear. `seen` is empty on a fresh process, so
+        // "skip the delete" excluded nobody after a restart — which is exactly when
+        // the duplicate work happened.
+        if (a.handled.has(taskId) || hadTurn.has(String(a.address).toLowerCase())) a.seen.add(taskId);
+        else a.seen.delete(taskId);
       }
     }
 
