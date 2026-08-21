@@ -357,10 +357,23 @@ class Agent {
     await this.ensureErc8004Identity();
   }
 
-  /** Does this agent want this task? Capability match is the core decision. */
-  wants(meta) {
-    if (!this.cfg.capabilities?.length) return true; // generalist
-    return this.cfg.capabilities.includes(meta.taskType) || this.cfg.capabilities.includes("general");
+  /**
+   * Does this agent want this task? Capability match is the core decision.
+   *
+   * `specialised` is the set of capabilities declared anywhere in the swarm. It
+   * exists because an exact-match-only rule silently strands tasks: the Create
+   * form lets a requester type any category ("other"), and a type no agent
+   * declares used to match nobody, so the budget was escrowed on a task not one
+   * agent would ever read. Observed on testnet — a task of type `testing` drew
+   * zero bids across its entire auction window.
+   *
+   * So a type nobody specialises in is an OPEN CALL that any agent may answer,
+   * while a type somebody does specialise in still routes to that specialist.
+   * Deriving it from the live swarm rather than a hardcoded list means it cannot
+   * drift out of step with the categories the UI offers.
+   */
+  wants(meta, specialised) {
+    return capabilityMatch(this.cfg.capabilities, meta.taskType, specialised);
   }
 
   async bidOn(taskId, meta) {
@@ -369,6 +382,10 @@ class Agent {
     const rep = Number(await this.reg.getReputation(this.address));
     if (rep < meta.minReputation) return;
 
+    // Marked BEFORE sending so a slow send can't be double-bid, and un-marked in the
+    // catch below if it fails. It used to be marked here and never cleared, so an
+    // agent whose bid tx failed once — a 503, a gas blip — silently refused to look
+    // at that task ever again, for the whole life of the process.
     this.seen.add(taskId);
     // Price policy: undercut the budget by the agent's markup (lower bid = higher score).
     //
@@ -389,6 +406,7 @@ class Agent {
       // instead of a market: see BID_WINDOW_MS. The swarm tick closes it once the window has
       // passed and every agent has had its chance to bid.
     } catch (e) {
+      this.seen.delete(taskId); // transient or not, let the next tick try again
       this.log("bid skipped:", e.shortMessage || e.message);
     }
   }
@@ -550,6 +568,45 @@ async function postJSON(path, networkId, body) {
  * run (no agents configured, or the network isn't deployed), so the caller can
  * report it rather than silently doing nothing.
  */
+/**
+ * Does an agent with these capabilities want a task of this type?
+ *
+ * `specialised` is every capability declared anywhere in the swarm, minus
+ * "general". It exists because exact matching alone silently strands tasks: the
+ * Create form lets a requester type any category they like, and a type nobody
+ * declares matched nobody — the budget went into escrow on a task not one agent
+ * would ever read. Observed on BOT testnet, where a task of type `testing` drew
+ * zero bids across its entire auction window and then could not be bid on at all.
+ *
+ * So a category with a specialist routes to that specialist, and a category with
+ * NO specialist is an open call that anyone may answer. Deriving the distinction
+ * from the live swarm rather than a hardcoded list keeps it in step with whatever
+ * categories the UI offers, without the two having to know about each other.
+ */
+export function capabilityMatch(capabilities, taskType, specialised) {
+  if (!capabilities?.length) return true; // generalist
+  if (capabilities.includes(taskType)) return true;
+  if (capabilities.includes("general")) return true;
+  return specialised ? !specialised.has(taskType) : false;
+}
+
+/**
+ * May agents still bid on this task?
+ *
+ * The window gates EARLY AWARDING, not participation. It used to gate both, which
+ * made "no bids before the window shut" a permanent condition: the task stayed
+ * OPEN, unassignable, with the budget locked until the reaper refunded it hours
+ * later. That is a stuck terminal state by another name, and an RPC outage lasting
+ * longer than the window produces it every time.
+ *
+ * While at least one bid exists the window is strict — no late bids, no sniping, the
+ * auction stays an auction. While zero bids exist there is no auction to protect,
+ * so the call stays open until the deadline.
+ */
+export function biddingIsOpen(windowClosed, bidCount) {
+  return !windowClosed || BigInt(bidCount) === 0n;
+}
+
 export async function startSwarm(networkId = DEFAULT_NETWORK) {
   if (!isDeployed(networkId)) {
     console.log(`[swarm:${networkId}] not deployed — swarm not started.`);
@@ -562,6 +619,9 @@ export async function startSwarm(networkId = DEFAULT_NETWORK) {
   ctx.requireAddresses(["agentRegistry", "bidEngine", "taskRegistry", "verifierBridge"]);
   const taskReg = ctx.contract("taskRegistry", "taskRegistry");
   const agents = configs.map((c) => new Agent(c, ctx));
+  // Every capability anyone in this swarm claims. `wants()` uses it to tell a
+  // category with a specialist from one with none — see the comment there.
+  const specialised = new Set(agents.flatMap((a) => a.cfg.capabilities ?? []).filter((c) => c !== "general"));
 
   console.log(`[swarm:${networkId}] starting with ${agents.length} agent(s) on ${getNetwork(networkId).label}`);
   for (const a of agents) {
@@ -570,6 +630,67 @@ export async function startSwarm(networkId = DEFAULT_NETWORK) {
     await a.resolveIdentity().catch((e) => a.log("smart account unavailable:", e.shortMessage || e.message));
     if (await a.hasGas()) await a.ensureRegistered().catch((e) => a.log("register skipped:", e.shortMessage || e.message));
   }
+
+  /**
+   * One open task, start to finish: confirm it on chain, let anyone who wants it
+   * bid, and close the auction when its time is up.
+   *
+   * Extracted from the tick so a failure here can be caught per task instead of
+   * taking the whole tick down with it.
+   */
+  const considerTask = async (it) => {
+    const taskId = it.taskId;
+    // The chain is still authoritative before we act, but only for tasks the index
+    // already believes are open — a handful, not the whole history.
+    const t = await taskReg.tasks(taskId);
+    if (Number(t.status) !== 0) return; // 0 = OPEN; skip assigned/settled
+    if (t.deadline * 1000n < BigInt(Date.now())) return; // expired
+    const meta = await ctx.readTaskMeta(taskId);
+    if (!meta) return;
+
+    // The auction's own clock, from on-chain data so every agent and every restart
+    // agrees on it: 20 minutes from creation, clamped to whatever is left before the
+    // deadline (a task due sooner than the window cannot wait the full window).
+    const createdAtMs = Number(t.createdAt) * 1000;
+    const deadlineMs = Number(t.deadline) * 1000;
+    const windowMs = Math.min(BID_WINDOW_MS, Math.max(0, deadlineMs - createdAtMs));
+    const windowClosed = Date.now() >= createdAtMs + windowMs;
+
+    const bidsSoFar = await agents[0].bid.bidCount(taskId);
+
+    if (biddingIsOpen(windowClosed, bidsSoFar)) {
+      for (const a of agents) {
+        // A bad read for one agent must not silence the rest of the swarm.
+        try {
+          // Never let an agent commit to work it can't pay the gas to submit.
+          if (a.wants(meta, specialised) && (await a.hasGas())) await a.bidOn(taskId, meta);
+        } catch (e) {
+          a.log("could not consider task:", e.shortMessage || e.message);
+        }
+      }
+      if (!windowClosed) return;
+      // Window is already past and this pass may have just drawn the first bid —
+      // fall through and award it rather than waiting another full tick.
+      if ((await agents[0].bid.bidCount(taskId)) === 0n) return; // still nobody
+    }
+
+    // Window over: close it and let BidEngine pick on score. Idempotent — `awardBid`
+    // guards on `auctionClosed`, so whoever gets there first just finalises the winner.
+    // Done here rather than on a timer because a restart forgets a timer, and a task
+    // left OPEN with bids and nothing to award it is one more way to get stuck.
+    // Any agent may close an auction; pick one that can pay the gas.
+    let closer = null;
+    for (const a of agents) if (await a.hasGas()) { closer = a; break; }
+    if (!closer) return;
+    try {
+      await closer.send(closer.bid, "awardBid", [taskId]);
+      closer.log(`bidding closed for "${meta.title}" — best bid awarded`);
+    } catch (e) {
+      const msg = e.shortMessage || e.message || "";
+      // "No bids" is normal: nobody wanted it, and it stays OPEN until its deadline.
+      if (!/Auction closed|No bids/i.test(msg)) closer.log("award skipped:", msg);
+    }
+  };
 
   let ticking = false;
   const tick = async () => {
@@ -585,50 +706,30 @@ export async function startSwarm(networkId = DEFAULT_NETWORK) {
       const index = await getIndex(networkId).catch(() => null);
       const openTasks = (index?.tasks ?? []).filter((t) => t.status === "OPEN");
 
-      for (const it of openTasks) {
-        const taskId = it.taskId;
-        // The chain is still authoritative before we act, but only for tasks the index
-        // already believes are open — a handful, not the whole history.
-        const t = await taskReg.tasks(taskId);
-        if (Number(t.status) !== 0) continue; // 0 = OPEN; skip assigned/settled
-        if (t.deadline * 1000n < BigInt(Date.now())) continue; // expired
-        const meta = await ctx.readTaskMeta(taskId);
-        if (!meta) continue;
-
-        // The auction's own clock, from on-chain data so every agent and every restart
-        // agrees on it: 20 minutes from creation, clamped to whatever is left before the
-        // deadline (a task due sooner than the window cannot wait the full window).
-        const createdAtMs = Number(t.createdAt) * 1000;
-        const deadlineMs = Number(t.deadline) * 1000;
-        const windowMs = Math.min(BID_WINDOW_MS, Math.max(0, deadlineMs - createdAtMs));
-        const windowClosed = Date.now() >= createdAtMs + windowMs;
-
-        if (!windowClosed) {
-          for (const a of agents) {
-            // Never let an agent commit to work it can't pay the gas to submit.
-            if (a.wants(meta) && (await a.hasGas())) await a.bidOn(taskId, meta);
-          }
-          continue;
-        }
-
-        // Window over: close it and let BidEngine pick on score. Idempotent — `awardBid`
-        // guards on `auctionClosed`, so whoever gets there first just finalises the winner.
-        // Done here rather than on a timer because a restart forgets a timer, and a task
-        // left OPEN with bids and nothing to award it is one more way to get stuck.
-        // Any agent may close an auction; pick one that can pay the gas.
-        let closer = null;
-        for (const a of agents) if (await a.hasGas()) { closer = a; break; }
-        if (!closer) continue;
+      // Every unit of work below is isolated. This whole body used to sit inside the
+      // single try/catch at the bottom, so ONE transient RPC error — one 503 on one
+      // task's `tasks()` read — threw away every remaining task and every agent's
+      // turn. When BOT testnet's only RPC started flapping, that cost ten hours of
+      // total swarm silence and left a funded task unbid through its whole auction
+      // window. A failure must now cost exactly the thing that failed.
+      const failed = [];
+      const isolate = async (what, fn) => {
         try {
-          await closer.send(closer.bid, "awardBid", [taskId]);
-          closer.log(`bidding closed for "${meta.title}" — best bid awarded`);
+          return await fn();
         } catch (e) {
-          const msg = e.shortMessage || e.message || "";
-          // "No bids" is normal: nobody wanted it, and it stays OPEN until its deadline.
-          if (!/Auction closed|No bids/i.test(msg)) closer.log("award skipped:", msg);
+          failed.push(`${what}: ${e.shortMessage || e.message}`);
+          return undefined;
         }
+      };
+
+      for (const it of openTasks) {
+        await isolate(`task ${it.taskId.slice(2, 10)}`, () => considerTask(it));
       }
-      for (const a of agents) if (await a.hasGas()) await a.fulfilWins(index?.tasks ?? []);
+      for (const a of agents) {
+        await isolate(`${a.cfg.name} fulfil`, async () => {
+          if (await a.hasGas()) await a.fulfilWins(index?.tasks ?? []);
+        });
+      }
 
       // Identity is a per-tick concern, not a startup one. `ensureErc8004Identity` used to be
       // reachable only through `ensureRegistered`, which runs once when the swarm boots, so an
@@ -638,7 +739,17 @@ export async function startSwarm(networkId = DEFAULT_NETWORK) {
       // warm agent costs one cache read.
       for (const a of agents) {
         if (a.erc8004Id) continue;
-        if (await a.hasGas()) await a.ensureErc8004Identity();
+        await isolate(`${a.cfg.name} identity`, async () => {
+          if (await a.hasGas()) await a.ensureErc8004Identity();
+        });
+      }
+
+      // One summary line, not one per failure: a flapping RPC fails everything at
+      // once, and N identical stack-traces per tick is how the real signal got lost.
+      if (failed.length) {
+        console.error(
+          `[swarm:${networkId}] ${failed.length} of ${openTasks.length + agents.length * 2} steps failed this tick — ${failed[0]}${failed.length > 1 ? ` (+${failed.length - 1} more)` : ""}`,
+        );
       }
     } catch (e) {
       console.error(`[swarm:${networkId}] tick error:`, e.message);
