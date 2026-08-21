@@ -13,5 +13,11 @@
   },
   "erc8004Identity": "0xED6d1aF5556a4407B09776cd64d28098880c7EAa",
   "erc8004Reputation": "0x78Cb2B126BCC07ca2843CBd290eBb813c8Fb718D",
-  "erc8004Validation": "0xb66a65441C3e885c5097380605e4333e5278698f"
+  "erc8004Validation": "0xb66a65441C3e885c5097380605e4333e5278698f",
+  "deploymentTxs": {
+    "IdentityRegistryUpgradeable": "0x22a2f6eabc1287bdb75e2420fb037d4b4debca849ada03e05cb552f2a9aa8e95",
+    "ReputationRegistryUpgradeable": "0x1a33430f7a6a4f15e383ebfd687adbd8265482bdf138ca7666f66a02c65ed484",
+    "ValidationRegistryUpgradeable": "0xf3ac47e95b1437c0350be9c8453c24f2ca949fd3ba474d0488bb805df506da86",
+    "bootstrap": "0xae53aed369dec7e9488ed8f3da40598afff64d9bde1e9523b21e2efcc07890f2"
+  }
 }

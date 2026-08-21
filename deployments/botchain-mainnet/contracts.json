@@ -33,5 +33,21 @@
   },
   "erc4337UpdatedAtIso": "2026-08-19T20:08:39.342Z",
   "signerRotatedAtIso": "2026-08-19T20:21:16.143Z",
-  "owner": "0xe141f388e35d80752F15ea767bC7D1fdf96f19eB"
+  "owner": "0xe141f388e35d80752F15ea767bC7D1fdf96f19eB",
+  "deploymentTxs": {
+    "usdcEscrow": "0x6ee5c7f2d93d992e347df4df25b11e15315ef6206d28b6fd5939582a99cfcded",
+    "agentRegistry": "0xcb8e3be6fe0fc3257f395827134393fe1ff0490bf5531b3f52714d54a9252937",
+    "bidEngine": "0xa2542fa4ae9e122bc506e2b26eda2c0757b35f635c1dd8795281f785eea287a3",
+    "taskRegistry": "0xabee3e052a1c42a5bfe79478f0c843fdeecb5268025bfb05bf30f4eac7ff90c7",
+    "verifierBridge": "0x8b856fd303e7888d41b8e0ca66a6b0d6ab5482604f22d88bfbeb89540de51053",
+    "agentBadges": "0x894d14baa49b2cf2467df6ff141bc48b7833fb4cd376b1ffc1f7b0d9c96ecdf0",
+    "subscriptionManager": "0xe001a42b870f73c698c2d44567665339494d1d6863abc43c2f200beb4049068e",
+    "recurringMarket": "0x431e4b19f9b5ba554e8d95560f98d431a908bbb80f7d62b3fc73c4ab7a14249b",
+    "disputeManager": "0xe6479a1a0bcba1b5d1814e78afcd00d827a828f69f0038b46d82ad932073b793",
+    "erc8004Identity": "0x845f0667b5215168f8feed967c41663e6e39312ac0167e477a854f61380bd4d5",
+    "erc8004Reputation": "0xb8382e071643df4868d260957d40240f0b6756bee3c7686eabf6a8c4a1fb587f",
+    "erc8004Validation": "0x3d48d514cbd1f4bbac845ad63b8ab34145671a1e6c0641a354e43fa58f5b4232",
+    "accountFactory": "0x3d94ff2be196b7a849426f6230ea3ce75c782889a1edc453c6423da81fc37307"
+  },
+  "deploymentTxsNote": "Contract-creation transaction hashes, recovered from chain (creations by the deployer around deployBlock, cross-checked against scan.botchain.ai). The addresses were recorded at deploy time but the hashes were not, and without them the only apparent way to answer 'what is the deployment transaction' was to redeploy \u2014 which would have orphaned the live market. entryPoint is omitted deliberately: it is the canonical shared ERC-4337 EntryPoint, a dependency we use and did not deploy."
 }
