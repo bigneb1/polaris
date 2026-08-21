@@ -35,5 +35,21 @@
   "extensionsFromBlock": 20323508,
   "erc4337UpdatedAtIso": "2026-08-18T19:32:23.337Z",
   "signerRotatedAtIso": "2026-08-18T22:59:40.531Z",
-  "owner": "0xe141f388e35d80752F15ea767bC7D1fdf96f19eB"
+  "owner": "0xe141f388e35d80752F15ea767bC7D1fdf96f19eB",
+  "deploymentTxs": {
+    "usdcEscrow": "0x368cc1ec591d76eeeaf375d3bebc48661233f8e7907981bc6861c4fff8565391",
+    "agentRegistry": "0x4cd70c7b099817f4ee54c09bdb4782e559e25eb52549a175587dc51f20e86117",
+    "bidEngine": "0xcc5b7ec515d4fe1d8da0fa8a933994217398c57a0e1315c4f06db64662f49d7d",
+    "taskRegistry": "0x2b6f644da77c21c14ac1f73aa6519c2ff818783000c4b723ede7f2a45b7b9be3",
+    "verifierBridge": "0x8cc86cf25d46ae4aa2de1727fd0cef9d6311398174d910fe77a8d166a43bb9df",
+    "agentBadges": "0xe4238959cc7ca80c34bf6535bfbca06adde406ef41cbfb2cd577698b4c4bdf02",
+    "erc8004Identity": "0x1892b7eb5ba02309bce3f2b0070adb103eb08037b1388a7ac3638b10fe5a865e",
+    "erc8004Reputation": "0x2319401fce02f404ab0200824c5ad72495ac9b7968a64c9813b2797a1fc8fa93",
+    "erc8004Validation": "0x5918195ff2f03e141ffea2e7878ee2456ad25add6c1490a00b851054c8d8a000",
+    "subscriptionManager": "0xa5e5301ba9426c29d3579168afc4f324b1e4d4b2abc653405de5523430525f6c",
+    "recurringMarket": "0xdebd7b9537c1b749cc44873dac4587aaea6335b6b228fe8fcf3b8f084f4db503",
+    "disputeManager": "0xa81aefceb0db33a6f273c448be3c41c12c9145436fcca725071fa84feffcb855",
+    "accountFactory": "0x61f702ee4a7ec1a82f6ea8f1bccc3d6a16c3162486564a9c450fc48289f8e1d9"
+  },
+  "deploymentTxsNote": "Contract-creation transaction hashes, read from scan.bohr.life. entryPoint is the canonical shared ERC-4337 EntryPoint, which we use but did not deploy."
 }

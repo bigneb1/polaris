@@ -1,6 +1,7 @@
 import { ethers } from "ethers";
 import "dotenv/config";
 import { DEFAULT_NETWORK, getNetwork, isNetworkId, NETWORK_IDS } from "./networks.js";
+import { withRpcRetry } from "./rpcRetry.js";
 
 /**
  * Shared chain layer for the backend verifier and the agent runtime.
@@ -33,6 +34,23 @@ export const USDC_DECIMALS = 6;
  * itself fails under rate limits — the "failed to detect network" startup crash)
  * and saves RPC budget.
  */
+/**
+ * A flapping endpoint can retry hundreds of times a minute, and a log line per
+ * retry buries everything else — which is exactly what made the 503 outage hard to
+ * read in the first place. One line per method per minute is enough to see that an
+ * endpoint is sick without losing the swarm's own output.
+ */
+const retryLogAt = new Map();
+function logRetryThrottled(netId, url, { method, attempt, error }) {
+  const key = `${netId}:${method}`;
+  const now = Date.now();
+  if (now - (retryLogAt.get(key) ?? 0) < 60_000) return;
+  retryLogAt.set(key, now);
+  console.warn(
+    `[chain:${netId}] ${method} failed on ${url} (attempt ${attempt}): ${error.shortMessage || error.message} — retrying`,
+  );
+}
+
 function buildProvider(net) {
   const network = ethers.Network.from({ chainId: net.chainId, name: net.id });
   const primaries = String(net.rpcUrl || "")
@@ -41,8 +59,14 @@ function buildProvider(net) {
     .filter(Boolean);
   const urls = [...new Set([...primaries, net.publicRpcUrl].filter(Boolean))];
   const stall = Number(process.env.RPC_STALL_MS || 3000);
+  // Retry wraps each ENDPOINT, not the failover group: a 503 from one URL is
+  // repeated against that URL briefly before the FallbackProvider gives up on it,
+  // and on a single-URL network (both BOT chains) it is the only resilience there
+  // is. Without it a flapping RPC reached the swarm tick verbatim and stalled it.
   const subs = urls.map((url, i) => ({
-    provider: new ethers.JsonRpcProvider(url, network, { staticNetwork: network }),
+    provider: withRpcRetry(new ethers.JsonRpcProvider(url, network, { staticNetwork: network }), {
+      onRetry: (info) => logRetryThrottled(net.id, url, info),
+    }),
     priority: i + 1, // lower number is tried first
     weight: 1,
     stallTimeout: stall,
@@ -384,6 +408,26 @@ export function getChainCtx(networkId = DEFAULT_NETWORK) {
     /** Signing wallet for verdicts on this network, or null when unconfigured. */
     signer() {
       const key = process.env[net.signerKeyEnv];
+      return key ? new ethers.Wallet(key, provider) : null;
+    },
+    /**
+     * The account that OWNS the registries, which is not the same account as the
+     * one that signs verdicts.
+     *
+     * VerifierBridge checks a verdict's SIGNATURE, so `submitVerification` can be
+     * sent by anybody holding a valid one — which is why a per-network verdict
+     * signer works there. `TaskRegistry.reopenTask` instead checks `msg.sender`
+     * against `bidEngine || verifierBridge || owner`, so the verdict signer is not
+     * authorised to call it at all.
+     *
+     * Conflating the two broke the entire reject-and-retry path in production:
+     * `reopenTask` reverted with "Not authorized", the error was swallowed by a
+     * `console.error`, and a task whose deliverable failed review stayed ASSIGNED —
+     * "in progress" in the UI — until the deadline reaper slashed it hours later.
+     * A failing verdict is a decision, and a decided task must move.
+     */
+    ownerSigner() {
+      const key = process.env.REGISTRY_OWNER_KEY || process.env.VERIFIER_SIGNER_KEY;
       return key ? new ethers.Wallet(key, provider) : null;
     },
   };

@@ -145,3 +145,36 @@ export function isOverdue(task: { status: string; deadlineMs?: number; attestati
 export function isDone(task: { status: string; attestation?: { passed: boolean } }): boolean {
   return task.status === "SETTLED" || task.attestation?.passed === true;
 }
+
+/**
+ * Which agents could actually take a task of this type, at this reputation floor?
+ *
+ * This mirrors the swarm's own rule (`capabilityMatch` and the reputation check in
+ * `server/agent.js`), and it exists because the form could escrow a budget on work
+ * no agent would ever look at. The Create form lets a requester type any category
+ * they like via "other"; a category no agent declares matched nobody, and the task
+ * sat OPEN until it was refunded. Observed live: a task of type `testing` drew zero
+ * bids across its whole auction window.
+ *
+ * So a category somebody specialises in routes to that specialist, and a category
+ * NOBODY specialises in is an open call anyone may answer. Reputation is folded in
+ * too, because a floor above an agent's score excludes it just as completely as a
+ * capability mismatch — and that is easy to set by accident.
+ */
+export function agentsForTask<T extends { capabilities: string[]; reputation: number; online: boolean }>(
+  agents: T[],
+  taskType: string,
+  minReputation: number,
+): T[] {
+  const type = taskType.trim();
+  if (!type) return [];
+  // Every capability anyone claims. "general" is a wildcard, not a speciality.
+  const specialised = new Set(agents.flatMap((a) => a.capabilities ?? []).filter((c) => c && c !== "general"));
+  const openCall = !specialised.has(type);
+  return agents.filter((a) => {
+    if (!a.online) return false;
+    if (a.reputation < minReputation) return false;
+    if (!a.capabilities?.length) return true; // generalist
+    return a.capabilities.includes(type) || a.capabilities.includes("general") || openCall;
+  });
+}

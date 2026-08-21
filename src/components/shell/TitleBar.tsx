@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import ConnectModal from "../ConnectModal";
 import WalletAccountPanel from "../WalletAccountPanel";
-import { openReownAccount } from "../../lib/wallets/reown";
+import { openReownAccount, openReownNetworks } from "../../lib/wallets/reown";
 import { useState } from "react";
 
 /**
@@ -34,12 +34,30 @@ function WalletPillContents({
   balance,
   balanceSymbol,
   address,
+  wrongNetwork,
+  networkLabel,
 }: {
   providerName: string | null;
   balance: number | null;
   balanceSymbol: string;
   address: string;
+  wrongNetwork: boolean;
+  networkLabel: string;
 }) {
+  // A wallet sitting on another chain is not a healthy connection, and the dot is
+  // the only thing on screen that claims it is. Say which chain the app wants
+  // instead of showing a balance read from a chain the wallet isn't on.
+  if (wrongNetwork) {
+    return (
+      <>
+        <span className="status-dot bg-destructive shrink-0" />
+        <span className="hidden sm:inline text-[11px] text-destructive whitespace-nowrap">
+          Switch to {networkLabel}
+        </span>
+        <span className="text-[11px] font-mono text-foreground whitespace-nowrap">{shortAddr(address)}</span>
+      </>
+    );
+  }
   return (
     <>
       <span className="status-dot bg-success shrink-0" />
@@ -72,6 +90,7 @@ export function TitleBar() {
     reownEnabled,
     connecting,
     connectorName,
+    wrongNetwork,
     disconnect,
   } = useWallet();
   const [modalOpen, setModalOpen] = useState(false);
@@ -150,11 +169,18 @@ export function TitleBar() {
             */}
             {usesReownAccount ? (
               <button
-                onClick={() => openReownAccount()}
-                title="Wallet details"
+                onClick={() => (wrongNetwork ? openReownNetworks() : openReownAccount())}
+                title={wrongNetwork ? `Switch your wallet to ${network.label}` : "Wallet details"}
                 className="flex items-center gap-1.5 h-7 px-2 sm:px-2.5 rounded-[4px] bg-background border border-border min-w-0 hover:bg-foreground/[0.06] transition-colors"
               >
-                <WalletPillContents providerName={providerName} balance={balance} balanceSymbol={balanceSymbol} address={address} />
+                <WalletPillContents
+                  providerName={providerName}
+                  balance={balance}
+                  balanceSymbol={balanceSymbol}
+                  address={address}
+                  wrongNetwork={wrongNetwork}
+                  networkLabel={network.shortLabel}
+                />
               </button>
             ) : (
               <DropdownMenu open={accountOpen} onOpenChange={setAccountOpen}>
@@ -162,7 +188,14 @@ export function TitleBar() {
                   title="Wallet details"
                   className="flex items-center gap-1.5 h-7 px-2 sm:px-2.5 rounded-[4px] bg-background border border-border min-w-0 hover:bg-foreground/[0.06] transition-colors"
                 >
-                  <WalletPillContents providerName={providerName} balance={balance} balanceSymbol={balanceSymbol} address={address} />
+                  <WalletPillContents
+                  providerName={providerName}
+                  balance={balance}
+                  balanceSymbol={balanceSymbol}
+                  address={address}
+                  wrongNetwork={wrongNetwork}
+                  networkLabel={network.shortLabel}
+                />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="p-0">
                   <WalletAccountPanel onClose={() => setAccountOpen(false)} />

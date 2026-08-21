@@ -7,6 +7,14 @@ import { createLogIndex } from "./eventIndex.js";
 import { openIndexStore } from "./indexStore.js";
 import { cachedAgentIds, cachedMintability, erc8004Available } from "./erc8004.js";
 
+/**
+ * Reputation lost per slash. Mirrors `AgentRegistry.slash()` — and its native twin
+ * `NativeAgentRegistry.slash()` — which do `reputation > 50 ? reputation - 50 : 0`
+ * while emitting only `AgentSlashed`. Nothing on chain tells the index the new
+ * score, so the index has to apply the same rule or drift from it permanently.
+ */
+const SLASH_REP_PENALTY = 50;
+
 const ASSET_STORE = storePath("ASSET_STORE", "assets.json");
 const AGENT_META_STORE = storePath("AGENT_META_STORE", "agent-meta.json");
 function loadAssets() {
@@ -380,6 +388,14 @@ function createIndexer(networkId) {
         } else if (log.name === "AgentSlashed") {
           ag.slashed = true;
           ag.tasksFailed += 1;
+          // Slashing drops reputation by 50 on chain, but `slash()` emits only
+          // AgentSlashed — never ReputationUpdated (AgentRegistry.sol:169-172 and its
+          // native twin). Folding the penalty here is the only way the index can
+          // agree with `getReputation()`. It did not, so a slashed agent kept its
+          // pre-slash score in the UI: Bohr-Writer showed 100 while the chain said
+          // 50, and a requester setting a floor of 100 saw an agent that looked
+          // eligible and could never bid.
+          ag.reputation = Math.max(0, ag.reputation - SLASH_REP_PENALTY);
         }
       }
     }

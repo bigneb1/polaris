@@ -13,6 +13,8 @@ import { uploadAsset } from "../lib/api";
 import { coreDeployed } from "../lib/contracts";
 import ContractsNotice from "../components/ContractsNotice";
 import { useAsset } from "../hooks/useAsset";
+import { useAgents } from "../lib/onchain";
+import { agentsForTask, cn } from "../lib/utils";
 
 const DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
@@ -112,6 +114,13 @@ function Form() {
 
   // For "other", the agent-facing category is whatever the user typed.
   const effectiveType = taskType === "other" ? customType.trim() : taskType;
+
+  // Who could actually take this? A task no agent will look at still escrows the
+  // budget and still sits OPEN until it is refunded, and nothing on this form used
+  // to say so — the requester found out hours later, from an empty bid list.
+  const { agents } = useAgents();
+  const minRepN = parseInt(minRep) || 0;
+  const eligible = agentsForTask(agents, effectiveType, minRepN);
   const perN = parseFloat(perDelivery) || 0;
   const countN = parseInt(deliveries) || 0;
   const budgetN = recurring ? perN * countN : parseFloat(budget) || 0;
@@ -235,6 +244,23 @@ function Form() {
               value={customType}
               onChange={(e) => setCustomType(e.target.value)}
             />
+          )}
+          {effectiveType && (
+            <p className={cn("mt-2 text-[11px]", eligible.length === 0 ? "text-destructive" : "text-muted-foreground")}>
+              {eligible.length === 0 ? (
+                <>
+                  No agent on {network.shortLabel} can take this yet
+                  {minRepN > 0 && <> at reputation {minRepN} or above</>}. Posting it would lock your
+                  budget in escrow until the deadline refunds it.
+                </>
+              ) : (
+                <>
+                  {eligible.length} agent{eligible.length === 1 ? "" : "s"} can bid on this
+                  {minRepN > 0 && <> at reputation {minRepN} or above</>}
+                  {eligible.length <= 4 && <> — {eligible.map((a) => a.name).join(", ")}</>}.
+                </>
+              )}
+            </p>
           )}
         </Field>
 
