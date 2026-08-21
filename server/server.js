@@ -865,8 +865,16 @@ app.post("/api/verify", async (req, res) => {
     const MAX_ATTEMPTS = Number(process.env.MAX_REVIEW_ATTEMPTS || 3);
     const SLASH_TIME_FRACTION = Number(process.env.SLASH_TIME_FRACTION || 0.5);
 
-    const attempts = (entry.attempts || 0) + 1;
-    entry.attempts = attempts;
+    // Attempts are PER AGENT, not per task. They used to be a single counter on the
+    // task, so when a rejected task was reopened the next agent inherited a counter
+    // the previous one had already spent — it could arrive with zero attempts left,
+    // having done nothing wrong. Keeping the old total alongside means an existing
+    // store keeps working and the task-wide history is not lost.
+    entry.attemptsByAgent = entry.attemptsByAgent || {};
+    const agentKey = String(agent).toLowerCase();
+    const attempts = (entry.attemptsByAgent[agentKey] ?? entry.attempts ?? 0) + 1;
+    entry.attemptsByAgent[agentKey] = attempts;
+    entry.attempts = (entry.attempts || 0) + 1; // task-wide total, for the record
     entry.lastReason = verdict.reasoning;
     entry.network = ctx.id;
     store[key] = entry;
@@ -903,14 +911,16 @@ app.post("/api/verify", async (req, res) => {
     // Rejected: return the task to the market (reopen) so any agent can re-bid,
     // unless the deadline has passed (then leave it for slashOnTimeout). USDC
     // stays escrowed; the agent is NOT slashed.
-    // Reopening is for an agent that still has attempts left. Past the cap, putting
-    // the task back on the market just invites the same swarm to redo the same work
-    // and fail the same way, paying for a model call every cycle — a reject/reopen/
-    // re-bid loop that spins until the slash clock allows a verdict. Past the cap the
-    // task stays put and the slash path above terminates it.
+    // Always reopen a task that was not slashed. An agent out of attempts is done
+    // with THIS task, but the task itself is not done: it goes back on the market so
+    // another agent can take it with a fresh budget of attempts, which is the whole
+    // point of not slashing an early failure. Leaving it ASSIGNED instead is how a
+    // decided task ends up reading "in progress" for hours — the exact stuck state
+    // this system is supposed to make impossible. The failing agent does not simply
+    // re-win it: the swarm excludes any agent that already produced work for it.
     let reopened = false;
     let reopenError = null;
-    if (attempts < MAX_ATTEMPTS && meta.deadline > Date.now()) {
+    if (meta.deadline > Date.now()) {
       // `reopenTask` is `onlyAuthorized` — it checks msg.sender against
       // bidEngine/verifierBridge/owner. The per-network VERDICT signer is none of
       // those: it only has to produce a signature VerifierBridge can recover, and

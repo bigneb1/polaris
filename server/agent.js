@@ -665,7 +665,16 @@ export async function startSwarm(networkId = DEFAULT_NETWORK) {
     // reopened task sat OPEN with nobody willing to bid on it — the same stall the
     // reopen was supposed to cure. Clearing it here is safe precisely because there
     // is nothing yet to double-bid.
-    if (bidsSoFar === 0n) for (const a of agents) a.seen.delete(taskId);
+    if (bidsSoFar === 0n) {
+      for (const a of agents) {
+        // …except an agent that already produced work for this task. It is in
+        // `handled`, its deliverable was rejected, and letting it win the reopened
+        // auction would just have it redo the same work and fail the same way,
+        // paying for a model call every cycle. Reopening is for giving SOMEONE ELSE
+        // a turn; the reaper is the backstop when there is nobody else.
+        if (!a.handled.has(taskId)) a.seen.delete(taskId);
+      }
+    }
 
     if (biddingIsOpen(windowClosed, bidsSoFar)) {
       for (const a of agents) {
