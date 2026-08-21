@@ -638,7 +638,7 @@ export async function startSwarm(networkId = DEFAULT_NETWORK) {
    * Extracted from the tick so a failure here can be caught per task instead of
    * taking the whole tick down with it.
    */
-  const considerTask = async (it) => {
+  const considerTask = async (it, index) => {
     const taskId = it.taskId;
     // The chain is still authoritative before we act, but only for tasks the index
     // already believes are open — a handful, not the whole history.
@@ -666,13 +666,25 @@ export async function startSwarm(networkId = DEFAULT_NETWORK) {
     // reopen was supposed to cure. Clearing it here is safe precisely because there
     // is nothing yet to double-bid.
     if (bidsSoFar === 0n) {
+      // …except for an agent that already had its turn on this task. Winning it once
+      // and having the deliverable rejected is exactly what "reopen" is a response
+      // to; letting the same agent win the reopened auction just has it redo the
+      // same work and fail the same way, paying for a model call every cycle.
+      //
+      // Read from the chain's own record (a past `BidAwarded` to that agent, which
+      // survives `reopenAuction` because the log does), not from process memory. An
+      // in-memory `handled` set is emptied by every restart, and a deploy in the
+      // middle of this loop is precisely when the duplicate work happens — observed:
+      // a redeploy handed the same agent the task it had just failed.
+      const hadTurn = new Set(
+        (index?.bids ?? [])
+          .filter((b) => b.won && String(b.taskId).toLowerCase() === String(taskId).toLowerCase())
+          .map((b) => String(b.agent).toLowerCase()),
+      );
       for (const a of agents) {
-        // …except an agent that already produced work for this task. It is in
-        // `handled`, its deliverable was rejected, and letting it win the reopened
-        // auction would just have it redo the same work and fail the same way,
-        // paying for a model call every cycle. Reopening is for giving SOMEONE ELSE
-        // a turn; the reaper is the backstop when there is nobody else.
-        if (!a.handled.has(taskId)) a.seen.delete(taskId);
+        if (a.handled.has(taskId)) continue;
+        if (hadTurn.has(String(a.address).toLowerCase())) continue;
+        a.seen.delete(taskId);
       }
     }
 
@@ -741,7 +753,7 @@ export async function startSwarm(networkId = DEFAULT_NETWORK) {
       };
 
       for (const it of openTasks) {
-        await isolate(`task ${it.taskId.slice(2, 10)}`, () => considerTask(it));
+        await isolate(`task ${it.taskId.slice(2, 10)}`, () => considerTask(it, index));
       }
       for (const a of agents) {
         await isolate(`${a.cfg.name} fulfil`, async () => {
