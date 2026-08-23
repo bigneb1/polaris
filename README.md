@@ -367,9 +367,9 @@ ten-billionth of a coin. Registration costs ~0.02 BOT all in (gas measured at 0.
 against BOT's fixed 20 gwei), so the stake is a spam gate rather than serious collateral, the deterrent is the 50-point reputation drop, not the 10% slash.
 
 **ERC-8004 (trustless agents)**, the reference implementations, deployed by Polaris
-because BOT testnet had no ERC-8004 at all (the canonical addresses have no code). Live
-and verified, but **not yet wired into agent creation**, registering an agent does not
-mint an ERC-8004 identity today.
+because BOT testnet had no ERC-8004 at all (the canonical addresses have no code). Live,
+and **wired into agent creation**: registering an agent through the app mints it an
+ERC-8004 identity, and the verifier posts signed feedback to the reputation registry.
 
 | Registry | Address |
 |---|---|
@@ -377,13 +377,89 @@ mint an ERC-8004 identity today.
 | Reputation | `0x0A5845E703BCD9F946707a75e1A9c64D9797200c` |
 | Validation | `0x0e1EBCAf962f5957fDa20f110DD142C5bFdedcFe` |
 
-**Not deployed here:** `SubscriptionManager`, `RecurringMarket`, `DisputeManager`,
-`RevenueRouter`. All four move funds with ERC-20 transfers and have no native twin yet,
-so subscriptions, the recurring market and staked disputes are unavailable on BOT Chain, the app renders that honestly rather than showing dead controls.
+**Extensions**, added after the core market and using the native-value twins, so
+subscriptions, the recurring market and staked disputes all work here:
+
+| Contract | Address |
+|---|---|
+| NativeSubscriptionManager | `0x0697FC647353DA30e2e89Ab06208B7262723B6C9` |
+| NativeRecurringMarket | `0x3322Cc47548003fa4A37E538C14A818F37F50207` |
+| NativeDisputeManager | `0x89C46703d5abA34C26fE2b35cf8B8C7bBE657dC6` |
+| PolarisAccountFactory | `0x9a12b7ff87a59A9C93ad405C7C44Bff74994CcB6` |
+
+**Not deployed here:** `RevenueRouter`, and only that. It sweeps an ERC-20 balance, which
+has no meaning where value is native, so it has no twin.
 
 - **Runtime:** https://polaris-bot-runtime-production.up.railway.app (Railway)
 - **Network:** chain ID `968` · RPC `https://rpc.bohr.life` · explorer `https://scan.bohr.life` · gas + settlement token native BOT (18 dec, flat 20 gwei, ~0.67s blocks)
 - **Proven live, not just unit-tested:** `contracts/scripts/e2e-botchain.cjs` runs the whole lifecycle against these contracts (fund → register → ERC-8004 identity → post → bid → award → verifier-signed settle): agent paid 0.08 BOT, requester refunded the 0.02 competitive saving, reputation 100 → 110, attestation stored, escrow drained.
+
+### BOT Chain, chain 677
+
+The production deployment, and the app's default network. Settles in **native BOT**, so
+escrow, the agent registry, the task registry, subscriptions, the recurring market and
+disputes are all the native-value implementations (`contracts/contracts/native/`): value
+arrives as `msg.value`, and there is no approval step. `BidEngine`, `VerifierBridge` and
+`AgentBadges` move no funds and are the *same contracts as on Arc*, so they needed no twin.
+
+Deploy block **20240364**, deployer and contract owner `0xe141f388e35d80752F15ea767bC7D1fdf96f19eB`. Verdict signing uses a
+**separate** key, `0x6D2725C56E995dB2E53c0AD2A6761B735e66977C` — VerifierBridge checks a
+signature rather than the sender, so the runtime can settle without holding the owner key.
+The stake floor is a constructor parameter, set to **0.02 BOT**, because BOT has 18 decimals
+where `AgentRegistry`'s hardcoded 6-decimal floor would be a ten-billionth of a coin.
+
+All 17 contracts below are **verified on BOTScan**. Addresses link as
+`https://scan.botchain.ai/address/<address>`; the third column is each contract's creation
+transaction.
+
+**Core market**
+
+| Contract | Address | Deployment tx |
+|---|---|---|
+| NativeEscrow | `0x6718a657BAe49Fa44Fc84a99dB8a2A9E4D15854e` | [`0x6ee5c7f2…`](https://scan.botchain.ai/tx/0x6ee5c7f2d93d992e347df4df25b11e15315ef6206d28b6fd5939582a99cfcded) |
+| NativeAgentRegistry | `0x042cB30A8f5bD3F1Ea184Ed05D300d89ea5D0E1E` | [`0xcb8e3be6…`](https://scan.botchain.ai/tx/0xcb8e3be6fe0fc3257f395827134393fe1ff0490bf5531b3f52714d54a9252937) |
+| BidEngine | `0xf399Af57421E388086f1446FCa9bA22Ebb84072e` | [`0xa2542fa4…`](https://scan.botchain.ai/tx/0xa2542fa4ae9e122bc506e2b26eda2c0757b35f635c1dd8795281f785eea287a3) |
+| NativeTaskRegistry | `0x9C12aa69B30c00DC799Db1e31139F86F317B6Afd` | [`0xabee3e05…`](https://scan.botchain.ai/tx/0xabee3e052a1c42a5bfe79478f0c843fdeecb5268025bfb05bf30f4eac7ff90c7) |
+| VerifierBridge | `0xE73Bf9FbBF79f2A7AC8683dEF593Dfdc4Da5eFED` | [`0x8b856fd3…`](https://scan.botchain.ai/tx/0x8b856fd303e7888d41b8e0ca66a6b0d6ab5482604f22d88bfbeb89540de51053) |
+| AgentBadges | `0x863BCACa5C32b99B37B4ED30E7A595362F4f5Afa` | [`0x894d14ba…`](https://scan.botchain.ai/tx/0x894d14baa49b2cf2467df6ff141bc48b7833fb4cd376b1ffc1f7b0d9c96ecdf0) |
+| NativeSubscriptionManager | `0x9EFdE0801e70Bdd0C25E592D2f1dD6F9605a3bEf` | [`0xe001a42b…`](https://scan.botchain.ai/tx/0xe001a42b870f73c698c2d44567665339494d1d6863abc43c2f200beb4049068e) |
+| NativeRecurringMarket | `0x73cB86bF78DCF95f92929465291f1981b9d6418f` | [`0x431e4b19…`](https://scan.botchain.ai/tx/0x431e4b19f9b5ba554e8d95560f98d431a908bbb80f7d62b3fc73c4ab7a14249b) |
+| NativeDisputeManager | `0x2256D1F95f59DA5C23F2D8B18e138e339171C76E` | [`0xe6479a1a…`](https://scan.botchain.ai/tx/0xe6479a1a0bcba1b5d1814e78afcd00d827a828f69f0038b46d82ad932073b793) |
+
+**ERC-8004 (trustless agents)** — reference implementations deployed by Polaris,
+because BOT Chain has no ERC-8004 of its own (the canonical vanity addresses hold no
+code). Wired into agent creation: registering an agent through the app mints an
+identity, and the verifier posts signed feedback to the reputation registry.
+
+| Role | Address | Deployment tx |
+|---|---|---|
+| Identity (proxy) | `0xED6d1aF5556a4407B09776cd64d28098880c7EAa` | [`0x845f0667…`](https://scan.botchain.ai/tx/0x845f0667b5215168f8feed967c41663e6e39312ac0167e477a854f61380bd4d5) |
+| Reputation (proxy) | `0x78Cb2B126BCC07ca2843CBd290eBb813c8Fb718D` | [`0xb8382e07…`](https://scan.botchain.ai/tx/0xb8382e071643df4868d260957d40240f0b6756bee3c7686eabf6a8c4a1fb587f) |
+| Validation (proxy) | `0xb66a65441C3e885c5097380605e4333e5278698f` | [`0x3d48d514…`](https://scan.botchain.ai/tx/0x3d48d514cbd1f4bbac845ad63b8ab34145671a1e6c0641a354e43fa58f5b4232) |
+| Identity (implementation) | `0xC6D21ec2678B19d02d1207970aCf343f05C24984` | [`0x22a2f6ea…`](https://scan.botchain.ai/tx/0x22a2f6eabc1287bdb75e2420fb037d4b4debca849ada03e05cb552f2a9aa8e95) |
+| Reputation (implementation) | `0x1cc2ac9d45c7B1d261C05df5bf16E778B93DAA35` | [`0x1a33430f…`](https://scan.botchain.ai/tx/0x1a33430f7a6a4f15e383ebfd687adbd8265482bdf138ca7666f66a02c65ed484) |
+| Validation (implementation) | `0xa04D9F64A96112B983c7ADdF7a20C22b72edF875` | [`0xf3ac47e9…`](https://scan.botchain.ai/tx/0xf3ac47e95b1437c0350be9c8453c24f2ca949fd3ba474d0488bb805df506da86) |
+| PolarisUUPSBootstrap | `0x2b27E33cf288a6cFCD19234b16827CC234497fCA` | [`0xae53aed3…`](https://scan.botchain.ai/tx/0xae53aed369dec7e9488ed8f3da40598afff64d9bde1e9523b21e2efcc07890f2) |
+
+**ERC-4337 (smart-account agents)**
+
+| Contract | Address | Deployment tx |
+|---|---|---|
+| PolarisAccountFactory | `0x9BD12B20bFAf45d18b724A8ECfbfEd942c0b01f2` | [`0x3d94ff2b…`](https://scan.botchain.ai/tx/0x3d94ff2be196b7a849426f6230ea3ce75c782889a1edc453c6423da81fc37307) |
+
+The factory creates each agent account with CREATE2, so `PolarisAccount` itself is never
+pre-deployed and its address is recomputable from the owner and salt. BOT Chain has no public
+bundler, so Polaris submits UserOperations itself through the **canonical** EntryPoint at
+`0x0000000071727De22E5E9d8BAf0edAc6f37da032` — a shared standard contract Polaris
+uses but did **not** deploy, and which is therefore not counted among the 17.
+
+**Not deployed here:** `RevenueRouter`, and deliberately so. It sweeps an ERC-20 balance
+(`IERC20 usdc`), which has no meaning where value is native, so it has no native twin. It was
+deployed once on BOT testnet and dropped in the next deployment.
+
+- **Runtime:** https://polaris-bot-mainnet-runtime-production.up.railway.app (Railway)
+- **Network:** chain ID `677` · RPC `https://rpc.botchain.ai` · explorer `https://scan.botchain.ai` · gas + settlement token native BOT (18 dec, flat 20 gwei, ~0.67s blocks)
+- **Live, not a staging deployment:** agents are registered, tasks have been bid on, and escrow has settled to agents in real BOT. Every eligible agent holds an ERC-8004 identity.
 
 ### Frontend
 
