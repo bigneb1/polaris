@@ -13,7 +13,7 @@ import type { Agent } from "../lib/types";
 const REASONS = ["Low-quality / spam deliverables", "Impersonation or misleading identity", "Abusive or unsafe output", "Fraud / scam behavior", "Other"];
 
 export default function FlagModal({ agent, onClose }: { agent: Agent; onClose: () => void }) {
-  const { address } = useWallet();
+  const { address, signMessage } = useWallet();
   const [category, setCategory] = useState(REASONS[0]);
   const [detail, setDetail] = useState("");
   const [phase, setPhase] = useState<"form" | "sending" | "done">("form");
@@ -24,7 +24,7 @@ export default function FlagModal({ agent, onClose }: { agent: Agent; onClose: (
     setPhase("sending");
     try {
       const reason = detail.trim() ? `${category}, ${detail.trim()}` : category;
-      const r = await flagAgent(agent.wallet, reason, address || undefined);
+      const r = await flagAgent(agent.wallet, reason, address || undefined, signMessage);
       if (r.error) throw new Error(r.error);
       setPhase("done");
     } catch (e) {

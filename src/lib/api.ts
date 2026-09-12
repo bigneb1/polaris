@@ -1,13 +1,43 @@
+import { resolveNetwork } from "./activeNetwork";
+import { getNetwork, type NetworkId } from "./networks";
+
 /**
- * Client for the Polaris verifier backend (backend/server.js).
+ * Client for the Polaris verifier backend (server/server.js).
  *
- * The backend submits evidence to GenLayer, waits for validator consensus and
- * finality, then uses a narrow relay key to transport that decision to Arc's
- * VerifierBridge.sol. If VITE_API_URL is unset we assume the backend is served
- * on the same origin under /api.
+ * The backend holds the trusted verifier signer key, runs the scoring, and
+ * relays the signed verdict to VerifierBridge.sol. The frontend never sees the
+ * signer key.
+ *
+ * EACH NETWORK HAS ITS OWN BACKEND. Arc's runtime drives Circle MPC agent wallets
+ * and USDC escrow; BOT Chain's drives raw-key/ERC-4337 agents and native-BOT
+ * escrow. They index different chains and hold different signers, so the base URL
+ * comes from the network config (`apiBaseUrl`) — sending a BOT request to Arc's
+ * runtime is a wrong address, not a slow path, and the backend now answers 409
+ * rather than pretending the chain is empty.
  */
-const ENV = (import.meta as { env?: Record<string, string> }).env ?? {};
-const API_URL = ENV.VITE_API_URL || "https://polaris-agent-runtime-production-170d.up.railway.app";
+
+/** Base URL of the runtime that serves `network`, without a trailing slash. */
+function base(network: NetworkId): string {
+  return getNetwork(network).apiBaseUrl.replace(/\/$/, "");
+}
+
+/**
+ * Every request carries the network it belongs to — both to pick the right
+ * backend and because that backend keys its off-chain stores by chain id.
+ * `network` defaults to the active one (see lib/activeNetwork.ts) rather than to
+ * Arc, so a call site that forgets to pass it still behaves correctly for the
+ * chain the user is looking at.
+ */
+function url(path: string, network?: NetworkId): string {
+  const id = resolveNetwork(network);
+  const sep = path.includes("?") ? "&" : "?";
+  return `${base(id)}${path}${sep}network=${encodeURIComponent(id)}`;
+}
+
+/** Merge the network into a POST body. */
+function body(payload: Record<string, unknown>, network?: NetworkId): string {
+  return JSON.stringify({ ...payload, network: resolveNetwork(network) });
+}
 
 export type VerifyResult = {
   score: number;
@@ -20,8 +50,6 @@ export type VerifyResult = {
   attemptsLeft?: number;
   canRetry?: boolean;
   feedback?: string;
-  genlayerTxHash?: string;
-  genlayerDecisionId?: string;
 };
 
 /**
@@ -31,11 +59,17 @@ export type VerifyResult = {
  * — see docs/AUDIT_REPORT.md, Security #2. Omit it only if the connected
  * wallet can't sign off-chain messages (e.g. the Circle PIN wallet).
  */
-export async function submitDeliverable(taskId: string, agentWallet: string, deliverable: string, signature?: string) {
-  const res = await fetch(`${API_URL}/api/deliverable`, {
+export async function submitDeliverable(
+  taskId: string,
+  agentWallet: string,
+  deliverable: string,
+  signature?: string,
+  network?: NetworkId,
+) {
+  const res = await fetch(url("/api/deliverable", network), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ taskId, agentWallet, deliverable, signature }),
+    body: body({ taskId, agentWallet, deliverable, signature }, network),
   });
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to store deliverable");
   return res.json();
@@ -51,17 +85,20 @@ export type HostedAgent = {
   status: string;
   createdAtMs: number;
 };
-export async function createHostedAgent(input: { name: string; capabilities: string[]; systemPrompt: string; owner?: string }): Promise<{ address?: string; id?: string; stakeUsdc?: number; error?: string }> {
-  const res = await fetch(`${API_URL}/api/hosted-agent`, {
+export async function createHostedAgent(
+  input: { name: string; capabilities: string[]; systemPrompt: string; owner?: string },
+  network?: NetworkId,
+): Promise<{ address?: string; id?: string; stakeUsdc?: number; stakeSymbol?: string; error?: string }> {
+  const res = await fetch(url("/api/hosted-agent", network), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
+    body: body(input, network),
   });
   return res.json();
 }
-export async function getHostedAgents(owner?: string): Promise<HostedAgent[]> {
+export async function getHostedAgents(owner?: string, network?: NetworkId): Promise<HostedAgent[]> {
   try {
-    const res = await fetch(`${API_URL}/api/hosted-agents${owner ? `?owner=${owner}` : ""}`);
+    const res = await fetch(url(`/api/hosted-agents${owner ? `?owner=${owner}` : ""}`, network));
     if (!res.ok) return [];
     return (await res.json()).agents ?? [];
   } catch {
@@ -69,49 +106,100 @@ export async function getHostedAgents(owner?: string): Promise<HostedAgent[]> {
   }
 }
 
-/** Trigger the GenLayer validator jury, then relay its final decision to Arc. */
-export async function resolveDispute(disputeId: string, reason: string): Promise<{ upheld?: boolean; juryNote?: string; txHash?: string; genlayerTxHash?: string; genlayerDecisionId?: string; error?: string }> {
-  const res = await fetch(`${API_URL}/api/dispute/resolve`, {
+/** Trigger the AI jury to resolve an opened dispute (backend signs + settles on-chain). */
+export async function resolveDispute(
+  disputeId: string,
+  reason: string,
+  network?: NetworkId,
+): Promise<{ upheld?: boolean; juryNote?: string; txHash?: string; error?: string }> {
+  const res = await fetch(url("/api/dispute/resolve", network), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ disputeId, reason }),
+    body: body({ disputeId, reason }, network),
   });
   return res.json();
 }
 
-/** Submit a star rating + comment for an agent after a task completes. */
-export async function submitRating(agent: string, taskId: string, rater: string, stars: number, comment: string): Promise<void> {
-  await fetch(`${API_URL}/api/rating`, {
+/**
+ * Submit a star rating + comment for an agent after a task completes.
+ *
+ * Signed, because every other field is public chain data: without a signature anyone could
+ * file a rating as the requester and move an agent's public score.
+ */
+export async function submitRating(
+  agent: string,
+  taskId: string,
+  rater: string,
+  stars: number,
+  comment: string,
+  signMessage: (m: string) => Promise<string>,
+  network?: NetworkId,
+): Promise<{ ok?: boolean; error?: string }> {
+  const signature = await signMessage(`polaris-rating:${taskId.toLowerCase()}`);
+  const res = await fetch(url("/api/rating", network), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ agent, taskId, rater, stars, comment }),
+    body: body({ agent, taskId, rater, stars, comment, signature }, network),
   });
+  return res.json().catch(() => ({}));
 }
 
-/** Flag an agent for platform review with a reason. */
-export async function flagAgent(agent: string, reason: string, reporter?: string): Promise<{ ok?: boolean; count?: number; error?: string }> {
-  const res = await fetch(`${API_URL}/api/flag-agent`, {
+/**
+ * Flag an agent for platform review.
+ *
+ * Attributing a flag to a wallet requires proving that wallet signed it, so nobody can file
+ * complaints in a stranger's name. A caller that cannot sign flags anonymously instead, which
+ * the operator queue accepts.
+ */
+export async function flagAgent(
+  agent: string,
+  reason: string,
+  reporter?: string,
+  signMessage?: (m: string) => Promise<string>,
+  network?: NetworkId,
+): Promise<{ ok?: boolean; count?: number; error?: string }> {
+  let signature: string | undefined;
+  let attributed = reporter;
+  if (reporter && signMessage) {
+    try {
+      signature = await signMessage(`polaris-flag:${agent.toLowerCase()}`);
+    } catch {
+      attributed = undefined; // declined to sign: file it anonymously rather than failing
+    }
+  } else {
+    attributed = undefined;
+  }
+  const res = await fetch(url("/api/flag-agent", network), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ agent, reason, reporter }),
+    body: body({ agent, reason, reporter: attributed, signature }, network),
   });
   return res.json();
 }
 
-export type DeliveryVerdict = { index: number; upheld: boolean; juryNote: string; complaint: string; genLayerDecisionId?: string; genlayerTxHash?: string; atMs: number };
+export type DeliveryVerdict = { index: number; upheld: boolean; juryNote: string; complaint: string; atMs: number };
 /** Dispute a specific delivery of a recurring plan — the AI jury re-judges it. */
-export async function disputeRecurringDelivery(planId: string, index: number, complaint: string, reporter?: string): Promise<{ upheld?: boolean; juryNote?: string; genLayerDecisionId?: string; genlayerTxHash?: string; error?: string }> {
-  const res = await fetch(`${API_URL}/api/recurring-dispute`, {
+export async function disputeRecurringDelivery(
+  planId: string,
+  index: number,
+  complaint: string,
+  reporter?: string,
+  network?: NetworkId,
+): Promise<{ upheld?: boolean; juryNote?: string; error?: string }> {
+  const res = await fetch(url("/api/recurring-dispute", network), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ planId, index, complaint, reporter }),
+    body: body({ planId, index, complaint, reporter }, network),
   });
   return res.json();
 }
 /** Existing per-delivery dispute verdicts for a plan, keyed by delivery index. */
-export async function getRecurringDisputes(planId: string): Promise<Record<number, DeliveryVerdict>> {
+export async function getRecurringDisputes(
+  planId: string,
+  network?: NetworkId,
+): Promise<Record<number, DeliveryVerdict>> {
   try {
-    const res = await fetch(`${API_URL}/api/recurring-disputes/${planId}`);
+    const res = await fetch(url(`/api/recurring-disputes/${planId}`, network));
     if (!res.ok) return {};
     return (await res.json()).disputes ?? {};
   } catch {
@@ -119,21 +207,10 @@ export async function getRecurringDisputes(planId: string): Promise<Record<numbe
   }
 }
 
-/** How many open flags an agent has (surface an "under review" hint). */
-export async function getFlagCount(agent: string): Promise<number> {
-  try {
-    const res = await fetch(`${API_URL}/api/flags/${agent}`);
-    if (!res.ok) return 0;
-    return (await res.json()).count ?? 0;
-  } catch {
-    return 0;
-  }
-}
-
 export type AgentRatings = { ratings: { taskId: string; rater: string; stars: number; comment: string; atMs: number }[]; avg: number; count: number };
-export async function getRatings(agent: string): Promise<AgentRatings> {
+export async function getRatings(agent: string, network?: NetworkId): Promise<AgentRatings> {
   try {
-    const res = await fetch(`${API_URL}/api/ratings/${agent}`);
+    const res = await fetch(url(`/api/ratings/${agent}`, network));
     if (!res.ok) return { ratings: [], avg: 0, count: 0 };
     return res.json();
   } catch {
@@ -142,19 +219,29 @@ export async function getRatings(agent: string): Promise<AgentRatings> {
 }
 
 /** Operator-only: grant an agent a verification tier (backend holds the admin key). */
-export async function adminSetBadge(secret: string, agent: string, tier: number, note: string): Promise<{ txHash?: string; error?: string }> {
-  const res = await fetch(`${API_URL}/api/admin/set-badge`, {
+export async function adminSetBadge(
+  secret: string,
+  agent: string,
+  tier: number,
+  note: string,
+  network?: NetworkId,
+): Promise<{ txHash?: string; error?: string }> {
+  const res = await fetch(url("/api/admin/set-badge", network), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ secret, agent, tier, note }),
+    body: body({ secret, agent, tier, note }, network),
   });
   return res.json();
 }
 
 /** Fetch a single recurring-subscription deliverable (full text + score). */
-export async function getSubDeliverable(subId: string, index: number): Promise<{ deliverable: string | null; score: number | null }> {
+export async function getSubDeliverable(
+  subId: string,
+  index: number,
+  network?: NetworkId,
+): Promise<{ deliverable: string | null; score: number | null }> {
   try {
-    const res = await fetch(`${API_URL}/api/sub-deliverable/${subId}/${index}`);
+    const res = await fetch(url(`/api/sub-deliverable/${subId}/${index}`, network));
     if (!res.ok) return { deliverable: null, score: null };
     return res.json();
   } catch {
@@ -163,9 +250,13 @@ export async function getSubDeliverable(subId: string, index: number): Promise<{
 }
 
 /** Fetch a single recurring-market plan deliverable (full text + score). */
-export async function getPlanDeliverable(planId: string, index: number): Promise<{ deliverable: string | null; score: number | null }> {
+export async function getPlanDeliverable(
+  planId: string,
+  index: number,
+  network?: NetworkId,
+): Promise<{ deliverable: string | null; score: number | null }> {
   try {
-    const res = await fetch(`${API_URL}/api/recurring-deliverable/${planId}/${index}`);
+    const res = await fetch(url(`/api/recurring-deliverable/${planId}/${index}`, network));
     if (!res.ok) return { deliverable: null, score: null };
     return res.json();
   } catch {
@@ -178,12 +269,12 @@ export async function getPlanDeliverable(planId: string, index: number): Promise
  * wallet). Stored off-chain in the backend asset store and merged into the
  * index. Best-effort: a failure here never blocks the on-chain action.
  */
-export async function uploadAsset(id: string, dataUri: string): Promise<void> {
+export async function uploadAsset(id: string, dataUri: string, network?: NetworkId): Promise<void> {
   try {
-    await fetch(`${API_URL}/api/asset`, {
+    await fetch(url("/api/asset", network), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, dataUri }),
+      body: body({ id, dataUri }, network),
     });
   } catch {
     /* ignore - image is non-critical */
@@ -198,12 +289,13 @@ export async function uploadAsset(id: string, dataUri: string): Promise<void> {
 export async function uploadAgentMeta(
   wallet: string,
   meta: { endpoint: string; auth?: string },
+  network?: NetworkId,
 ): Promise<void> {
   try {
-    await fetch(`${API_URL}/api/agent-meta`, {
+    await fetch(url("/api/agent-meta", network), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ wallet, ...meta }),
+      body: body({ wallet, ...meta }, network),
     });
   } catch {
     /* ignore - endpoint metadata is non-critical to the on-chain registration */
@@ -244,9 +336,13 @@ export type ViewToken = { viewer: string; expiry: number; signature: string };
  * (server/server.js verifies it) — see docs/AUDIT_REPORT.md, Security #7.
  * Build one with `signDeliverableViewToken` below.
  */
-export async function getDeliverable(taskId: string, token: ViewToken): Promise<{ deliverable: string | null }> {
+export async function getDeliverable(
+  taskId: string,
+  token: ViewToken,
+  network?: NetworkId,
+): Promise<{ deliverable: string | null }> {
   const qs = new URLSearchParams({ viewer: token.viewer, expiry: String(token.expiry), signature: token.signature });
-  const res = await fetch(`${API_URL}/api/deliverable/${taskId}?${qs}`);
+  const res = await fetch(url(`/api/deliverable/${taskId}?${qs}`, network));
   if (!res.ok) return { deliverable: null };
   return res.json();
 }
@@ -282,14 +378,33 @@ export async function signDeliverableViewToken(
 }
 
 /**
- * Trigger verification: backend scores the work, signs, and calls
- * VerifierBridge.submitVerification - which releases USDC or slashes the stake.
+ * Trigger verification: the backend scores the work, signs the verdict, and calls
+ * VerifierBridge.submitVerification, which releases the escrow or slashes the stake.
+ *
+ * `signature` is required now. Scoring spends model credits and settling spends gas
+ * from the verifier key, so the endpoint no longer accepts anonymous callers: sign
+ * `polaris-verify:{taskId}` as either the task's assigned agent or its requester.
+ * Pass a `signMessage` that uses the connected wallet; if that wallet cannot sign
+ * off-chain messages (the Circle PIN wallet), the agent's own runtime settles the
+ * task by itself moments later, and this call is only a manual nudge.
  */
-export async function verifyTask(taskId: string): Promise<VerifyResult> {
-  const res = await fetch(`${API_URL}/api/verify`, {
+export async function verifyTask(
+  taskId: string,
+  signMessage?: (message: string) => Promise<string>,
+  network?: NetworkId,
+): Promise<VerifyResult> {
+  let signature: string | undefined;
+  if (signMessage) {
+    try {
+      signature = await signMessage(`polaris-verify:${taskId.toLowerCase()}`);
+    } catch {
+      /* wallet refused or cannot sign; the request will be rejected and reported */
+    }
+  }
+  const res = await fetch(url("/api/verify", network), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ taskId }),
+    body: body({ taskId, signature }, network),
   });
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Verification failed");
   return res.json();

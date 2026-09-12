@@ -10,9 +10,12 @@
 import type { W3SSdk } from "@circle-fin/w3s-pw-web-sdk";
 import { createPublicClient, http, encodeFunctionData, erc20Abi, formatUnits, type Abi } from "viem";
 import { arcTestnet, USDC_ADDRESS, USDC_DECIMALS, ARC_RPC_URL } from "./chain";
+import { arcTestnetConfig as arcConfig } from "./networks/arc";
 
 const ENV = (import.meta as { env?: Record<string, string> }).env ?? {};
-const API_URL = ENV.VITE_API_URL || "https://polaris-agent-runtime-production-170d.up.railway.app";
+/** Circle exists only on Arc, so this flow always talks to ARC's runtime — never
+ *  the active network's, which on BOT Chain has no Circle credentials at all. */
+const API_URL = arcConfig.apiBaseUrl.replace(/\/$/, "");
 const APP_ID = ENV.VITE_CIRCLE_UC_APP_ID || "";
 
 export function ucWalletEnabled(): boolean {
@@ -130,35 +133,6 @@ function runChallenge(sdk: W3SSdk, challengeId: string): Promise<void> {
       else resolve();
     });
   });
-}
-
-async function fetchWallet(userId: string): Promise<{ walletId: string; address: `0x${string}` }> {
-  // The wallet may take a moment to materialize after the ceremony.
-  for (let i = 0; i < 8; i++) {
-    const w = await api<{ walletId?: string; address?: string }>(`/api/uc/wallet?userId=${encodeURIComponent(userId)}`);
-    if (w.walletId && w.address) return { walletId: w.walletId, address: w.address as `0x${string}` };
-    await new Promise((r) => setTimeout(r, 1500));
-  }
-  throw new Error("wallet not ready");
-}
-
-/** First-time connect: create user, set a PIN, create the Arc wallet. */
-export async function registerUserWallet(): Promise<UcSession> {
-  if (!ucWalletEnabled()) throw new Error("Circle user wallet not configured");
-  const sess = await api<{ userId: string; userToken: string; encryptionKey: string }>("/api/uc/session", {});
-  const { challengeId } = await api<{ challengeId: string }>("/api/uc/init", { userId: sess.userId });
-  const sdk = await makeSdk(sess.userToken, sess.encryptionKey);
-  await runChallenge(sdk, challengeId);
-  const wallet = await fetchWallet(sess.userId);
-  return { kind: "uc", ...sess, ...wallet };
-}
-
-/** Returning user (this browser remembered the userId): mint a fresh token. */
-export async function loginUserWallet(userId: string): Promise<UcSession> {
-  if (!ucWalletEnabled()) throw new Error("Circle user wallet not configured");
-  const sess = await api<{ userId: string; userToken: string; encryptionKey: string }>("/api/uc/refresh", { userId });
-  const wallet = await fetchWallet(userId);
-  return { kind: "uc", ...sess, ...wallet };
 }
 
 /** Poll for the Arc wallet addressed by a post-login userToken. */
