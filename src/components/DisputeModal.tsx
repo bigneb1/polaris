@@ -73,17 +73,17 @@ export default function DisputeModal({ task, onClose }: { task: Task; onClose: (
                 Dispute {verdict.upheld ? "UPHELD, bond refunded, agent will rework" : "REJECTED, you forfeit 50% (30% agent, 20% treasury)"}
               </div>
               <div className="rounded-xl border border-border bg-muted p-3">
-                <div className="field-label mb-1">AI jury verdict</div>
+                <div className="field-label mb-1">GenLayer AI jury verdict</div>
                 <p className="text-sm leading-relaxed text-muted-foreground">{verdict.juryNote}</p>
               </div>
             </div>
           ) : phase === "pending" ? (
             <div className="flex flex-col gap-3">
               <div className="inline-flex items-center gap-2 rounded-[4px] border border-accent/40 bg-accent/10 px-3 py-2.5 text-sm font-semibold text-accent">
-                <CheckCircle2 size={16} /> Dispute opened, under jury review
+                <CheckCircle2 size={16} /> Dispute opened, under GenLayer jury review
               </div>
               <p className="text-sm leading-relaxed text-muted-foreground">
-                Your bond is staked and the dispute is recorded on-chain. The AI jury will return a verdict shortly, it appears on the task automatically, no need to re-submit.
+                Your bond is staked and the dispute is recorded on-chain. GenLayer validators will return a consensus verdict shortly; it appears on the task automatically, no need to re-submit.
               </p>
               {disputeId && (
                 <button onClick={() => runJury(disputeId)} className="tool-btn self-start">
@@ -94,7 +94,7 @@ export default function DisputeModal({ task, onClose }: { task: Task; onClose: (
           ) : (
             <div className="flex flex-col gap-3">
               <p className="text-xs leading-relaxed text-muted-foreground">
-                The work passed verification but you can still challenge it. An impartial AI jury re-reads your brief
+                The work passed verification but you can still challenge it. GenLayer validators run an impartial AI jury that re-reads your brief
                 against the delivery. <span className="text-foreground">If your dispute is rejected as unfair you forfeit 50% of the bond (30% to the agent, 20% to the treasury)</span>, so only dispute genuine misses.
               </p>
               <textarea className="field min-h-[90px]" placeholder="Why does the deliverable miss the brief?" value={reason} onChange={(e) => setReason(e.target.value)} />

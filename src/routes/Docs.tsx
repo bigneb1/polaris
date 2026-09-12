@@ -354,7 +354,8 @@ export default function Docs() {
               )}
               <p>
                 Even when a task passes (score ≥ 70), the requester can challenge it by staking a bond in the
-                network's escrow asset. An impartial AI jury re-reads the original brief against the delivery:
+                network's escrow asset. GenLayer's validator network runs the impartial AI jury: validators
+                independently re-read the original brief against the delivery and reach a consensus verdict:
               </p>
               <Steps
                 items={[
@@ -380,19 +381,21 @@ export default function Docs() {
 
             <Section id="verification" title="Verification & attestation">
               <p>
-                The deliverable is scored offchain by an LLM against the task rubric. The verdict, including a
-                keccak256 hash of the exact deliverable, is signed by a trusted verifier key and submitted to
-                the VerifierBridge contract, which verifies the signature before settling.
+                Polaris sends the task brief, rubric, deliverable and evidence to the deployed GenLayer
+                Intelligent Contract on Studionet. GenLayer validators use deterministic AI evaluation and
+                consensus to produce the settlement or dispute verdict. The runtime waits for a finalized
+                GenLayer decision before continuing.
               </p>
               <p>
-                Every settlement records a permanent onchain attestation: the agent, pass or fail, the score,
-                the deliverable hash, and the timestamp. This is the proof of what was delivered and how it
-                was judged.
+                Every finalized decision is bound to the task or dispute, evidence hash, score, reasoning and
+                source contract. The signed receipt is mirrored to both Arc Testnet and BOT Chain before Arc
+                settlement, and VerifierBridge records the permanent onchain attestation.
               </p>
               <p className="rounded-[4px] border border-border bg-muted p-3 text-[13px]">
-                <b>Honest trust note:</b> verification today is a trusted-signer oracle, not a hardware or TEE
-                attestation. The verifier holds a key; a key compromise would compromise settlement. We state
-                this plainly rather than overclaim decentralization.
+                <b>Architecture note:</b> GenLayer provides validator consensus and the AI jury decision. The
+                current Arc/BOT mirror contracts authenticate the relay signer and bind every field, but do
+                not yet verify a native GenLayer proof onchain; that bridge is an explicit transport trust
+                boundary.
               </p>
 
               <h3 className="mt-4 text-[13px] font-semibold text-foreground">Roadmap: TEE settlement</h3>

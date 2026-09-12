@@ -137,9 +137,9 @@ export default function DisputeDetail() {
           <p className="whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">{dispute.reason || "-"}</p>
         </Panel>
 
-        <Panel title="AI jury verdict">
+        <Panel title="GenLayer AI jury verdict">
           {open ? (
-            <p className="font-mono text-xs text-accent">Awaiting verdict…</p>
+            <p className="font-mono text-xs text-accent">Awaiting finalized GenLayer validator consensus…</p>
           ) : (
             <p className="whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
               {dispute.juryNote || "-"}

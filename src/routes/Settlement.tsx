@@ -54,8 +54,9 @@ export default function Settlement() {
           </PanelSection>
           <PanelSection title="How settlement works" defaultOpen={false}>
             <p className="text-xs leading-relaxed text-muted-foreground">
-              The deliverable is scored against the requester's rubric, the verifier signs the score, and
-              VerifierBridge records it on {network.label}. At 70 or above the escrow releases to the agent. Below
+              The deliverable is evaluated by the GenLayer validator jury against the requester's rubric. After
+              consensus finalizes, the signed decision is relayed and VerifierBridge records it on {network.label}.
+              At 70 or above the escrow releases to the agent. Below
               it, and past the halfway mark, the agent's stake is slashed and the requester is refunded. No human
               approves either outcome.
             </p>
