@@ -16,6 +16,7 @@ import {
   ucUsdcBalance,
   type UcSession,
 } from "../lib/circleUserWallet";
+import { openReownModal, reownEnabled } from "../lib/wallets/reown";
 
 /**
  * Wallet layer for Polaris. Circle Modular Wallets (passkey smart accounts) are
@@ -51,6 +52,12 @@ type Ctx = {
   connecting: boolean;
   /** USDC balance of the connected wallet (human units), refreshed periodically. */
   balance: number | null;
+  balanceSymbol: string;
+  connectorName: string | null;
+  walletKind: "circle" | "reown";
+  reownEnabled: boolean;
+  wrongNetwork: boolean;
+  connectReown: () => Promise<void>;
   /** Last username this browser registered/logged in with (for quick re-login). */
   lastUsername: string | null;
   /** Last email this browser used for an OTP login (for quick re-login). */
@@ -184,6 +191,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     ucEnabled: ucWalletEnabled(),
     connecting,
     balance,
+    balanceSymbol: "USDC",
+    connectorName: circle ? "Circle" : uc ? "Circle PIN" : injected ? "Injected wallet" : null,
+    walletKind: circle || uc ? "circle" : "reown",
+    reownEnabled: reownEnabled(),
+    wrongNetwork: false,
+    connectReown: async () => { await openReownModal(); },
     lastUsername,
     lastUcEmail,
     connect,

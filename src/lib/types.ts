@@ -8,7 +8,7 @@ import type { Address } from "viem";
  * arrive. A settled task is *displayed* as "Completed" (see STATUS_LABELS in
  * components/ui/primitives.tsx); that is a label, not a distinct state.
  */
-export type TaskStatus = "OPEN" | "ASSIGNED" | "SETTLED" | "CANCELLED";
+export type TaskStatus = "OPEN" | "ASSIGNED" | "IN_PROGRESS" | "COMPLETED" | "SETTLED" | "CANCELLED";
 
 export type Task = {
   taskId: `0x${string}`;

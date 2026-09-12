@@ -86,7 +86,7 @@ export default function TaskDetail() {
           </Panel>
 
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <Meta icon={<Clock size={14} />} label="Deadline" value={deadlineLabel(task.deadlineMs)} />
+            <Meta icon={<Clock size={14} />} label="Deadline" value={deadlineLabel(task.deadlineMs) ?? "—"} />
             <Meta icon={<Trophy size={14} />} label="Min Rep" value={String(task.minReputation)} />
             <Meta icon={<Gavel size={14} />} label="Bids" value={String(bids.length)} />
             <Meta icon={<Clock size={14} />} label="Posted" value={timeAgo(task.createdAtMs)} />
