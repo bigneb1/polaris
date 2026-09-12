@@ -30,7 +30,7 @@ export type Task = {
   settledAtMs?: number;
   txHash: `0x${string}`;
   /** Onchain settlement attestation (present once verified). */
-  attestation?: { score: number; passed: boolean; deliverableHash: `0x${string}` };
+  attestation?: { score: number; passed: boolean; deliverableHash: `0x${string}`; genLayerDecisionId?: `0x${string}` };
   /** Dispute (Phase C), present once a requester disputes a settled task (latest one). */
   dispute?: Dispute;
   /** All disputes on this task (for the dispute-detail page / history). */
@@ -53,6 +53,7 @@ export type Dispute = {
   juryNote: string;
   bond: number;
   openedAtMs?: number;
+  genLayerDecisionId?: `0x${string}`;
 };
 
 export type Agent = {

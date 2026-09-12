@@ -1,0 +1,38 @@
+{
+  "generatedAt": "2026-09-12",
+  "genlayerBradbury": {
+    "chainId": 4221,
+    "adjudicator": null,
+    "status": "deferred: Polaris currently targets stable Studionet"
+  },
+  "genlayerStudionet": {
+    "chainId": 61999,
+    "adjudicator": "0xe7ef55c5bb399876119F4FBeAc8D98e0Ceb2ACD5",
+    "deploymentTransaction": "0x7282c5069b94e259ad956ce9e90faab8f7fd2d0eb9f3b11c0be999a59a6582c5",
+    "failedDeploymentTransaction": "0x401cc7e77e7ad43ed81a041008395a0e2e7efcfcc1e09024d7b6fdb2f3080d25",
+    "status": "FINALIZED; schema and get_case view verified"
+  },
+  "arcTestnet": {
+    "chainId": 5042002,
+    "verdictMirror": "0xc342dEEbB3cbF8cf761e26a94B46ddb28847460F",
+    "deploymentTransaction": "0xe32502132d8087724f3e7a9a8588f22b8706a9bc6a08014bb484f33ce280a3c9"
+  },
+  "botChainTestnet": {
+    "chainId": 968,
+    "verdictMirror": "0xe98650A2d1007df7013379B49AdFC03A3E8C1589",
+    "deploymentTransaction": "0x90d09a730d6612aba8bbbc179ef849ad10e4e6ad6a24ae1f46a2b3e5ad9f27ff"
+  },
+  "dualRelaySmokeTest": {
+    "decisionId": "0xb62598eb6a2a8c3c0593936dc85140d1c1d097a9b9754893f253e58c019b7e78",
+    "arcTransaction": "0x35b1d327c7810a65a0df65555b6fd519bffe70b26d711b1bc506ac20eace3c04",
+    "botTransaction": "0x1af79154a7440c098df2fa73ecea9b71ce3d79bf86a9348e400297d38bee4958"
+  },
+  "studionetEndToEndTest": {
+    "decisionId": "0xee9ac66dfeb06d2850814634c067bb95eba2cfdfa0ba5f2de12cdcf6f04a910",
+    "genlayerTransaction": "0xfc2e78999176a85bb148729b207d247df9bb508c932ebdf444326cec872825d9",
+    "score": 100,
+    "passed": true,
+    "arcTransaction": "0x4296b3e566816db758ccb530e7e0d411abf99e7e1a83159eac8e87e45e886381",
+    "botTransaction": "0x95003f13c3df0a1cb87131b58c86339078c7bcefc18c472d0a468440d1655083"
+  }
+}

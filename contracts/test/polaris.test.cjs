@@ -4,6 +4,7 @@ const { ethers } = require("hardhat");
 const USDC = (n) => ethers.parseUnits(String(n), 6);
 const STAKE = USDC(100); // V2 min stake
 const HASH = ethers.id("deliverable-bytes"); // mock deliverable hash for attestation
+const DECISION = ethers.id("genlayer-finalized-decision");
 
 /**
  * Full Polaris V2 lifecycle on a local chain:
@@ -57,15 +58,16 @@ describe("Polaris V2", function () {
   async function sign(passed, score, hash = HASH, agentAddr = agent.address, requesterAddr = requester.address) {
     const { chainId } = await ethers.provider.getNetwork();
     const inner = ethers.solidityPackedKeccak256(
-      ["uint256", "address", "bytes32", "address", "address", "bool", "uint8", "bytes32"],
-      [chainId, await verifier.getAddress(), taskId, agentAddr, requesterAddr, passed, score, hash],
+      ["uint256", "address", "bytes32", "address", "address", "bool", "uint8", "bytes32", "bytes32"],
+      [chainId, await verifier.getAddress(), taskId, agentAddr, requesterAddr, passed, score, hash, DECISION],
     );
     return signer.signMessage(ethers.getBytes(inner));
   }
   // submitVerification is now restricted to the trusted signer's own address
   // (the backend signs AND relays from the same key) — tests must call it
   // `.connect(signer)`.
-  const verify = (...args) => verifier.connect(signer).submitVerification(...args);
+  const verify = (id, agentAddr, requesterAddr, passed, score, hash, sig) =>
+    verifier.connect(signer).submitVerification(id, agentAddr, requesterAddr, passed, score, hash, DECISION, sig);
 
   it("posts a task locking USDC exactly once (double-transfer bug fixed)", async () => {
     await usdc.connect(requester).approve(await escrow.getAddress(), USDC(20));
@@ -103,6 +105,7 @@ describe("Polaris V2", function () {
     // on-chain attestation of the deliverable
     const att = await verifier.getAttestation(taskId);
     expect(att.deliverableHash).to.equal(HASH);
+    expect(att.genLayerDecisionId).to.equal(DECISION);
     expect(att.score).to.equal(92);
     expect(att.passed).to.equal(true);
   });

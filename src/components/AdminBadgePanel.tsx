@@ -34,7 +34,7 @@ export default function AdminBadgePanel({ agent }: { agent: Agent }) {
             <input
               type="password"
               autoFocus
-              className="field !w-56 !py-1.5 text-xs"
+              className="input-field !w-56 !py-1.5 text-xs"
               placeholder="Operator secret"
               value={entry}
               onChange={(e) => setEntry(e.target.value)}
@@ -51,13 +51,13 @@ export default function AdminBadgePanel({ agent }: { agent: Agent }) {
                 localStorage.setItem(SECRET_KEY, entry.trim());
                 setSecret(entry.trim());
               }}
-              className="tool-btn"
+              className="btn-ghost btn-sm"
             >
               Unlock
             </button>
           </div>
         ) : (
-          <button onClick={() => setUnlocking(true)} className="font-mono inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-muted-foreground">
+          <button onClick={() => setUnlocking(true)} className="mono inline-flex items-center gap-1 text-[10px] text-grey hover:text-grey-l">
             <KeyRound size={11} /> Operator access
           </button>
         )}
@@ -68,17 +68,17 @@ export default function AdminBadgePanel({ agent }: { agent: Agent }) {
   return (
     <Panel title={<span className="inline-flex items-center gap-2"><ShieldCheck size={14} /> Verification (admin)</span>}>
       <div className="flex flex-col gap-3">
-        <div className="font-mono text-[11px] text-muted-foreground">Current: {tierLabel(agent.tier)}</div>
+        <div className="mono text-[11px] text-grey">Current: {tierLabel(agent.tier)}</div>
         <label className="block">
-          <div className="field-label mb-1.5">Tier</div>
-          <select className="field" value={tier} onChange={(e) => setTier(Number(e.target.value))}>
-            <option value={0}>0, Unverified</option>
-            {TIERS.map((t, i) => (i === 0 ? null : <option key={i} value={i}>{i}, {t!.label}</option>))}
+          <div className="eyebrow mb-1.5">Tier</div>
+          <select className="input-field" value={tier} onChange={(e) => setTier(Number(e.target.value))}>
+            <option value={0}>0 — Unverified</option>
+            {TIERS.map((t, i) => (i === 0 ? null : <option key={i} value={i}>{i} — {t!.label}</option>))}
           </select>
         </label>
         <label className="block">
-          <div className="field-label mb-1.5">Note (optional)</div>
-          <input className="field" placeholder="e.g. KYC verified by Circle" value={note} onChange={(e) => setNote(e.target.value)} />
+          <div className="eyebrow mb-1.5">Note (optional)</div>
+          <input className="input-field" placeholder="e.g. KYC verified by Circle" value={note} onChange={(e) => setNote(e.target.value)} />
         </label>
         <button
           onClick={() =>
@@ -89,7 +89,7 @@ export default function AdminBadgePanel({ agent }: { agent: Agent }) {
             }, { pending: "Granting tier on-chain…", success: "Verification tier updated" })
           }
           disabled={loading}
-          className="tool-btn-primary w-full"
+          className="btn-primary btn-sm w-full"
         >
           Grant tier
         </button>

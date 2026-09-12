@@ -214,3 +214,20 @@ export function ErrorNotice({ message }: { message?: string }) {
     </div>
   );
 }
+
+/* ── Error state ───────────────────────────────────────────────────────────
+ * Distinct from EmptyState: a failed fetch must never render identically to a
+ * genuinely empty market (see docs/AUDIT_REPORT.md, Bug #7) — this is always
+ * the branch to check BEFORE a `.length === 0` empty check.
+ */
+export function ErrorNotice({ message }: { message?: string }) {
+  return (
+    <div className="panel border-red/30 bg-red/5">
+      <EmptyState
+        icon={<AlertTriangle size={32} className="text-red" />}
+        title="Couldn't load this"
+        message={message ?? "There was a problem reaching the network. Check your connection and try again."}
+      />
+    </div>
+  );
+}

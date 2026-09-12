@@ -1,5 +1,10 @@
 # Polaris — Independent Audit Report
 
+> Historical snapshot: this audit predates the GenLayer adjudication migration.
+> References below to a single LLM scorer/jury describe the former architecture;
+> current settlement and disputes use GenLayer validator consensus, with an
+> explicitly documented trusted transport relay from GenLayer to Arc.
+
 Scope reviewed: `contracts/` (10 Solidity contracts + tests + deploy scripts), `server/` (18 backend files, the agent runtime), `src/` (full React/TS frontend), plus `README.md`/`SETUP.md`/`VERCEL_ENV.md` as the requirements baseline. Read in full, not sampled. Two of the highest-severity findings below were independently re-verified by direct file read after the sub-audits reported them (VerifierBridge.sol, src/lib/contracts.ts).
 
 This is a single-commit repo (`4175aeb`), so there is no prior audit or issue tracker to cross-reference — everything below is derived from reading the code against the project's own README/SETUP claims.

@@ -12,7 +12,8 @@ import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
  * A subscriber pre-funds a fixed number of scheduled deliveries from one agent
  * (e.g. "5 Twitter threads / week", "daily market report"). The full plan budget
  * (perDelivery × totalDeliveries) is escrowed up front, and each scheduled drop
- * releases exactly one perDelivery slice to the agent once the off-chain verifier
+ * releases exactly one perDelivery slice after a finalized GenLayer verdict is
+ * transported by the Arc relay
  * signs the delivery verdict — the SAME trusted-signer ECDSA model as
  * VerifierBridge (scoring is off-chain; the signature binds the deliverable hash
  * + score, so each release carries a permanent on-chain attestation).
@@ -57,6 +58,7 @@ contract SubscriptionManager is ReentrancyGuard {
     mapping(bytes32 => Subscription) public subscriptions;
     // subId => delivery index => released, so a verdict can't be replayed.
     mapping(bytes32 => mapping(uint32 => bool)) public deliveryReleased;
+    mapping(bytes32 => mapping(uint32 => bytes32)) public genLayerDecisionIds;
 
     event SubscriptionCreated(
         bytes32 indexed subId,
@@ -76,7 +78,8 @@ contract SubscriptionManager is ReentrancyGuard {
         uint32 index,
         uint256 amount,
         uint8 score,
-        bytes32 deliverableHash
+        bytes32 deliverableHash,
+        bytes32 genLayerDecisionId
     );
     event SubscriptionCancelled(bytes32 indexed subId, uint256 refund);
     event TrustedSignerUpdated(address indexed signer);
@@ -126,14 +129,15 @@ contract SubscriptionManager is ReentrancyGuard {
         );
     }
 
-    /// Release one delivery slice to the agent on a verifier-signed passing verdict.
-    /// The signature binds (subId, index, deliverableHash, score) so it can be
-    /// produced off-chain by the trusted signer and replayed by anyone exactly once.
+    /// Release one delivery slice on a relayed, finalized GenLayer passing verdict.
+    /// The signature binds the plan, delivery, score, evidence hash, and
+    /// GenLayer decision id, and can be consumed exactly once.
     function recordDelivery(
         bytes32 subId,
         uint32 index,
         bytes32 deliverableHash,
         uint8 score,
+        bytes32 genLayerDecisionId,
         bytes calldata signature
     ) external nonReentrant {
         Subscription storage s = subscriptions[subId];
@@ -141,19 +145,21 @@ contract SubscriptionManager is ReentrancyGuard {
         require(index < s.totalDeliveries, "Bad index");
         require(!deliveryReleased[subId][index], "Released");
         require(score >= MIN_SCORE, "Below MIN_SCORE");
+        require(genLayerDecisionId != bytes32(0), "Missing GenLayer decision");
 
         bytes32 digest = keccak256(
-            abi.encodePacked(block.chainid, address(this), subId, index, deliverableHash, score)
+            abi.encodePacked(block.chainid, address(this), subId, index, deliverableHash, score, genLayerDecisionId)
         ).toEthSignedMessageHash();
         require(ECDSA.recover(digest, signature) == trustedSigner, "Bad signature");
 
         deliveryReleased[subId][index] = true;
+        genLayerDecisionIds[subId][index] = genLayerDecisionId;
         s.deliveriesDone += 1;
         s.escrowed -= s.perDeliveryUsdc;
         if (s.deliveriesDone == s.totalDeliveries) s.active = false; // plan complete
 
         require(usdc.transfer(s.agent, s.perDeliveryUsdc), "Agent transfer failed");
-        emit DeliveryReleased(subId, s.agent, index, s.perDeliveryUsdc, score, deliverableHash);
+        emit DeliveryReleased(subId, s.agent, index, s.perDeliveryUsdc, score, deliverableHash, genLayerDecisionId);
     }
 
     /// Cancel and refund the remaining (undelivered) escrow to the subscriber.

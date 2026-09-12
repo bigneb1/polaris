@@ -2,6 +2,7 @@ const { expect } = require("chai");
 const { ethers } = require("hardhat");
 
 const USDC = (n) => ethers.parseUnits(String(n), 6);
+const DECISION = ethers.id("genlayer-finalized-decision");
 
 describe("RecurringMarket", function () {
   let usdc, agentReg, rm, owner, requester, agent, signer;
@@ -28,8 +29,8 @@ describe("RecurringMarket", function () {
   async function signDelivery(index, hash, score) {
     const { chainId } = await ethers.provider.getNetwork();
     const inner = ethers.solidityPackedKeccak256(
-      ["uint256", "address", "bytes32", "uint32", "bytes32", "uint8"],
-      [chainId, await rm.getAddress(), planId, index, hash, score],
+      ["uint256", "address", "bytes32", "uint32", "bytes32", "uint8", "bytes32"],
+      [chainId, await rm.getAddress(), planId, index, hash, score, DECISION],
     );
     return signer.signMessage(ethers.getBytes(inner));
   }
@@ -58,7 +59,7 @@ describe("RecurringMarket", function () {
     for (let i = 0; i < 3; i++) {
       const h = ethers.id(`d${i}`);
       const b = await usdc.balanceOf(agent.address);
-      await rm.recordDelivery(planId, i, h, 90, await signDelivery(i, h, 90));
+      await rm.recordDelivery(planId, i, h, 90, DECISION, await signDelivery(i, h, 90));
       expect(await usdc.balanceOf(agent.address)).to.equal(b + USDC(8));
     }
     expect((await rm.getPlan(planId)).status).to.equal(3); // COMPLETE
@@ -73,14 +74,14 @@ describe("RecurringMarket", function () {
     await rm.award(planId);
     const h = ethers.id("d");
     const bad = await agent.signMessage(ethers.getBytes(ethers.solidityPackedKeccak256(["bytes32", "uint32", "bytes32", "uint8"], [planId, 0, h, 90])));
-    await expect(rm.recordDelivery(planId, 0, h, 90, bad)).to.be.revertedWith("Bad signature");
+    await expect(rm.recordDelivery(planId, 0, h, 90, DECISION, bad)).to.be.revertedWith("Bad signature");
   });
 
   it("requester can cancel and reclaim remaining escrow", async () => {
     await createAndBid(8);
     await rm.award(planId);
     const h = ethers.id("d0");
-    await rm.recordDelivery(planId, 0, h, 90, await signDelivery(0, h, 90)); // 1 of 3 paid (8)
+    await rm.recordDelivery(planId, 0, h, 90, DECISION, await signDelivery(0, h, 90)); // 1 of 3 paid (8)
     const before = await usdc.balanceOf(requester.address);
     await rm.connect(requester).cancelPlan(planId); // remaining escrow = 16
     expect(await usdc.balanceOf(requester.address)).to.equal(before + USDC(16));

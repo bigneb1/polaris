@@ -48,9 +48,6 @@ contract BidEngine {
     // "generation" (bumped on reopenAuction) so a single agent can't grind the
     // random-dominated score by resubmitting — see docs/AUDIT_REPORT.md, Bug #2.
     uint256 public constant MAX_BIDS_PER_TASK = 50;
-    /// One whole unit of the settlement asset, for price scoring. Set at deploy so
-    /// the same engine works for a 6-decimal stablecoin and an 18-decimal coin.
-    uint256 public immutable PRICE_UNIT;
 
     mapping(bytes32 => Bid[]) public bids;
     mapping(bytes32 => bool) public auctionClosed;
@@ -60,16 +57,10 @@ contract BidEngine {
     event BidPlaced(bytes32 indexed taskId, address indexed agent, uint256 amount, uint256 score, uint256 etaSeconds);
     event BidAwarded(bytes32 indexed taskId, address indexed winner, uint256 amount);
 
-    /// @param _priceUnit one whole unit of the settlement asset, the reference for
-    ///        price scoring: 1e6 for a 6-decimal stablecoin, 1e18 for an 18-decimal
-    ///        native coin. This used to be a hardcoded `1_000_000`, which silently
-    ///        meant "USDC". On an 18-decimal chain that made priceScore 0 for every
-    ///        realistic bid, so the 25% price weight vanished and the auction stopped
-    ///        rewarding cheaper bids at all.
-    constructor(address _agentRegistry, uint256 _priceUnit) {
-        require(_priceUnit > 0, "Zero price unit");
+    // `priceUnit` is retained for deployment compatibility across stablecoin
+    // and native-coin markets; scoring itself is unit-agnostic.
+    constructor(address _agentRegistry, uint256 /* priceUnit */) {
         agentRegistry = IAgentRegistry(_agentRegistry);
-        PRICE_UNIT = _priceUnit;
         owner = msg.sender;
     }
 
@@ -89,8 +80,8 @@ contract BidEngine {
         uint256 rep = agentRegistry.getReputation(msg.sender);
         require(rep >= MIN_REP_TO_BID, "Reputation below 70");
 
-        // price: cheaper is better, capped at 100 (a one-unit bid scores 100)
-        uint256 priceScore = (PRICE_UNIT * 100) / bidAmount;
+        // price: cheaper is better, capped at 100 (1 USDC bid == 100)
+        uint256 priceScore = (1_000_000 * 100) / bidAmount;
         if (priceScore > 100) priceScore = 100;
 
         // reputation: 0..1000 scaled to 0..100

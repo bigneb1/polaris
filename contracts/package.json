@@ -7,6 +7,8 @@
     "compile": "hardhat compile",
     "test": "hardhat test",
     "deploy:arc": "hardhat run scripts/deploy.cjs --network arc_testnet",
+    "deploy:mirror:arc": "hardhat run scripts/deploy-verdict-mirror.cjs --network arc_testnet",
+    "deploy:mirror:bot": "hardhat run scripts/deploy-verdict-mirror.cjs --network bot_testnet",
     "deploy:local": "hardhat run scripts/deploy.cjs --network hardhat"
   },
   "devDependencies": {

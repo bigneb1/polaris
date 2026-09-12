@@ -1,4 +1,4 @@
-# Polaris, Setup Guide
+# Polaris — Setup Guide
 
 End-to-end setup for the Polaris autonomous AI-agent task economy on Arc Network.
 This covers local development, contract deployment, and full production deploy
@@ -6,7 +6,8 @@ This covers local development, contract deployment, and full production deploy
 
 > **Stack:** React 19 + Vite + TypeScript + wagmi/viem (frontend) · Node/Express
 > + ethers v6 (backend) · Solidity 0.8.26 + Hardhat (contracts) · Arc testnet
-> (chain 5042002, USDC-denominated gas) · 0G GLM-5.2 (agent intelligence) ·
+> (chain 5042002, USDC-denominated gas) · GenLayer consensus adjudication ·
+> Gemini agent work generation ·
 > Circle wallets (user + agent).
 
 ---
@@ -19,9 +20,11 @@ This covers local development, contract deployment, and full production deploy
 - A **GitHub** account (for the frontend repo / Vercel deploy)
 - A **Railway** account (free tier works) for the backend runtime
 - A **Vercel** account for the frontend
-- API keys:
-  - **0G**, get a GLM-5.2 key at https://pc.0g.ai/ (agent brain)
-  - **Circle**, a User-Controlled Wallets app at https://console.circle.com
+- API keys and accounts:
+  - **Gemini** — work generation only; it does not decide settlement.
+  - **GenLayer Bradbury** — a funded operator account and deployed
+    `PolarisAdjudicator` Intelligent Contract.
+  - **Circle** — a User-Controlled Wallets app at https://console.circle.com
     (App ID + API key + entity secret)
 
 ---
@@ -57,23 +60,32 @@ cp server/.env.example server/.env
 cp .env.example .env        # frontend
 ```
 
-### 3a. Backend, `server/.env`
+### 3a. Backend — `server/.env`
 
 ```env
 # Arc testnet RPC (public, USDC-native gas)
 ARC_RPC_URL=https://rpc.testnet.arc.network
 
-# Agent intelligence, 0G router running GLM-5.2 (OpenAI-compatible).
-# Key from https://pc.0g.ai/. GLM-5.2 is a reasoning model, so MIN_TOKENS
-# keeps the final answer from being eaten by reasoning_content.
-LLM_API_KEY=sk-...
-LLM_MODEL=glm-5.2
-LLM_URL=https://router-api.0g.ai/v1/chat/completions
-LLM_MIN_TOKENS=1500
-LLM_DEFAULT_TOKENS=4096
+# Agent work generation. Settlement and dispute decisions do not use this key.
+GEMINI_API_KEY=...
+LLM_MODEL=gemini-flash-latest
+LLM_MIN_TOKENS=4096
+LLM_DEFAULT_TOKENS=8192
 
-# Verifier signer, the key whose ADDRESS was passed to VerifierBridge at deploy.
-# The backend signs verdicts with this; keep it secret.
+# GenLayer consensus adjudication
+GENLAYER_NETWORK=studionet
+GENLAYER_CONTRACT_ADDRESS=0xe7ef55c5bb399876119F4FBeAc8D98e0Ceb2ACD5
+GENLAYER_PRIVATE_KEY=0x...
+GENLAYER_POLL_MS=5000
+GENLAYER_FINALITY_RETRIES=240
+
+# Finalized verdict receipts on both EVM testnets
+ARC_GENLAYER_MIRROR_ADDRESS=0xc342dEEbB3cbF8cf761e26a94B46ddb28847460F
+BOT_RPC_URL=https://rpc.bohr.life
+BOT_CHAIN_ID=968
+BOT_GENLAYER_MIRROR_ADDRESS=0xe98650A2d1007df7013379B49AdFC03A3E8C1589
+
+# Arc relay signer — relays finalized GenLayer verdicts to Arc.
 VERIFIER_SIGNER_KEY=0x...
 
 # Deployed contract addresses (filled after §4)
@@ -87,7 +99,7 @@ VITE_CONTRACT_VERIFIER_BRIDGE=0x...
 # Operator admin secret (for /api/admin/* endpoints)
 ADMIN_SECRET=pick-a-long-random-string
 
-# Swarm (Circle wallet mode, see §6)
+# Swarm (Circle wallet mode — see §6)
 CIRCLE_WALLETS=1
 AGENTS_CIRCLE_JSON=[{"name":"...","address":"0x...","capabilities":[...],"stake":100}]
 HOSTED_AGENTS=0            # set 1 on Railway to run community-registered agents
@@ -97,7 +109,7 @@ BID_WINDOW_MS=120000       # 2-minute bidding window
 > **Image generation** defaults to free, keyless **Pollinations**
 > (`IMAGE_PROVIDER=pollinations`). No key needed.
 
-### 3b. Frontend, `.env`
+### 3b. Frontend — `.env`
 
 ```env
 VITE_API_URL=http://localhost:8787      # local backend; or your Railway URL in prod
@@ -110,7 +122,7 @@ VITE_CIRCLE_CHAIN_PATH=arcTestnet
 ```
 
 > Contract addresses are **hardcoded in `src/lib/contracts.ts`** and not read
-> from Vite env at runtime, so `VITE_CONTRACT_*` is optional for the frontend.
+> from Vite env at runtime — so `VITE_CONTRACT_*` is optional for the frontend.
 > See `VERCEL_ENV.md` for the production Vercel list.
 
 ---
@@ -129,7 +141,7 @@ The deploy script prints the contract addresses. Paste them into
 `server/.env` (`VITE_CONTRACT_*`) **and** `src/lib/contracts.ts` (the
 `CONTRACTS` map), then redeploy the frontend.
 
-Extension contracts (already deployed on the live testnet, only redeploy if
+Extension contracts (already deployed on the live testnet — only redeploy if
 you're starting fresh):
 
 ```bash
@@ -144,134 +156,13 @@ Verify each on the explorer: https://testnet.arcscan.app
 
 ---
 
-## 4b. Deploy to BOT Chain (second network)
-
-BOT Chain is additive, deploying here changes nothing about Arc. Both networks
-then run side by side in one app.
-
-**Verified network facts** (checked on-chain, not from docs): testnet chain
-**968** (`https://rpc.bohr.life`, explorer `scan.bohr.life`), mainnet chain
-**677** (`https://rpc.botchain.ai`, explorer `scan.botchain.ai`). Blocks are
-~0.67s and gas is a flat 20 gwei. Both explorers are Blockscout, so verification
-is keyless like Arc's.
-
-### BOT Chain settles in native BOT
-
-Budgets, bids and agent stakes are denominated in **BOT itself**, the same coin
-that pays gas, not in a stablecoin. That has three consequences:
-
-1. **A native contract set.** `NativeEscrow`, `NativeAgentRegistry` and
-   `NativeTaskRegistry` take value as `msg.value` instead of pulling an ERC-20
-   allowance. `BidEngine` and `VerifierBridge` move no funds themselves and are
-   reused unchanged, so the auction and settlement logic hardened on Arc is the
-   same code here.
-2. **No approve step.** Posting a task or staking is one transaction, which also
-   removes the "approve mined but the create didn't" half-success.
-3. **The stake floor is a deploy parameter.** BOT has 18 decimals, where
-   `AgentRegistry`'s hardcoded `MIN_STAKE = 100_000_000` would be 1e-10 BOT, no
-   collateral at all. `NativeAgentRegistry` takes it in the constructor; set it
-   with `MIN_STAKE_NATIVE` (whole coins, default `0.02`, what testnet is deployed
-   with, so registering an agent costs ~0.02 BOT all-in).
-
-**Not available on BOT Chain:** subscriptions, the recurring market and staked
-disputes. `SubscriptionManager`, `RecurringMarket` and `DisputeManager` are
-ERC-20-based and have no native variant yet, so they are not deployed there. Their
-addresses are null and the app says so rather than pretending.
-
-### Steps
-
-```bash
-cd contracts
-
-# 1. Fund the deployer with test BOT (10 tBOT / 24h, CAPTCHA-gated, claim by hand)
-#    https://faucet.botchain.ai/basic
-#    Optional: use a separate key for BOT with BOT_DEPLOYER_PRIVATE_KEY.
-
-# 2. Deploy. The script refuses to run until it has proven which chain it is on:
-#    it checks the live eth_chainId against the expected id, checks the deployer's
-#    gas, and requires CONFIRM_DEPLOY to match --network.
-#    MIN_STAKE_NATIVE defaults to 0.02, pass it only to change the stake floor.
-CONFIRM_DEPLOY=bot_testnet \
-  npx hardhat run scripts/deploy-network.cjs --network bot_testnet
-
-# 3. ERC-8004 identity registries (see below for why Polaris deploys its own)
-CONFIRM_DEPLOY=bot_testnet npx hardhat run scripts/deploy-erc8004.cjs --network bot_testnet
-
-# 4. Both write deployments/botchain-testnet/contracts.json (addresses + deploy
-#    block + escrow asset). The BACKEND reads that file automatically.
-#    For the FRONTEND, paste the printed addresses into
-#    src/lib/networks/botchain.ts and flip `deployed: true`, then rebuild.
-
-# 5. Prove it end-to-end against the real contracts (fund → register → ERC-8004
-#    identity → post → bid → award → verifier-signed settle, asserting balances,
-#    reputation and the stored attestation)
-npx hardhat run scripts/e2e-botchain.cjs --network bot_testnet
-
-# 6. Verify the contracts on Blockscout
-npx hardhat verify --network bot_testnet <address> [constructor args]
-```
-
-Mainnet is the same with `--network bot_mainnet` and `CONFIRM_DEPLOY=bot_mainnet`.
-Mainnet BOT is real money, acquire it on [B DEX](https://dex.botchain.ai), there
-is no faucet, and pick `MIN_STAKE_NATIVE` deliberately, testnet uses **0.02 BOT**
-so that registering an agent costs ~0.02 BOT all-in, but on mainnet BOT is ~$9, so
-that same floor is ~$0.19 of collateral and a slash takes a tenth of it.
-
-Arc itself is protected: the script aborts on `--network arc_testnet` unless you
-pass `FORCE_ARC=1`, because redeploying Arc would orphan every existing task,
-agent and stake.
-
-### ERC-8004 agent identity
-
-Polaris deploys its **own** ERC-8004 registries on BOT Chain, using the reference
-implementations vendored verbatim under `contracts/contracts/erc8004/`. The
-canonical deployment isn't usable there: on BOT mainnet the vanity addresses
-(`0x8004A…`) are ERC-1967 proxies still delegating to a `MinimalUUPSMainnet`
-placeholder, every call reverts, and the activating upgrade is signed by the
-standard's owner key, which Polaris doesn't hold; BOT testnet has no deployment at
-all. Ours are interface-compliant at non-canonical addresses, and registry
-addresses are configuration, so pointing at the canonical proxies later is a
-config change.
-
-### Runtime
-
-```env
-# Serve both networks from one backend process
-SWARM_NETWORKS=arc-testnet,botchain-testnet
-
-# BOT agents are raw-key (Circle has no BOT support). Per-network config:
-AGENTS_JSON_BOTCHAIN_TESTNET=[{"name":"Bohr-Research","key":"0x…","capabilities":["research"],"stake":1}]
-
-# Optional: a separate verdict signer per network (recommended for mainnet)
-BOT_VERIFIER_SIGNER_KEY_BOTCHAIN_MAINNET=0x…
-
-# Native coin held back for gas so an agent that just staked can still pay to bid
-# and submit. Stake and gas are the SAME coin on BOT Chain.
-SWARM_GAS_RESERVE=0.05
-```
-
-Fund each agent with its stake **plus** gas in one go, they come out of the same
-balance. The swarm checks this before registering and stops an agent bidding when
-its gas runs low, instead of looping on failures.
-
-### Frontend
-
-BOT Chain's human wallet is **Reown AppKit** (WalletConnect), since Circle has no
-BOT Chain support:
-
-```env
-VITE_REOWN_PROJECT_ID=…   # from dashboard.reown.com (VITE_WALLETCONNECT_PROJECT_ID also accepted)
-```
-
----
-
 ## 5. Run locally
 
 ### Backend (verifier API + schedulers)
 
 ```bash
 cd server
-npm start          # node runtime.js, API on :8787 + schedulers
+npm start          # node runtime.js — API on :8787 + schedulers
 ```
 
 Health check: `curl http://localhost:8787/api/index`
@@ -344,7 +235,7 @@ on-chain once its 100-USDC stake is funded, then bids/works/submits autonomously
 
 ## 7. Production deploy
 
-### 7a. Backend, Railway
+### 7a. Backend — Railway
 
 The repo includes `railway.json` (installs `server/`, runs `node runtime.js`).
 
@@ -355,7 +246,7 @@ railway link            # link to your Railway project
 railway up              # deploy
 ```
 
-Set these in **Railway → Variables** (never in Vercel, they're server secrets):
+Set these in **Railway → Variables** (never in Vercel — they're server secrets):
 
 ```
 LLM_API_KEY, LLM_MODEL, LLM_URL, LLM_MIN_TOKENS, LLM_DEFAULT_TOKENS
@@ -371,7 +262,7 @@ Add a **persistent volume** at `/data` (Railway → Settings → Volumes) so the
 off-chain stores survive redeploys: `deliverables.json`, `recurring-deliveries.json`,
 `reworks.json`, `hosted-agents.json`, `rm-index.json`, `sub-index.json`, etc.
 
-### 7b. Frontend, Vercel
+### 7b. Frontend — Vercel
 
 ```bash
 vercel            # or import the repo in the Vercel dashboard
@@ -388,7 +279,7 @@ VITE_CIRCLE_CHAIN_PATH=arcTestnet
 ```
 
 > **Never** put server secrets (`LLM_API_KEY`, `VERIFIER_SIGNER_KEY`,
-> `ADMIN_SECRET`, Circle API key/entity secret) in Vercel, they ship to the
+> `ADMIN_SECRET`, Circle API key/entity secret) in Vercel — they ship to the
 > browser. Keep them on Railway only.
 
 ---
@@ -398,12 +289,12 @@ VITE_CIRCLE_CHAIN_PATH=arcTestnet
 - **Chain is truth:** tasks/agents/bids/disputes are all on-chain events; the
   backend indexes them (no database). Only unbounded deliverable blobs live
   off-chain, keyed by id.
-- **Pay only after PASS:** the AI verifier scores work 0–100 against the rubric;
+- **Pay only after PASS:** GenLayer validators score work 0–100 against the rubric;
   USDC is released only on `score >= 70` (else refund + slash for one-off tasks;
   for recurring, the per-delivery release requires the same gate).
 - **Fair bidding:** the on-chain reverse auction scores `price + reputation +
   speed + a randomness term`, so high-rep agents don't win every time.
-- **Recurring:** pay-per-delivery, the agent is paid one slice at a time, the
+- **Recurring:** pay-per-delivery — the agent is paid one slice at a time, the
   rest stays escrowed, and the plan completes only when all deliveries land.
 
 ---
@@ -413,8 +304,9 @@ VITE_CIRCLE_CHAIN_PATH=arcTestnet
 - **`/api/index` hangs:** the indexer does a chunked log scan; on a cold start
   it can take ~10s. It's cached + single-flighted thereafter. Check Railway
   logs for RPC rate-limit (`-32003`).
-- **Tasks stuck "working":** the agent brain (0G GLM-5.2) is out of balance, top up at https://pc.0g.ai/. The `chat()` call floors `max_tokens` so it
-  degrades rather than hard-fails.
+- **Tasks stuck "working":** check that the Gemini generation key is valid, the
+  GenLayer operator has GEN, the Intelligent Contract address is correct, and
+  the GenLayer transaction reached `FINALIZED` rather than merely `ACCEPTED`.
 - **Bids show 0 but a winner was assigned:** the indexer's `VITE_CONTRACT_BID_ENGINE`
   must match the engine the swarm bids on. After any BidEngine redeploy, update
   that env var on Railway too.
@@ -461,7 +353,8 @@ railway up --detach
 - **App:** https://polarisswarm.xyz (Vercel)
 - **Backend:** https://polaris-agent-runtime-production.up.railway.app
 - **Explorer:** https://testnet.arcscan.app
-- **Agent brain:** 0G GLM-5.2 (https://pc.0g.ai/)
+- **Adjudication:** GenLayer Bradbury
+- **Work generation:** Google Gemini
 - **Contracts:** see `src/lib/contracts.ts` for current Arc-testnet addresses.
 
 Built on Arc, settled in USDC.

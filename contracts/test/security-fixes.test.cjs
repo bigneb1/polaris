@@ -4,6 +4,7 @@ const { ethers } = require("hardhat");
 const USDC = (n) => ethers.parseUnits(String(n), 6);
 const STAKE = USDC(100);
 const HASH = ethers.id("deliverable-bytes");
+const DECISION = ethers.id("genlayer-finalized-decision");
 
 /**
  * Regression tests for the post-audit fixes in docs/AUDIT_REPORT.md:
@@ -54,19 +55,30 @@ describe("Post-audit security fixes", function () {
   async function signVerdict(agentAddr, requesterAddr, passed, score, hash = HASH) {
     const { chainId } = await ethers.provider.getNetwork();
     const inner = ethers.solidityPackedKeccak256(
-      ["uint256", "address", "bytes32", "address", "address", "bool", "uint8", "bytes32"],
-      [chainId, await verifier.getAddress(), taskId, agentAddr, requesterAddr, passed, score, hash],
+      ["uint256", "address", "bytes32", "address", "address", "bool", "uint8", "bytes32", "bytes32"],
+      [chainId, await verifier.getAddress(), taskId, agentAddr, requesterAddr, passed, score, hash, DECISION],
     );
     return signer.signMessage(ethers.getBytes(inner));
   }
 
   describe("VerifierBridge — access control + signature binding (Security #1)", () => {
+    it("requires and cryptographically binds a finalized GenLayer decision id", async () => {
+      await postAndWin();
+      const sig = await signVerdict(agent.address, requester.address, true, 92);
+      await expect(
+        verifier.connect(signer).submitVerification(taskId, agent.address, requester.address, true, 92, HASH, ethers.ZeroHash, sig),
+      ).to.be.revertedWith("Missing GenLayer decision");
+      await expect(
+        verifier.connect(signer).submitVerification(taskId, agent.address, requester.address, true, 92, HASH, ethers.id("different-decision"), sig),
+      ).to.be.revertedWith("Bad signature");
+    });
+
     it("rejects submitVerification from anyone other than the trusted signer, even with a validly-signed payload", async () => {
       await postAndWin();
       const sig = await signVerdict(agent.address, requester.address, true, 92);
       // A random third party (not the backend) tries to relay the otherwise-valid verdict.
       await expect(
-        verifier.connect(agent).submitVerification(taskId, agent.address, requester.address, true, 92, HASH, sig),
+        verifier.connect(agent).submitVerification(taskId, agent.address, requester.address, true, 92, HASH, DECISION, sig),
       ).to.be.revertedWith("Only backend");
     });
 
@@ -76,15 +88,15 @@ describe("Post-audit security fixes", function () {
       // Attacker (agent2, separately registered) tries to redirect the payout to
       // itself by resubmitting the SAME signature with a different `agent`.
       await expect(
-        verifier.connect(signer).submitVerification(taskId, agent2.address, requester.address, true, 92, HASH, sig),
+        verifier.connect(signer).submitVerification(taskId, agent2.address, requester.address, true, 92, HASH, DECISION, sig),
       ).to.be.revertedWith("Bad signature");
       // Same for redirecting the slash beneficiary via a different `requester`.
       const failSig = await signVerdict(agent.address, requester.address, false, 30);
       await expect(
-        verifier.connect(signer).submitVerification(taskId, agent.address, agent2.address, false, 30, HASH, failSig),
+        verifier.connect(signer).submitVerification(taskId, agent.address, agent2.address, false, 30, HASH, DECISION, failSig),
       ).to.be.revertedWith("Bad signature");
       // The correctly-addressed verdict still works.
-      await verifier.connect(signer).submitVerification(taskId, agent.address, requester.address, true, 92, HASH, sig);
+      await verifier.connect(signer).submitVerification(taskId, agent.address, requester.address, true, 92, HASH, DECISION, sig);
       expect((await taskReg.tasks(taskId)).status).to.equal(4); // SETTLED
     });
   });

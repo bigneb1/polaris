@@ -42,8 +42,6 @@ contracts/typechain-types
 .vercel
 .env*
 
-# Local SQLite index state (rebuilt from chain; lives on the volume in production)
-*.db
-*.db-shm
-*.db-wal
-.state/
+# Python / GenLayer compiler artifacts
+__pycache__/
+*.py[cod]

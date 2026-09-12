@@ -18,7 +18,7 @@ interface IAgentReg {
  * the requester escrows the whole plan, agents BID, the best-scored bid wins (same
  * price·40 + reputation·40 + speed·20 formula as the task market), and then the
  * winning agent delivers on schedule — each scheduled drop releasing one slice of
- * USDC on a verifier-signed verdict. The competitive savings (funded perDelivery −
+ * USDC on a relayed, finalized GenLayer verdict. The competitive savings (funded perDelivery −
  * winning price) are refunded to the requester at award time. The off-chain
  * scheduler decides WHEN each drop is due (cadence lives in the plan metadata).
  */
@@ -58,11 +58,12 @@ contract RecurringMarket is ReentrancyGuard {
     mapping(bytes32 => Plan) public plans;
     mapping(bytes32 => Bid[]) public bidsOf;
     mapping(bytes32 => mapping(uint32 => bool)) public delivered;
+    mapping(bytes32 => mapping(uint32 => bytes32)) public genLayerDecisionIds;
 
     event PlanCreated(bytes32 indexed planId, address indexed requester, uint256 perDelivery, uint32 total, uint256 minReputation, string title, string brief, string rubric, string taskType, string schedule);
     event PlanBid(bytes32 indexed planId, address indexed agent, uint256 price, uint256 score);
     event PlanAwarded(bytes32 indexed planId, address indexed agent, uint256 price);
-    event DeliveryReleased(bytes32 indexed planId, address indexed agent, uint32 index, uint256 amount, uint8 score, bytes32 deliverableHash);
+    event DeliveryReleased(bytes32 indexed planId, address indexed agent, uint32 index, uint256 amount, uint8 score, bytes32 deliverableHash, bytes32 genLayerDecisionId);
     event PlanCancelled(bytes32 indexed planId, uint256 refund);
 
     constructor(address _usdc, address _agentRegistry, address _signer) {
@@ -131,23 +132,25 @@ contract RecurringMarket is ReentrancyGuard {
         emit PlanAwarded(planId, w.agent, w.price);
     }
 
-    /// Release one scheduled drop to the agent on a verifier-signed verdict.
-    function recordDelivery(bytes32 planId, uint32 index, bytes32 deliverableHash, uint8 score, bytes calldata signature) external nonReentrant {
+    /// Release one scheduled drop on a relayed, finalized GenLayer verdict.
+    function recordDelivery(bytes32 planId, uint32 index, bytes32 deliverableHash, uint8 score, bytes32 genLayerDecisionId, bytes calldata signature) external nonReentrant {
         Plan storage p = plans[planId];
         require(p.status == Status.ACTIVE, "Not active");
         require(index < p.total && !delivered[planId][index], "Bad/dup index");
         require(score >= 70, "Below MIN_SCORE");
+        require(genLayerDecisionId != bytes32(0), "Missing GenLayer decision");
         bytes32 digest = keccak256(
-            abi.encodePacked(block.chainid, address(this), planId, index, deliverableHash, score)
+            abi.encodePacked(block.chainid, address(this), planId, index, deliverableHash, score, genLayerDecisionId)
         ).toEthSignedMessageHash();
         require(ECDSA.recover(digest, signature) == trustedSigner, "Bad signature");
 
         delivered[planId][index] = true;
+        genLayerDecisionIds[planId][index] = genLayerDecisionId;
         p.done += 1;
         p.escrowed -= p.price;
         if (p.done == p.total) p.status = Status.COMPLETE;
         require(usdc.transfer(p.agent, p.price), "Agent transfer failed");
-        emit DeliveryReleased(planId, p.agent, index, p.price, score, deliverableHash);
+        emit DeliveryReleased(planId, p.agent, index, p.price, score, deliverableHash, genLayerDecisionId);
     }
 
     /// Requester cancels (open or active) and reclaims the remaining escrow.

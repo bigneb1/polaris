@@ -1,151 +1,97 @@
 import { useState } from "react";
-import { Activity, AlertTriangle, Award, Bot, Fingerprint, Lock, Power, Users } from "lucide-react";
-import { AppShell } from "../components/shell/AppShell";
-import { PanelRow, PanelSection } from "../components/shell/StudioPanel";
-import { AgentCard, RowList } from "../components/ui/cards";
-import { StatRow, StatTile } from "../components/ui/StatTile";
-import { EmptyState, ErrorNotice, Panel, Skeleton } from "../components/ui/primitives";
+import { useWallet } from "../context/WalletProvider";
+import { Bot, AlertTriangle, Power } from "lucide-react";
+import { PageHeader, AgentCard } from "../components/ui/cards";
+import { StatCard, Panel, EmptyState, ErrorNotice, Skeleton } from "../components/ui/primitives";
 import HostedAgentPanel from "../components/HostedAgentPanel";
 import { WalletGate } from "../components/layout/guards";
-import ContractsNotice from "../components/ContractsNotice";
-import ImagePicker from "../components/ImagePicker";
 import { useAgents } from "../lib/onchain";
 import { useTx } from "../hooks/useTx";
-import { canMintAgentIdentity, erc8004Deployed, mintAgentIdentity, registerAgent, setAgentOnline } from "../lib/tx";
-import { uploadAgentMeta, uploadAsset } from "../lib/api";
+import { registerAgent, setAgentOnline } from "../lib/tx";
+import { uploadAsset, uploadAgentMeta } from "../lib/api";
 import { coreDeployed } from "../lib/contracts";
-import { useAsset } from "../hooks/useAsset";
-import { fmtCompact } from "../lib/utils";
-import { useNetwork } from "../context/NetworkProvider";
-import { useWallet } from "../context/WalletProvider";
+import { ContractsNotice } from "./TaskMarket";
+import ImagePicker from "../components/ImagePicker";
 
 const CAPABILITIES = [
   "research",
   "writing",
   "code",
-  "analysis",
-  "summarization",
-  "translation",
-  "design",
   "data-labeling",
-  "general",
+  "analysis",
+  "design",
+  "translation",
+  "summarization",
 ];
+const MIN_STAKE = 100;
 
-/**
- * Register and run agents.
- *
- * The stake floor is per network and never hardcoded here: Arc's registry fixes it at
- * 100 USDC, while BOT Chain's takes it as a deploy parameter (0.02 BOT), because an
- * 18-decimal coin makes a 6-decimal constant meaningless.
- */
 export default function Agents() {
-  const { network } = useNetwork();
-  const { symbol } = useAsset();
   const { agents, isLoading, error } = useAgents();
-  const online = agents.filter((a) => a.online).length;
-  const avgRep = agents.length ? Math.round(agents.reduce((s, a) => s + a.reputation, 0) / agents.length) : 0;
-  const withIdentity = agents.filter((a) => a.erc8004Id).length;
-  const staked = agents.reduce((n, a) => n + a.stakeUsdc, 0);
-  const settledJobs = agents.reduce((n, a) => n + a.tasksCompleted, 0);
+  const onlineCount = agents.filter((a) => a.online).length;
+  const avgRep = agents.length
+    ? Math.round(agents.reduce((s, a) => s + a.reputation, 0) / agents.length)
+    : 0;
 
   return (
-    <AppShell
-      panel={
-        <>
-          <PanelSection title="Registry">
-            <PanelRow label="Registered" value={agents.length} />
-            <PanelRow label="Online now" value={online} />
-            <PanelRow label="Average reputation" value={avgRep} />
-            <PanelRow label="Stake floor" value={`${network.minStake} ${symbol}`} />
-          </PanelSection>
-          <PanelSection title="What the stake is for" defaultOpen={false}>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              The stake is collateral. A deliverable scoring below 70 costs the agent 10% of it, paid to the
-              wronged requester, and 50 reputation. It can be reclaimed in full by going offline, but only
-              while the agent holds no in-flight work, which the registry enforces with an active-task counter.
-            </p>
-          </PanelSection>
-          <PanelSection title="Wallets on this network" defaultOpen={false}>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              {network.wallet.kind === "circle"
-                ? "Agents here run on Circle MPC wallets, so the swarm transacts without raw keys."
-                : "Agents here hold their own keys, and can run through an ERC-4337 smart account instead, in which case the registry entry belongs to the account rather than the key."}
-            </p>
-          </PanelSection>
-        </>
-      }
-    >
-      <div className="max-w-5xl mx-auto space-y-4 p-4">
-        <StatRow>
-          <StatTile icon={Users} label="Registered" value={agents.length} accent="primary" />
-          <StatTile icon={Activity} label="Online" value={online} accent="success" />
-          <StatTile icon={Award} label="Avg reputation" value={avgRep} accent="secondary" />
-          <StatTile icon={Fingerprint} label="ERC-8004 ids" value={withIdentity} accent="accent" />
-          <StatTile icon={Lock} label={`${symbol} staked`} value={fmtCompact(staked)} accent="primary" />
-          <StatTile icon={Bot} label="Jobs settled" value={settledJobs} accent="success" />
-        </StatRow>
+    <div>
+      <PageHeader
+        eyebrow="Agent Registry"
+        title="Register & run agents"
+        sub="Stake USDC to put an agent on the market. Staked agents bid and settle autonomously."
+      />
 
-        {!coreDeployed(network.id) ? (
-          <ContractsNotice />
-        ) : (
-          <div className="grid gap-4 lg:grid-cols-2">
+      <div className="mb-7 grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatCard label="Registered" value={agents.length} accent="blue" />
+        <StatCard label="Online Now" value={onlineCount} accent="green" />
+        <StatCard label="Avg Reputation" value={avgRep} accent="violet" />
+        <StatCard label="Min Stake" value={`$${MIN_STAKE}.00`} accent="usdc" />
+      </div>
+
+      {!coreDeployed() ? (
+        <ContractsNotice />
+      ) : (
+        <>
+          <div className="grid gap-6 lg:grid-cols-2">
             <WalletGate label="Connect a wallet to register an agent.">
               <RegisterForm />
             </WalletGate>
-            <div className="flex flex-col gap-4">
-              <MyAgents isLoading={isLoading} error={error} />
-              <HostedAgentPanel />
-            </div>
+            <MyAgents isLoading={isLoading} error={error} />
           </div>
-        )}
-      </div>
-    </AppShell>
+          <div className="mt-6">
+            <HostedAgentPanel />
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
 function RegisterForm() {
-  const { symbol, network } = useAsset();
-  const minStake = network.minStake;
   const { address, signer } = useWallet();
   const { run, loading } = useTx();
   const [name, setName] = useState("");
   const [caps, setCaps] = useState<string[]>([]);
-  const [stake, setStake] = useState(String(minStake));
+  const [stake, setStake] = useState("100");
   const [endpoint, setEndpoint] = useState("");
   const [auth, setAuth] = useState("");
   const [image, setImage] = useState<string | null>(null);
 
   const stakeN = parseFloat(stake) || 0;
   const endpointOk = !endpoint.trim() || /^https?:\/\//i.test(endpoint.trim());
-  const valid = name.trim() && caps.length > 0 && stakeN >= minStake && endpointOk;
+  const valid = name.trim() && caps.length > 0 && stakeN >= MIN_STAKE && endpointOk;
 
-  const toggle = (c: string) => setCaps((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]));
+  const toggle = (c: string) =>
+    setCaps((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]));
 
   const onSubmit = async () => {
     if (!address || !valid) return;
     const hash = await run(
       () => registerAgent({ owner: address, name: name.trim(), capabilities: caps, stakeUsdc: stakeN }, signer),
-      { pending: "Staking and registering the agent…", success: "Agent registered onchain" },
+      { pending: "Approving stake & registering agent…", success: "Agent registered onchain" },
     );
     if (hash) {
       if (image) await uploadAsset(address, image); // avatar keyed by agent wallet
       if (endpoint.trim()) await uploadAgentMeta(address, { endpoint: endpoint.trim(), auth: auth.trim() || undefined });
-      // Mint the portable ERC-8004 identity as a follow-up, never as part of the
-      // registration batch: `register` mints to msg.sender so only this wallet can do
-      // it, but an identity is portable reputation rather than a precondition for
-      // earning, and a failure here must not undo a staked registration.
-      // Simulate before asking the user to sign. A wallet that cannot receive an
-      // ERC-721 would revert with an opaque custom error, and charging them gas to
-      // discover that after they have already staked would be indefensible.
-      if (erc8004Deployed() && (await canMintAgentIdentity(address)).ok) {
-        await run(() => mintAgentIdentity(address, signer), {
-          pending: "Minting the agent's ERC-8004 identity…",
-          success: "ERC-8004 identity minted",
-          // The agent is already registered and can earn; say so rather than
-          // implying the whole registration failed.
-          error: "Registered, but the ERC-8004 identity could not be minted. You can mint it later from the agent's page.",
-        });
-      }
     }
     setName("");
     setCaps([]);
@@ -155,18 +101,31 @@ function RegisterForm() {
   };
 
   return (
-    <Panel title="Register an agent">
-      <div className="flex flex-col gap-4">
+    <Panel title="Register an Agent">
+      <div className="flex flex-col gap-5">
         <label className="block">
-          <span className="field-label">Agent name</span>
-          <input className="field" placeholder="Atlas-Research-01" value={name} onChange={(e) => setName(e.target.value)} />
+          <div className="eyebrow mb-2">Agent name</div>
+          <input
+            className="input-field"
+            placeholder="Atlas-Research-01"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
         </label>
 
         <div>
-          <span className="field-label">Capabilities</span>
-          <div className="flex flex-wrap gap-1">
+          <div className="eyebrow mb-2">Capabilities</div>
+          <div className="flex flex-wrap gap-2">
             {CAPABILITIES.map((c) => (
-              <button key={c} onClick={() => toggle(c)} data-active={caps.includes(c)} className="tool-btn">
+              <button
+                key={c}
+                onClick={() => toggle(c)}
+                className={`mono rounded-lg border px-3 py-1.5 text-xs uppercase tracking-wider transition-colors ${
+                  caps.includes(c)
+                    ? "border-violet/50 bg-purple/10 text-violet"
+                    : "border-border bg-deep text-grey hover:text-grey-l"
+                }`}
+              >
                 {c}
               </button>
             ))}
@@ -174,56 +133,53 @@ function RegisterForm() {
         </div>
 
         <label className="block">
-          <span className="field-label">
-            Stake · minimum {minStake} {symbol}
-          </span>
+          <div className="eyebrow mb-2">Stake (USDC · min ${MIN_STAKE})</div>
           <input
             type="number"
-            min={minStake}
-            step={minStake < 1 ? "0.001" : "1"}
-            className="field"
+            min={MIN_STAKE}
+            className="input-field"
             value={stake}
             onChange={(e) => setStake(e.target.value)}
           />
         </label>
 
         <label className="block">
-          <span className="field-label">Service endpoint (optional)</span>
+          <div className="eyebrow mb-2">Service endpoint URL (optional)</div>
           <input
-            className="field"
+            className="input-field"
             placeholder="https://my-agent.example.com/polaris/task"
             value={endpoint}
             onChange={(e) => setEndpoint(e.target.value)}
           />
-          <span className="mt-1 block text-[11px] leading-relaxed text-muted-foreground">
-            Where your agent's runtime lives. Polaris POSTs the task here when your agent wins and reads the
-            deliverable back. Your wallet still signs and settles on {network.label}. Leave blank to run it by hand.
-          </span>
-          {!endpointOk && <span className="mt-1 block text-[11px] text-destructive">Must start with http:// or https://</span>}
+          <div className="mono mt-1.5 text-[11px] text-grey">
+            Where your agent's runtime lives. Polaris POSTs the task here when your agent wins, and reads the
+            deliverable back. Your wallet still signs & settles on Arc. Leave blank to run the agent manually.
+          </div>
+          {!endpointOk && <div className="mono mt-1 text-[11px] text-red">Must start with http:// or https://</div>}
         </label>
 
         <label className="block">
-          <span className="field-label">Endpoint auth header (optional)</span>
+          <div className="eyebrow mb-2">Endpoint auth header (optional)</div>
           <input
-            className="field"
-            placeholder="Bearer sk-… (sent as the Authorization header)"
+            className="input-field"
+            placeholder="Bearer sk-… (sent as Authorization header)"
             value={auth}
             onChange={(e) => setAuth(e.target.value)}
           />
         </label>
 
-        <ImagePicker value={image} onChange={setImage} label="Agent avatar (optional)" hint="Shown on the agent row and profile." />
+        <ImagePicker value={image} onChange={setImage} label="Agent avatar (optional)" hint="Shown on the agent card and profile." />
 
-        <div className="flex gap-2 rounded-[4px] border border-accent/30 bg-accent/10 px-3 py-2.5">
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent" />
-          <p className="text-[11px] leading-relaxed text-accent">
-            The stake is collateral. A deliverable below 70 is slashed 10% to the requester and costs 50
-            reputation, so quality compounds and carelessness does not.
+        <div className="panel flex gap-3 border-amber/30 bg-amber/5 p-4">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber" />
+          <p className="text-xs leading-relaxed text-grey-l">
+            Your stake is collateral. If a deliverable scores below 70, a slice of it is slashed and
+            sent to the requester. Reputation also drops. Deliver quality to grow both.
           </p>
         </div>
 
-        <button onClick={onSubmit} disabled={!valid || loading} className="tool-btn-primary w-full">
-          <Bot className="h-3.5 w-3.5" /> {loading ? "Registering…" : "Stake and register"}
+        <button onClick={onSubmit} disabled={!valid || loading} className="btn-primary w-full">
+          <Bot size={15} /> {loading ? "Registering…" : "Stake & register"}
         </button>
       </div>
     </Panel>
@@ -238,39 +194,46 @@ function MyAgents({ isLoading, error }: { isLoading: boolean; error: Error | nul
 
   const toggleOnline = (online: boolean) =>
     run(() => setAgentOnline(!online, 0, signer), {
-      pending: online ? "Taking the agent offline…" : "Bringing the agent online…",
-      success: online ? "Agent is offline" : "Agent is online",
+      pending: online ? "Taking agent offline…" : "Bringing agent online…",
+      success: online ? "Agent is now OFFLINE" : "Agent is now ONLINE",
     });
 
   return (
-    <Panel title="My agents">
+    <Panel title="My Agents">
       {error ? (
-        <ErrorNotice message="Could not load your agents." />
+        <ErrorNotice message="Couldn't load your agents." />
       ) : isLoading ? (
-        <div className="space-y-2">
+        <div className="flex flex-col gap-3">
           {[0, 1].map((i) => (
-            <Skeleton key={i} className="h-12" />
+            <Skeleton key={i} className="h-44" />
           ))}
         </div>
       ) : !address ? (
         <EmptyState title="Connect to see your agents" />
       ) : mine.length === 0 ? (
-        <EmptyState icon={<Bot className="h-7 w-7" />} title="No agents yet" message="Register one to start bidding on tasks." />
+        <EmptyState
+          icon={<Bot size={32} />}
+          title="No agents yet"
+          message="Register one on the left to start bidding on tasks."
+        />
       ) : (
-        <RowList className="-m-3 border-0">
-          {mine.map((a, i) => (
+        <div className="flex flex-col gap-4">
+          {mine.map((a) => (
             <AgentCard
               key={a.wallet}
               agent={a}
-              first={i === 0}
               footer={
-                <button onClick={() => toggleOnline(a.online)} disabled={loading || a.slashed} className="tool-btn w-full">
-                  <Power className="h-3.5 w-3.5" /> {a.online ? "Go offline" : "Restake and go online"}
+                <button
+                  onClick={() => toggleOnline(a.online)}
+                  disabled={loading || a.slashed}
+                  className="btn-ghost w-full"
+                >
+                  <Power size={14} /> {a.online ? "Deactivate (go offline)" : "Restake (go online)"}
                 </button>
               }
             />
           ))}
-        </RowList>
+        </div>
       )}
     </Panel>
   );

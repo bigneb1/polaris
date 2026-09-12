@@ -58,13 +58,14 @@ contract VerifierBridge is ReentrancyGuard {
         bool passed;
         uint8 score;
         bytes32 deliverableHash;
+        bytes32 genLayerDecisionId;
         uint256 timestamp;
     }
 
     mapping(bytes32 => bool) public processed;
     mapping(bytes32 => Attestation) public attestations;
 
-    event VerificationSubmitted(bytes32 indexed taskId, address indexed agent, bool passed, uint8 score, bytes32 deliverableHash);
+    event VerificationSubmitted(bytes32 indexed taskId, address indexed agent, bool passed, uint8 score, bytes32 deliverableHash, bytes32 genLayerDecisionId);
     event TrustedSignerUpdated(address indexed signer);
 
     constructor(address _escrow, address _agentRegistry, address _taskRegistry, address _signer) {
@@ -89,17 +90,19 @@ contract VerifierBridge is ReentrancyGuard {
         bool passed,
         uint8 score,
         bytes32 deliverableHash,
+        bytes32 genLayerDecisionId,
         bytes calldata signature
     ) external nonReentrant {
         require(msg.sender == trustedSigner, "Only backend");
         require(!processed[taskId], "Already processed");
+        require(genLayerDecisionId != bytes32(0), "Missing GenLayer decision");
 
         // The signed verdict binds the exact agent/requester it settles for
         // (not just the score/hash), plus this chain + contract instance so a
         // verdict can't be replayed against a different deployment or a
         // different pair of addresses.
         bytes32 digest = keccak256(
-            abi.encodePacked(block.chainid, address(this), taskId, agent, requester, passed, score, deliverableHash)
+            abi.encodePacked(block.chainid, address(this), taskId, agent, requester, passed, score, deliverableHash, genLayerDecisionId)
         ).toEthSignedMessageHash();
         require(ECDSA.recover(digest, signature) == trustedSigner, "Bad signature");
 
@@ -109,9 +112,10 @@ contract VerifierBridge is ReentrancyGuard {
             passed: passed,
             score: score,
             deliverableHash: deliverableHash,
+            genLayerDecisionId: genLayerDecisionId,
             timestamp: block.timestamp
         });
-        emit VerificationSubmitted(taskId, agent, passed, score, deliverableHash);
+        emit VerificationSubmitted(taskId, agent, passed, score, deliverableHash, genLayerDecisionId);
 
         if (passed && score >= MIN_SCORE) {
             // Pay the agent its winning bid; the requester is refunded the rest
@@ -125,6 +129,7 @@ contract VerifierBridge is ReentrancyGuard {
             taskRegistry.markFailed(taskId);
         }
     }
+
 
     function getAttestation(bytes32 taskId) external view returns (Attestation memory) {
         return attestations[taskId];

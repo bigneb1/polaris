@@ -5,21 +5,16 @@ import fs from "node:fs";
 import "dotenv/config";
 
 import { createGatewayMiddleware } from "@circle-fin/x402-batching/server";
-import { getChainCtx } from "./chain.js";
-import { activeNetworkIds, DEFAULT_NETWORK, getNetwork, isActiveNetwork, isDeployed, networkIdOf, scopedKey, signerKeyFor } from "./networks.js";
-import { taskVerdictDigest } from "./digests.js";
-import { erc8004Available, publishSettlement } from "./erc8004.js";
+import { ADDR, ABI, CHAIN_ID, provider, readTaskMeta, readAssignedAgent, requireAddresses } from "./chain.js";
 import { verifyAgentSignature, timingSafeEqualStr } from "./auth.js";
-import { authorizeVerify, isInternal, rateLimit } from "./guard.js";
-import { scoreAgentWork } from "./score.js";
+import { adjudicateDispute, adjudicateTask, genlayerEnabled } from "./genlayer.js";
+import { verdictMirrorsEnabled } from "./verdict-relay.js";
 import { getIndex } from "./indexer.js";
-import { getOverview } from "./overview.js";
-import { renderDashboard } from "./dashboardPage.js";
 import { listSubscriptions, getDelivery } from "./subscriptions.js";
-import { resolveDispute, runJury, listReworks, markReworkDone } from "./disputes.js";
+import { resolveDispute, listReworks, markReworkDone } from "./disputes.js";
 import { registerHosted, listHosted } from "./hosted.js";
 import { listPlans, getDelivery as getPlanDelivery } from "./recurring.js";
-import { storePath, writeJsonAtomic } from "./store-path.js";
+import { storePath } from "./store-path.js";
 import {
   ucEnabled,
   createSession,
@@ -38,112 +33,22 @@ import {
  * Polaris verifier backend.
  *   POST /api/deliverable      store an agent's deliverable (off-chain blob)
  *   GET  /api/deliverable/:id  fetch it
- *   POST /api/verify           score with our algorithm → sign verdict → settle on-chain
+ *   POST /api/verify           finalize GenLayer verdict → relay → settle on Arc
  *
- * Holds the trusted verifier signer key; the frontend never sees it. The signed
- * verdict drives USDCEscrow release/slash via VerifierBridge.submitVerification.
- *
- * MULTI-CHAIN: every route takes a `network` (query or body) and resolves its
- * chain context, contract addresses and signer from it. Omitted → Arc, so an
- * older frontend build keeps working unchanged. Off-chain store keys are prefixed
- * with the chain id, because a task id is only unique WITHIN a chain — two
- * networks could otherwise overwrite each other's deliverables.
+ * GenLayer validator consensus owns the subjective verdict. This backend waits
+ * for finality and only relays the result to Arc's VerifierBridge.
  */
 const PORT = process.env.PORT || 8787;
 const STORE = storePath("DELIVERABLE_STORE", "deliverables.json");
 const ASSET_STORE = storePath("ASSET_STORE", "assets.json");
 const AGENT_META_STORE = storePath("AGENT_META_STORE", "agent-meta.json");
-const verifyCooldown = new Map(); // `${chainId}:${taskId}` -> ms of last /api/verify attempt
+const SIGNER_KEY = process.env.VERIFIER_SIGNER_KEY;
+const verifyCooldown = new Map(); // taskId(lower) -> ms of last /api/verify attempt
 const VERIFY_COOLDOWN_MS = Number(process.env.VERIFY_COOLDOWN_MS || 10_000);
-
-/**
- * Resolve the network for a request and hand back its chain context.
- * Rejects a network whose contracts aren't deployed rather than falling back to
- * another chain's — silently serving Arc data for a BOT request is precisely the
- * cross-network leak this must not have.
- */
-function ctxFor(req, res) {
-  const id = networkIdOf(req);
-  if (!isDeployed(id)) {
-    res.status(400).json({
-      error: `${getNetwork(id).label} isn't available yet — Polaris hasn't been deployed to that network.`,
-      network: id,
-    });
-    return null;
-  }
-  // Each chain runs in its own service (Arc's agents are Circle wallets, BOT
-  // Chain's are raw-key/ERC-4337), so a network this process doesn't serve has no
-  // index, no swarm and no signer here. Say that plainly instead of returning an
-  // empty result that looks like "this chain has no activity".
-  if (!isActiveNetwork(id)) {
-    res.status(409).json({
-      error: `This runtime serves ${activeNetworkIds().join(", ") || "no networks"} — not ${getNetwork(id).label}. Point the app at that network's own runtime.`,
-      network: id,
-      serves: activeNetworkIds(),
-    });
-    return null;
-  }
-  return getChainCtx(id);
-}
-
-/**
- * Key an off-chain record by chain + id. Reads also accept the legacy
- * un-prefixed key on Arc, so records written before multi-chain support are
- * still found instead of appearing to vanish.
- */
-function keyFor(networkId, id) {
-  return scopedKey(networkId, id);
-}
-function readScoped(store, networkId, id) {
-  const scoped = store[keyFor(networkId, id)];
-  if (scoped !== undefined) return scoped;
-  return networkId === DEFAULT_NETWORK ? store[String(id).toLowerCase()] : undefined;
-}
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "6mb" })); // allow small base64 images
-
-/**
- * Rate limits on the endpoints that spend money or grow the volume. The runtime's
- * own callers carry the internal secret and are exempt (see server/guard.js), so
- * these bound outside abuse without throttling the swarm.
- */
-app.use(
-  "/api/verify",
-  rateLimit({ windowMs: 60_000, max: Number(process.env.RATE_LIMIT_VERIFY || 10), name: "verification" }),
-);
-app.use(
-  "/api/deliverable",
-  rateLimit({ windowMs: 60_000, max: Number(process.env.RATE_LIMIT_DELIVERABLE || 20), name: "deliverable" }),
-);
-app.use(
-  "/api/admin",
-  rateLimit({ windowMs: 60_000, max: Number(process.env.RATE_LIMIT_ADMIN || 10), name: "admin" }),
-);
-
-/*
- * The rest of the write surface. Three routes were limited and sixteen were not, which left
- * the expensive ones wide open:
- *   - /api/asset accepts base64 images against a 6MB body limit, straight onto the volume;
- *   - /api/hosted-agent GENERATES AND STORES A PRIVATE KEY on every call;
- *   - /api/recurring-dispute and /api/dispute/resolve each spend model credits and gas.
- * None of them needed a flood to hurt: storage exhaustion and metered spend are the two
- * costs an anonymous caller could impose without ever touching the money path.
- */
-const WRITE_LIMITS = [
-  ["/api/asset", Number(process.env.RATE_LIMIT_ASSET || 20), "asset upload"],
-  ["/api/agent-meta", Number(process.env.RATE_LIMIT_AGENT_META || 10), "agent metadata"],
-  ["/api/hosted-agent", Number(process.env.RATE_LIMIT_HOSTED || 5), "hosted agent"],
-  ["/api/recurring-dispute", Number(process.env.RATE_LIMIT_DISPUTE || 5), "recurring dispute"],
-  ["/api/dispute", Number(process.env.RATE_LIMIT_DISPUTE || 5), "dispute"],
-  ["/api/rating", Number(process.env.RATE_LIMIT_RATING || 10), "rating"],
-  ["/api/flag-agent", Number(process.env.RATE_LIMIT_FLAG || 5), "flag"],
-  ["/api/rework-done", Number(process.env.RATE_LIMIT_REWORK || 20), "rework"],
-];
-for (const [route, max, name] of WRITE_LIMITS) {
-  app.use(route, rateLimit({ windowMs: 60_000, max, name }));
-}
 
 // Asset store: optional cover/avatar images keyed by taskId or agent wallet.
 // Off-chain (the contracts don't carry images); merged into /api/index.
@@ -155,7 +60,7 @@ function loadAssets() {
   }
 }
 function saveAssets(obj) {
-  writeJsonAtomic(ASSET_STORE, obj, { pretty: true });
+  fs.writeFileSync(ASSET_STORE, JSON.stringify(obj, null, 2));
 }
 
 // Simple JSON-file persistence for deliverable blobs (keyed by taskId).
@@ -166,112 +71,18 @@ function loadStore() {
     return {};
   }
 }
-/**
- * Age out old deliverables before writing.
- *
- * The store sits on the Railway volume and had no retention at all, behind an
- * endpoint that accepts 6 MB bodies. Deliverables matter until a task settles and
- * for a while afterwards so a requester can read the work; keeping them forever just
- * fills the disk. The hash is attested on chain regardless, so pruning the blob loses
- * the copy, never the proof.
- */
-const DELIVERABLE_RETENTION_MS = Number(process.env.DELIVERABLE_RETENTION_DAYS || 90) * 86_400_000;
-const DELIVERABLE_MAX_ENTRIES = Number(process.env.DELIVERABLE_MAX_ENTRIES || 5000);
-
-function pruneStore(obj) {
-  const cutoff = Date.now() - DELIVERABLE_RETENTION_MS;
-  let entries = Object.entries(obj);
-  const before = entries.length;
-  entries = entries.filter(([, v]) => !v?.at || v.at >= cutoff);
-  if (entries.length > DELIVERABLE_MAX_ENTRIES) {
-    // Oldest first, so a burst cannot evict the work someone is about to read.
-    entries.sort((a, b) => (b[1]?.at || 0) - (a[1]?.at || 0));
-    entries = entries.slice(0, DELIVERABLE_MAX_ENTRIES);
-  }
-  if (entries.length !== before) {
-    console.log(`[store] pruned ${before - entries.length} deliverable(s) past retention`);
-    return Object.fromEntries(entries);
-  }
-  return obj;
-}
-
 function saveStore(obj) {
-  writeJsonAtomic(STORE, pruneStore(obj), { pretty: true });
+  fs.writeFileSync(STORE, JSON.stringify(obj, null, 2));
 }
 
-/**
- * The runtime's front page: a federated dashboard of every agent, on every supported
- * network, plus the merged activity feed.
- *
- * A bare runtime URL used to 404, which told an operator nothing about whether the
- * swarm was alive. Because each chain gets its own service, no single URL could answer
- * "how is the whole swarm doing?" either; this one federates across peers to do it.
- * Server-rendered and dependency-free, so it still works when the frontend does not.
- */
-app.get("/", async (_req, res) => {
-  try {
-    const overview = await getOverview();
-    res.type("html").send(renderDashboard(overview));
-  } catch (e) {
-    // A dashboard that 500s is worse than useless: it looks like the runtime is down.
-    res.status(200).type("html").send(
-      renderDashboard({
-        generatedAtMs: Date.now(),
-        serves: activeNetworkIds(),
-        peers: [],
-        totals: { networks: 0, networksReachable: 0, agents: 0, online: 0, withIdentity: 0, tasks: 0, settledTasks: 0, openTasks: 0, bids: 0 },
-        networks: [{ network: "unknown", label: "Overview unavailable", chainId: null, source: "local", error: e.message }],
-        agents: [],
-        activity: [],
-      }),
-    );
-  }
-});
-
-/** The same aggregate as JSON, for scripts and uptime checks. */
-app.get("/api/overview", async (_req, res) => {
-  try {
-    res.json(await getOverview());
-  } catch (e) {
-    res.status(502).json({ error: e.message });
-  }
-});
-
-app.get("/health", (req, res) => {
-  const id = networkIdOf(req);
-  // `serves` is the honest answer to "which chain is this runtime?" — one service
-  // per network, so a client can tell it reached the right one.
-  res.json({
-    ok: true,
-    network: id,
-    chainId: getNetwork(id).chainId,
-    signer: signerAddress(id),
-    serves: activeNetworkIds(),
-    servesNetwork: isActiveNetwork(id),
-  });
-});
+app.get("/health", (_req, res) => res.json({ ok: true, signer: signerAddress(), genlayer: genlayerEnabled(), verdictMirrors: verdictMirrorsEnabled() }));
 
 // Server-side chain index (tasks/agents/bids/activity) so the browser doesn't
 // have to make hundreds of eth_getLogs calls against the public RPC. Chain
 // stays the source of truth; this is a reliable read cache.
-app.get("/api/index", async (req, res) => {
-  const id = networkIdOf(req);
-  // An undeployed network has no index to serve; say so rather than returning
-  // another chain's tasks.
-  if (!isDeployed(id)) {
-    return res.json({ network: id, tasks: [], agents: [], bids: [], activity: [], notDeployed: true });
-  }
-  // Deployed, but indexed by a different service: an empty index here would be
-  // indistinguishable from a quiet chain, so refuse instead.
-  if (!isActiveNetwork(id)) {
-    return res.status(409).json({
-      error: `This runtime indexes ${activeNetworkIds().join(", ")} — not ${getNetwork(id).label}.`,
-      network: id,
-      serves: activeNetworkIds(),
-    });
-  }
+app.get("/api/index", async (_req, res) => {
   try {
-    res.json(await getIndex(id));
+    res.json(await getIndex());
   } catch (e) {
     res.status(502).json({ error: e.message });
   }
@@ -285,13 +96,13 @@ app.post("/api/asset", (req, res) => {
   }
   if (dataUri.length > 4_000_000) return res.status(413).json({ error: "image too large (max ~3MB)" });
   const assets = loadAssets();
-  assets[keyFor(networkIdOf(req), id)] = dataUri;
+  assets[String(id).toLowerCase()] = dataUri;
   saveAssets(assets);
   res.json({ ok: true });
 });
 
 app.get("/api/asset/:id", (req, res) => {
-  const a = readScoped(loadAssets(), networkIdOf(req), req.params.id);
+  const a = loadAssets()[String(req.params.id).toLowerCase()];
   if (!a) return res.status(404).json({ error: "not found" });
   res.json({ dataUri: a });
 });
@@ -306,46 +117,15 @@ function loadAgentMeta() {
     return {};
   }
 }
-/*
- * An agent's service endpoint is where Polaris POSTs that agent's work, including the full
- * task brief, with a caller-supplied Authorization header. This route accepted `wallet` from
- * the request body and trusted it, so anyone could repoint any agent at a server they
- * controlled: silent hijacking of the work, exfiltration of every brief, and denial of
- * service for the real agent. The deliverable route directly below already refuses
- * client-asserted identity for exactly this reason; this one did not.
- *
- * Ownership is now proven the same way: a signature over `polaris-agent-meta:{wallet}` from
- * the wallet itself, accepted as ECDSA or ERC-1271 so smart-account agents work too.
- */
-app.post("/api/agent-meta", async (req, res) => {
-  const { wallet, endpoint, auth, signature } = req.body ?? {};
+app.post("/api/agent-meta", (req, res) => {
+  const { wallet, endpoint, auth } = req.body ?? {};
   if (!wallet || typeof endpoint !== "string" || !/^https?:\/\//i.test(endpoint)) {
     return res.status(400).json({ error: "wallet and an http(s) endpoint are required" });
   }
-  if (!ethers.isAddress(wallet)) return res.status(400).json({ error: "wallet is not an address" });
   if (endpoint.length > 2048) return res.status(413).json({ error: "endpoint too long" });
-  if (typeof auth === "string" && auth.length > 1024) return res.status(413).json({ error: "auth header too long" });
-
-  const networkId = networkIdOf(req);
-  // The internal secret covers the runtime's own callers (Circle MPC wallets cannot sign
-  // off-chain messages); everyone else must prove they hold the key.
-  if (!isInternal(req)) {
-    const ok = await verifyAgentSignature(
-      `polaris-agent-meta:${String(wallet).toLowerCase()}`,
-      signature,
-      wallet,
-      getChainCtx(networkId).provider,
-    );
-    if (!ok) {
-      return res.status(401).json({
-        error: "Sign `polaris-agent-meta:<your wallet, lowercased>` with this agent's wallet to set its endpoint.",
-      });
-    }
-  }
-
   const store = loadAgentMeta();
-  store[keyFor(networkId, wallet)] = { endpoint, auth: typeof auth === "string" ? auth : "", at: Date.now() };
-  writeJsonAtomic(AGENT_META_STORE, store);
+  store[String(wallet).toLowerCase()] = { endpoint, auth: typeof auth === "string" ? auth : "", at: Date.now() };
+  fs.writeFileSync(AGENT_META_STORE, JSON.stringify(store, null, 2));
   res.json({ ok: true });
 });
 
@@ -361,48 +141,31 @@ app.post("/api/agent-meta", async (req, res) => {
 // deliverable exists for a task it can never be overwritten by an unsigned one.
 app.post("/api/deliverable", async (req, res) => {
   try {
-    const ctx = ctxFor(req, res);
-    if (!ctx) return;
-    const { taskId, agentWallet, deliverable, gradeableText, signature } = req.body ?? {};
+    const { taskId, agentWallet, deliverable, signature } = req.body ?? {};
     if (!taskId || !deliverable) return res.status(400).json({ error: "taskId and deliverable required" });
 
-    const assignedAgent = await ctx.readAssignedAgent(taskId);
+    const assignedAgent = await readAssignedAgent(taskId);
     if (!assignedAgent) return res.status(400).json({ error: "Task has no assigned agent on-chain yet" });
     if (agentWallet && String(agentWallet).toLowerCase() !== assignedAgent.toLowerCase()) {
       return res.status(403).json({ error: "agentWallet is not the on-chain assigned agent for this task" });
     }
 
     const store = loadStore();
-    const key = keyFor(ctx.id, taskId);
-    const prev = store[key] || (ctx.id === DEFAULT_NETWORK ? store[taskId.toLowerCase()] : undefined) || {};
+    const key = taskId.toLowerCase();
+    const prev = store[key] || {};
 
     let verified = false;
     if (signature) {
-      // The signed message stays the bare task id (that's what the agent signs);
-      // only the STORE key is chain-scoped.
-      // ctx.provider, not the default: an ERC-4337 agent account on BOT Chain is
-      // only verifiable against BOT Chain.
-      verified = await verifyAgentSignature(`polaris-deliverable:${taskId.toLowerCase()}`, signature, assignedAgent, ctx.provider);
+      verified = await verifyAgentSignature(`polaris-deliverable:${key}`, signature, assignedAgent);
       if (!verified) return res.status(403).json({ error: "Invalid signature for the assigned agent" });
     } else if (prev.verified) {
       return res.status(403).json({ error: "A verified deliverable already exists; resubmission requires a valid signature" });
     }
 
     // Preserve attempt history across resubmissions (used by the review flow).
-    store[key] = {
-      agentWallet: assignedAgent,
-      network: ctx.id,
-      deliverable,
-      // Source text for a rendered file (PDF), so the verifier has something it can
-      // actually grade. Without it a binary deliverable is ungradeable, and an
-      // ungradeable deliverable is never paid (see server/score.js).
-      ...(typeof gradeableText === "string" && gradeableText.trim() ? { gradeableText } : {}),
-      at: Date.now(),
-      attempts: prev.attempts || 0,
-      verified,
-    };
+    store[key] = { agentWallet: assignedAgent, deliverable, at: Date.now(), attempts: prev.attempts || 0, verified };
     saveStore(store);
-    res.json({ ok: true, verified, network: ctx.id });
+    res.json({ ok: true, verified });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -413,8 +176,6 @@ app.post("/api/deliverable", async (req, res) => {
 // not a full re-sign on every fetch. `message = polaris-view:{taskId}:{expiry}`.
 app.get("/api/deliverable/:taskId", async (req, res) => {
   try {
-    const ctx = ctxFor(req, res);
-    if (!ctx) return;
     const { viewer, expiry, signature } = req.query;
     const taskId = req.params.taskId;
     if (!viewer || !expiry || !signature) {
@@ -425,16 +186,17 @@ app.get("/api/deliverable/:taskId", async (req, res) => {
     if (!Number.isFinite(expiryMs) || expiryMs < Date.now() || expiryMs > Date.now() + MAX_TOKEN_MS) {
       return res.status(401).json({ error: "expired or invalid view token" });
     }
-    const ok = await verifyAgentSignature(`polaris-view:${taskId.toLowerCase()}:${expiryMs}`, signature, String(viewer), ctx.provider);
+    const ok = await verifyAgentSignature(`polaris-view:${taskId.toLowerCase()}:${expiryMs}`, signature, String(viewer));
     if (!ok) return res.status(403).json({ error: "invalid signature" });
 
-    const [meta, assignedAgent] = await Promise.all([ctx.readTaskMeta(taskId), ctx.readAssignedAgent(taskId)]);
+    const [meta, assignedAgent] = await Promise.all([readTaskMeta(taskId), readAssignedAgent(taskId)]);
     const v = String(viewer).toLowerCase();
     const isRequester = meta && meta.requester.toLowerCase() === v;
     const isAgent = assignedAgent && assignedAgent.toLowerCase() === v;
     if (!isRequester && !isAgent) return res.status(403).json({ error: "not authorized to view this deliverable" });
 
-    const entry = readScoped(loadStore(), ctx.id, taskId);
+    const store = loadStore();
+    const entry = store[taskId.toLowerCase()];
     res.json({ deliverable: entry?.deliverable ?? null });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -442,37 +204,33 @@ app.get("/api/deliverable/:taskId", async (req, res) => {
 });
 
 // ── Recurring tasks / subscriptions (Phase A) ────────────────────────────────
-app.get("/api/subscriptions", async (req, res) => {
-  const id = networkIdOf(req);
-  if (!isDeployed(id)) return res.json({ network: id, subscriptions: [], notDeployed: true });
+app.get("/api/subscriptions", async (_req, res) => {
   try {
-    res.json({ network: id, subscriptions: await listSubscriptions(id) });
+    res.json({ subscriptions: await listSubscriptions() });
   } catch (e) {
     res.status(500).json({ error: e.message, subscriptions: [] });
   }
 });
 
 app.get("/api/sub-deliverable/:subId/:index", (req, res) => {
-  const d = getDelivery(networkIdOf(req), req.params.subId, Number(req.params.index));
+  const d = getDelivery(req.params.subId, Number(req.params.index));
   res.json({ deliverable: d?.text ?? null, score: d?.score ?? null });
 });
 
 // ── Recurring market (auctioned recurring plans) ─────────────────────────────
-app.get("/api/recurring-plans", async (req, res) => {
-  const id = networkIdOf(req);
-  if (!isDeployed(id)) return res.json({ network: id, plans: [], notDeployed: true });
+app.get("/api/recurring-plans", async (_req, res) => {
   try {
-    res.json({ network: id, plans: await listPlans(id) });
+    res.json({ plans: await listPlans() });
   } catch (e) {
     res.status(500).json({ error: e.message, plans: [] });
   }
 });
 app.get("/api/recurring-deliverable/:planId/:index", (req, res) => {
-  const d = getPlanDelivery(networkIdOf(req), req.params.planId, Number(req.params.index));
+  const d = getPlanDelivery(req.params.planId, Number(req.params.index));
   res.json({ deliverable: d?.text ?? null, score: d?.score ?? null });
 });
 
-// Per-delivery dispute on a recurring plan: the AI jury re-judges THIS delivery's
+// Per-delivery dispute on a recurring plan: GenLayer's validator jury re-judges THIS delivery's
 // deliverable against the plan brief. Advisory/off-chain (the drop was already
 // released per pay-per-delivery); an upheld verdict flags the agent and the
 // requester can cancel the plan to reclaim the remaining escrow.
@@ -486,84 +244,67 @@ function loadRDisputes() {
 }
 app.post("/api/recurring-dispute", async (req, res) => {
   try {
-    const networkId = networkIdOf(req);
     const { planId, index, complaint, reporter } = req.body || {};
     if (!planId || index == null) return res.status(400).json({ error: "planId + index required" });
-    const d = getPlanDelivery(networkId, planId, Number(index));
+    const d = getPlanDelivery(planId, Number(index));
     if (!d?.text) return res.status(404).json({ error: "No deliverable found for that delivery yet." });
-    const plan = (await listPlans(networkId)).find((p) => p.planId.toLowerCase() === String(planId).toLowerCase());
+    const plan = (await listPlans()).find((p) => p.planId.toLowerCase() === String(planId).toLowerCase());
     if (!plan) return res.status(404).json({ error: "Plan not found." });
-    const { upheld, juryNote } = await runJury({
+    const verdict = await adjudicateDispute({
+      disputeId: ethers.id(`recurring:${planId}:${index}:${complaint || ""}`),
+      taskId: planId,
+      sourceContract: ADDR.recurringMarket,
+      requester: plan.requester,
+      agent: plan.agent,
       title: plan.title,
       description: plan.brief,
       rubric: plan.rubric,
       deliverable: d.text,
       complaint: complaint || "(no written complaint provided)",
     });
+    const upheld = !!verdict.upheld;
+    const juryNote = String(verdict.reasoning || "").slice(0, 300);
     const store = loadRDisputes();
-    store[keyFor(networkId, `${planId}#${index}`)] = { planId, network: networkId, index: Number(index), complaint: (complaint || "").slice(0, 500), upheld, juryNote, reporter: reporter || null, atMs: Date.now() };
+    store[`${planId}#${index}`] = { planId, index: Number(index), complaint: (complaint || "").slice(0, 500), upheld, juryNote, genLayerDecisionId: verdict.adjudicationId, genlayerTxHash: verdict.genlayerTxHash, reporter: reporter || null, atMs: Date.now() };
     try {
-      writeJsonAtomic(RD_DISPUTE_STORE, store);
+      fs.writeFileSync(RD_DISPUTE_STORE, JSON.stringify(store));
     } catch {
       /* best-effort */
     }
-    res.json({ upheld, juryNote });
+    res.json({ upheld, juryNote, genLayerDecisionId: verdict.adjudicationId, genlayerTxHash: verdict.genlayerTxHash });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 app.get("/api/recurring-disputes/:planId", (req, res) => {
-  const networkId = networkIdOf(req);
   const store = loadRDisputes();
   const pid = String(req.params.planId).toLowerCase();
   const out = {};
-  for (const v of Object.values(store)) {
-    // Legacy records (written before multi-chain) carry no network and belong to Arc.
-    const recNet = v.network || DEFAULT_NETWORK;
-    if (recNet === networkId && String(v.planId).toLowerCase() === pid) out[v.index] = v;
-  }
+  for (const v of Object.values(store)) if (String(v.planId).toLowerCase() === pid) out[v.index] = v;
   res.json({ disputes: out });
 });
 
 // ── Hosted persona agents (Phase B) ──────────────────────────────────────────
 app.post("/api/hosted-agent", (req, res) => {
   try {
-    const ctx = ctxFor(req, res);
-    if (!ctx) return;
     const { name, capabilities, systemPrompt, owner } = req.body || {};
     if (!name || !capabilities) return res.status(400).json({ error: "name + capabilities required" });
-    // The stake is denominated in the network's escrow asset (USDC on Arc, native BOT on
-    // BOT Chain), so the response says which rather than letting the UI assume.
-    // The stake floor differs per network (native networks set it at deploy time,
-    // ERC-20 ones use the registry's 100-unit constant), so report it rather than
-    // letting the UI assume 100.
-    const stakeAmount = ctx.minStakeWei
-      ? Number(ethers.formatUnits(ctx.minStakeWei, ctx.asset.decimals))
-      : 100;
-    res.json({
-      ...registerHosted({ name, capabilities, systemPrompt, owner, network: ctx.id }),
-      stakeAmount,
-      stakeSymbol: ctx.asset.symbol,
-      gasSymbol: ctx.gasSymbol,
-    });
+    res.json(registerHosted({ name, capabilities, systemPrompt, owner }));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 app.get("/api/hosted-agents", (req, res) => {
-  const id = networkIdOf(req);
-  res.json({ network: id, agents: listHosted(req.query.owner, id) });
+  res.json({ agents: listHosted(req.query.owner) });
 });
 
 // ── Disputes + AI jury (Phase C) ─────────────────────────────────────────────
 // After the requester opens a dispute on-chain, this runs the jury and settles it.
 app.post("/api/dispute/resolve", async (req, res) => {
   try {
-    const ctx = ctxFor(req, res);
-    if (!ctx) return;
     const { disputeId, reason } = req.body || {};
     if (!disputeId) return res.status(400).json({ error: "disputeId required" });
-    const result = await resolveDispute(ctx.id, disputeId, reason || "");
+    const result = await resolveDispute(disputeId, reason || "");
     res.json(result);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -572,11 +313,11 @@ app.post("/api/dispute/resolve", async (req, res) => {
 
 // ── Rework queue — an upheld dispute asks the assigned agent to redo the work.
 // The swarm polls this and re-produces the deliverable, then marks it done.
-app.get("/api/reworks", (req, res) => res.json({ reworks: listReworks(networkIdOf(req)) }));
+app.get("/api/reworks", (_req, res) => res.json({ reworks: listReworks() }));
 app.post("/api/rework-done", (req, res) => {
   const { taskId } = req.body || {};
   if (!taskId) return res.status(400).json({ error: "taskId required" });
-  markReworkDone(networkIdOf(req), taskId);
+  markReworkDone(taskId);
   res.json({ ok: true });
 });
 
@@ -596,14 +337,11 @@ function loadRatings() {
 const TASK_STATUS_SETTLED = 4;
 app.post("/api/rating", async (req, res) => {
   try {
-    const ctx = ctxFor(req, res);
-    if (!ctx) return;
     const { agent, taskId, rater, stars, comment } = req.body || {};
     if (!agent || !taskId || !rater || !(stars >= 1 && stars <= 5)) {
       return res.status(400).json({ error: "agent + taskId + rater + stars(1-5) required" });
     }
-    // Proof of engagement is read from the SAME network the rating is filed on.
-    const reg = ctx.contract("taskRegistry", "taskRegistry");
+    const reg = new ethers.Contract(ADDR.taskRegistry, ABI.taskRegistry, provider);
     const t = await reg.tasks(taskId);
     if (Number(t.status) !== TASK_STATUS_SETTLED) return res.status(403).json({ error: "Task is not settled yet" });
     if (t.requester.toLowerCase() !== String(rater).toLowerCase())
@@ -611,31 +349,14 @@ app.post("/api/rating", async (req, res) => {
     if (t.assignedAgent.toLowerCase() !== String(agent).toLowerCase())
       return res.status(403).json({ error: "agent does not match the task's assigned agent" });
 
-    // Proof of engagement is not proof of identity. Every field checked above is public
-    // chain data, so anyone could file a rating "as" the requester: five-star your own
-    // agent, one-star a competitor. The rater must prove they hold the key.
-    if (!isInternal(req)) {
-      const ok = await verifyAgentSignature(
-        `polaris-rating:${String(taskId).toLowerCase()}`,
-        req.body?.signature,
-        rater,
-        ctx.provider,
-      );
-      if (!ok) {
-        return res.status(401).json({
-          error: "Sign `polaris-rating:<taskId, lowercased>` with the requester's wallet to rate this task.",
-        });
-      }
-    }
-
     const store = loadRatings();
-    const key = keyFor(ctx.id, agent);
+    const key = agent.toLowerCase();
     store[key] = store[key] || [];
     // One rating per (task, rater); replace if it exists.
     store[key] = store[key].filter((r) => !(r.taskId === taskId && r.rater === rater));
-    store[key].push({ taskId, network: ctx.id, rater, stars: Number(stars), comment: (comment || "").slice(0, 500), atMs: Date.now() });
+    store[key].push({ taskId, rater, stars: Number(stars), comment: (comment || "").slice(0, 500), atMs: Date.now() });
     try {
-      writeJsonAtomic(RATINGS_STORE, store);
+      fs.writeFileSync(RATINGS_STORE, JSON.stringify(store));
     } catch {
       /* best-effort */
     }
@@ -645,7 +366,7 @@ app.post("/api/rating", async (req, res) => {
   }
 });
 app.get("/api/ratings/:agent", (req, res) => {
-  const list = readScoped(loadRatings(), networkIdOf(req), req.params.agent) || [];
+  const list = loadRatings()[req.params.agent.toLowerCase()] || [];
   const avg = list.length ? list.reduce((s, r) => s + r.stars, 0) / list.length : 0;
   res.json({ ratings: list, avg, count: list.length });
 });
@@ -659,47 +380,23 @@ function loadFlags() {
     return {};
   }
 }
-app.post("/api/flag-agent", async (req, res) => {
-  const networkId = networkIdOf(req);
-  const { agent, reporter, reason, signature } = req.body || {};
+app.post("/api/flag-agent", (req, res) => {
+  const { agent, reporter, reason } = req.body || {};
   if (!ethers.isAddress(agent) || !(reason || "").trim())
     return res.status(400).json({ error: "valid agent address + reason required" });
-
-  // A flag may be anonymous, but it may not be attributed to someone who did not file it.
-  // `reporter` was stored verbatim, so anyone could file complaints in a stranger's name and
-  // the operator queue would show them as that person's.
-  let claimedReporter = null;
-  if (reporter) {
-    if (!ethers.isAddress(reporter)) return res.status(400).json({ error: "reporter is not an address" });
-    const ok =
-      isInternal(req) ||
-      (await verifyAgentSignature(
-        `polaris-flag:${String(agent).toLowerCase()}`,
-        signature,
-        reporter,
-        getChainCtx(networkId).provider,
-      ));
-    if (!ok) {
-      return res.status(401).json({
-        error: "Sign `polaris-flag:<agent address, lowercased>` to file this under your wallet, or omit `reporter` to flag anonymously.",
-      });
-    }
-    claimedReporter = reporter;
-  }
   const store = loadFlags();
-  const key = keyFor(networkId, agent);
+  const key = agent.toLowerCase();
   store[key] = store[key] || [];
   // One open flag per (agent, reporter): replace an earlier pending one.
-  store[key] = store[key].filter((f) => !(claimedReporter && f.reporter === claimedReporter && f.status === "pending"));
+  store[key] = store[key].filter((f) => !(f.reporter === reporter && f.status === "pending"));
   store[key].push({
-    reporter: claimedReporter,
-    network: networkId,
+    reporter: reporter || null,
     reason: String(reason).slice(0, 1000),
     status: "pending",
     atMs: Date.now(),
   });
   try {
-    writeJsonAtomic(FLAGS_STORE, store);
+    fs.writeFileSync(FLAGS_STORE, JSON.stringify(store));
   } catch {
     /* best-effort */
   }
@@ -707,7 +404,7 @@ app.post("/api/flag-agent", async (req, res) => {
 });
 // Public: how many open flags an agent has (surface a "under review" hint).
 app.get("/api/flags/:agent", (req, res) => {
-  const list = readScoped(loadFlags(), networkIdOf(req), req.params.agent) || [];
+  const list = loadFlags()[req.params.agent.toLowerCase()] || [];
   res.json({ count: list.filter((f) => f.status === "pending").length });
 });
 // Operator-only: the full flag queue for review (guarded by ADMIN_SECRET, sent
@@ -723,19 +420,16 @@ app.get("/api/flags", (req, res) => {
 // ── Verification tiers (Phase D) — operator-only grant via the on-chain admin key
 app.post("/api/admin/set-badge", async (req, res) => {
   try {
-    const ctx = ctxFor(req, res);
-    if (!ctx) return;
     const { secret, agent, tier, note } = req.body || {};
     if (!process.env.ADMIN_SECRET || !timingSafeEqualStr(secret || "", process.env.ADMIN_SECRET))
       return res.status(403).json({ error: "Forbidden" });
-    const wallet = ctx.signer();
-    if (!wallet) return res.status(500).json({ error: `No verifier signer key configured for ${ctx.label}` });
+    if (!SIGNER_KEY) return res.status(500).json({ error: "VERIFIER_SIGNER_KEY not set" });
     if (!ethers.isAddress(agent) || tier < 0 || tier > 4) return res.status(400).json({ error: "Bad agent or tier" });
-    if (!ctx.ADDR.agentBadges) return res.status(400).json({ error: `AgentBadges isn't deployed on ${ctx.label}` });
-    const badges = new ethers.Contract(ctx.ADDR.agentBadges, ["function setBadge(address,uint8,string)"], wallet);
+    const wallet = new ethers.Wallet(SIGNER_KEY, provider);
+    const badges = new ethers.Contract(ADDR.agentBadges, ["function setBadge(address,uint8,string)"], wallet);
     const tx = await badges.setBadge(agent, tier, note || "");
     await tx.wait();
-    res.json({ txHash: tx.hash, network: ctx.id });
+    res.json({ txHash: tx.hash });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -743,32 +437,12 @@ app.post("/api/admin/set-badge", async (req, res) => {
 
 app.post("/api/verify", async (req, res) => {
   try {
-    const ctx = ctxFor(req, res);
-    if (!ctx) return;
-    ctx.requireAddresses(["taskRegistry", "verifierBridge"]);
-    const wallet = ctx.signer();
-    if (!wallet) {
-      return res.status(500).json({ error: `No verifier signer key configured for ${ctx.label}` });
-    }
+    requireAddresses(["taskRegistry", "verifierBridge"]);
+    if (!SIGNER_KEY) return res.status(500).json({ error: "VERIFIER_SIGNER_KEY not set" });
 
     const { taskId } = req.body ?? {};
     if (!taskId) return res.status(400).json({ error: "taskId required" });
-
-    // Cheap bail BEFORE any chain read. A request carrying neither the internal
-    // secret nor a signature can never be authorised, so refusing it here means an
-    // anonymous caller cannot make us do RPC work either, and cannot use the 404 to
-    // probe which task ids exist. The full check needs `agent`/`requester`, so it
-    // still happens below once those are read.
-    if (!isInternal(req) && !req.body?.signature) {
-      return res.status(401).json({
-        error:
-          "Verification requires authorisation: sign `polaris-verify:<taskId>` as the assigned agent or the task's requester.",
-        network: ctx.id,
-      });
-    }
-    // Cooldown and store keys are chain-scoped: the same task id could exist on
-    // two networks and must not share a cooldown or a deliverable.
-    const key = keyFor(ctx.id, taskId);
+    const key = taskId.toLowerCase();
 
     // Cheap cooldown before touching the (paid) LLM call or the RPC — repeated
     // calls for the same task within the window are rejected outright, so a
@@ -779,82 +453,59 @@ app.post("/api/verify", async (req, res) => {
     }
     verifyCooldown.set(key, Date.now());
 
-    const bridge = ctx.contract("verifierBridge", "verifierBridge", wallet);
+    const wallet = new ethers.Wallet(SIGNER_KEY, provider);
+    const bridge = new ethers.Contract(ADDR.verifierBridge, ABI.verifierBridge, wallet);
     // Check "already settled" first — a cheap on-chain read — before doing any
     // LLM scoring or metadata lookup, so a settled task can never be re-scored.
     const already = await bridge.processed(taskId);
     if (already) return res.json({ status: "settled", note: "already settled onchain" });
 
-    const meta = await ctx.readTaskMeta(taskId); // cached per network after first read
-    if (!meta) return res.status(404).json({ error: `Task not found on ${ctx.label}` });
+    const meta = await readTaskMeta(taskId); // cached after first read (chain.js)
+    if (!meta) return res.status(404).json({ error: "Task not found on-chain" });
 
     const store = loadStore();
-    const entry = readScoped(store, ctx.id, taskId);
+    const entry = store[key];
     if (!entry?.deliverable) return res.status(400).json({ error: "No deliverable submitted for this task" });
 
-    const agent = (await ctx.readAssignedAgent(taskId)) || entry.agentWallet;
+    const agent = (await readAssignedAgent(taskId)) || entry.agentWallet;
     if (!agent) return res.status(400).json({ error: "Task has no assigned agent" });
 
-    // Authorise BEFORE spending anything. Scoring costs model credits and settling
-    // costs gas from the verifier key, so this check has to come ahead of both, and
-    // after `agent`/`requester` are known because they are what a caller signs as.
-    // See server/guard.js for why an internal secret and a signature are both needed.
-    const auth = await authorizeVerify(req, ctx, { taskId, agent, requester: meta.requester });
-    if (!auth.ok) {
-      return res.status(auth.status).json({ error: auth.error, network: ctx.id });
-    }
-
-    // 1. Score with our algorithm
-    const verdict = await scoreAgentWork({
-      taskDescription: `${meta.title}\n\n${meta.description}`,
-      qualityRubric: meta.rubric,
-      agentOutput: entry.deliverable,
-      // Present only for a rendered file: the source text to judge, while the file
-      // itself remains what is hashed and attested on chain.
-      gradeableText: entry.gradeableText,
+    // GenLayer validators independently judge the work. We wait for FINALIZED,
+    // not merely ACCEPTED, so an appeal cannot invalidate an Arc payout.
+    const verdict = await adjudicateTask({
+      sourceId: taskId,
+      requester: meta.requester,
+      agent,
+      title: meta.title,
+      description: meta.description,
+      rubric: meta.rubric,
+      deliverable: entry.deliverable,
     });
+    entry.genlayerTxHash = verdict.genlayerTxHash || entry.genlayerTxHash;
+    entry.genLayerDecisionId = verdict.adjudicationId;
+    entry.genlayerEvidenceHash = verdict.evidenceHash;
+    store[key] = entry;
+    saveStore(store);
 
     const settle = async () => {
       const deliverableHash = ethers.keccak256(ethers.toUtf8Bytes(entry.deliverable));
       // Must match VerifierBridge.submitVerification's digest exactly: binds
       // chain + contract instance + agent/requester (not just score/hash) —
       // see docs/AUDIT_REPORT.md, Security #1.
-      // Binds THIS chain and THIS bridge instance, so a verdict signed for one
-      // network can never settle on another (the digest wouldn't recover).
-      // Digest shape follows the DEPLOYED VerifierBridge, not the repo's — Arc's
-      // instance predates the hardened one. See server/digests.js.
-      const inner = taskVerdictDigest(ctx, {
-        taskId,
-        agent,
-        requester: meta.requester,
-        passed: verdict.passed,
-        score: verdict.score,
-        deliverableHash,
-      });
+      const inner = ethers.solidityPackedKeccak256(
+        ["uint256", "address", "bytes32", "address", "address", "bool", "uint8", "bytes32", "bytes32"],
+        [CHAIN_ID, ADDR.verifierBridge, taskId, agent, meta.requester, verdict.passed, verdict.score, deliverableHash, verdict.adjudicationId],
+      );
       const signature = await wallet.signMessage(ethers.getBytes(inner));
-      const tx = await bridge.submitVerification(taskId, agent, meta.requester, verdict.passed, verdict.score, deliverableHash, signature);
+      const tx = await bridge.submitVerification(taskId, agent, meta.requester, verdict.passed, verdict.score, deliverableHash, verdict.adjudicationId, signature);
       const receipt = await tx.wait();
-      return { deliverableHash, txHash: receipt.hash };
+      return { deliverableHash, txHash: receipt.hash, genlayerTxHash: entry.genlayerTxHash, genlayerDecisionId: verdict.adjudicationId };
     };
 
-    // ── PASS: release the escrow + record attestations ──────────────────────
+    // ── PASS: release USDC + record attestation ─────────────────────────────
     if (verdict.passed) {
       const out = await settle();
-      // Publish the same verdict to ERC-8004 (validation + reputation) where those
-      // registries exist. Deliberately AFTER settlement and deliberately
-      // best-effort: the money has already moved through VerifierBridge, so a
-      // registry hiccup must not turn a paid task into a failed request.
-      let erc8004 = null;
-      if (erc8004Available(ctx)) {
-        erc8004 = await publishSettlement(ctx, wallet, {
-          agentWallet: agent,
-          score: verdict.score,
-          deliverableHash: out.deliverableHash,
-          taskId,
-          endpoint: loadAgentMeta()[String(agent).toLowerCase()]?.endpoint,
-        });
-      }
-      return res.json({ ...verdict, status: "released", network: ctx.id, ...out, erc8004 });
+      return res.json({ ...verdict, status: "released", ...out });
     }
 
     // ── FAIL: reject-with-feedback first; slash only on a late, final failure ─
@@ -865,25 +516,16 @@ app.post("/api/verify", async (req, res) => {
     const MAX_ATTEMPTS = Number(process.env.MAX_REVIEW_ATTEMPTS || 3);
     const SLASH_TIME_FRACTION = Number(process.env.SLASH_TIME_FRACTION || 0.5);
 
-    // Attempts are PER AGENT, not per task. They used to be a single counter on the
-    // task, so when a rejected task was reopened the next agent inherited a counter
-    // the previous one had already spent — it could arrive with zero attempts left,
-    // having done nothing wrong. Keeping the old total alongside means an existing
-    // store keeps working and the task-wide history is not lost.
-    entry.attemptsByAgent = entry.attemptsByAgent || {};
-    const agentKey = String(agent).toLowerCase();
-    const attempts = (entry.attemptsByAgent[agentKey] ?? entry.attempts ?? 0) + 1;
-    entry.attemptsByAgent[agentKey] = attempts;
-    entry.attempts = (entry.attempts || 0) + 1; // task-wide total, for the record
+    const attempts = (entry.attempts || 0) + 1;
+    entry.attempts = attempts;
     entry.lastReason = verdict.reasoning;
-    entry.network = ctx.id;
-    store[key] = entry;
+    store[taskId.toLowerCase()] = entry;
     saveStore(store);
 
     // Elapsed fraction of the task window (createdAt..deadline), read on-chain.
     let elapsedFraction = 1;
     try {
-      const t = await ctx.contract("taskRegistry", "taskRegistry").tasks(taskId);
+      const t = await new ethers.Contract(ADDR.taskRegistry, ABI.taskRegistry, provider).tasks(taskId);
       const createdMs = Number(t.createdAt) * 1000;
       const total = meta.deadline - createdMs;
       if (total > 0) elapsedFraction = (Date.now() - createdMs) / total;
@@ -891,64 +533,29 @@ app.post("/api/verify", async (req, res) => {
       /* fall back to slash-eligible if timing unreadable */
     }
 
-    // An UNGRADEABLE deliverable is our failure, not the agent's: it means the
-    // grader could not read the work (no vision model configured, a binary file with
-    // no source text). Rejecting it is right, slashing the agent's stake for it is
-    // not, so ungradeable results never become slash-eligible however many attempts
-    // they burn.
-    const slashEligible =
-      !verdict.ungradeable && attempts >= MAX_ATTEMPTS && elapsedFraction > SLASH_TIME_FRACTION;
-    if (verdict.ungradeable) {
-      console.warn(
-        `[verify:${ctx.id}] task ${String(taskId).slice(0, 10)} could not be graded: ${verdict.reasoning}`,
-      );
-    }
+    const slashEligible = attempts >= MAX_ATTEMPTS && elapsedFraction > SLASH_TIME_FRACTION;
     if (slashEligible) {
       const out = await settle(); // passed=false → escrow refund to requester + stake slash
-      return res.json({ ...verdict, status: "slashed", network: ctx.id, attempts, elapsedFraction, ...out });
+      return res.json({ ...verdict, status: "slashed", attempts, elapsedFraction, ...out });
     }
 
     // Rejected: return the task to the market (reopen) so any agent can re-bid,
     // unless the deadline has passed (then leave it for slashOnTimeout). USDC
     // stays escrowed; the agent is NOT slashed.
-    // Always reopen a task that was not slashed. An agent out of attempts is done
-    // with THIS task, but the task itself is not done: it goes back on the market so
-    // another agent can take it with a fresh budget of attempts, which is the whole
-    // point of not slashing an early failure. Leaving it ASSIGNED instead is how a
-    // decided task ends up reading "in progress" for hours — the exact stuck state
-    // this system is supposed to make impossible. The failing agent does not simply
-    // re-win it: the swarm excludes any agent that already produced work for it.
     let reopened = false;
-    let reopenError = null;
     if (meta.deadline > Date.now()) {
-      // `reopenTask` is `onlyAuthorized` — it checks msg.sender against
-      // bidEngine/verifierBridge/owner. The per-network VERDICT signer is none of
-      // those: it only has to produce a signature VerifierBridge can recover, and
-      // whoever sends `submitVerification` is irrelevant. Sending the reopen from
-      // it reverted with "Not authorized" on every rejected task, which silently
-      // pinned them in ASSIGNED until the deadline. Use the registry owner.
-      const owner = ctx.ownerSigner() ?? wallet;
       try {
-        const tr = ctx.contract("taskRegistry", "taskRegistry", owner);
+        const tr = new ethers.Contract(ADDR.taskRegistry, ABI.taskRegistry, wallet);
         const tx = await tr.reopenTask(taskId);
         await tx.wait();
         reopened = true;
       } catch (e) {
-        reopenError = e.shortMessage || e.message;
-        // Loud, and actionable: a task that cannot be reopened is a task stuck in
-        // ASSIGNED, and the operator needs to know which key is missing to fix it.
-        console.error(
-          `[verify:${ctx.id}] reopenTask failed for ${String(taskId).slice(0, 10)} as ${owner.address}: ${reopenError}. ` +
-            `The task stays ASSIGNED until its deadline. reopenTask is onlyAuthorized — set REGISTRY_OWNER_KEY ` +
-            `(or VERIFIER_SIGNER_KEY) on this service to the TaskRegistry owner.`,
-        );
+        console.error("reopenTask failed:", e.shortMessage || e.message);
       }
     }
     return res.json({
       ...verdict,
       status: "rejected",
-      reopenError,
-      network: ctx.id,
       attempts,
       attemptsLeft: Math.max(0, MAX_ATTEMPTS - attempts),
       canRetry: attempts < MAX_ATTEMPTS,
@@ -962,11 +569,9 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/** Verifier signer address for a network (each may use its own key). */
-function signerAddress(networkId = DEFAULT_NETWORK) {
+function signerAddress() {
   try {
-    const key = signerKeyFor(networkId);
-    return key ? new ethers.Wallet(key).address : null;
+    return SIGNER_KEY ? new ethers.Wallet(SIGNER_KEY).address : null;
   } catch {
     return null;
   }
@@ -976,13 +581,7 @@ function signerAddress(networkId = DEFAULT_NETWORK) {
 // A paywalled "price oracle" an agent pays $0.01 USDC to call — demonstrates
 // agent-to-agent nanopayments settled via Circle Gateway and batched on Arc
 // (the literal Lepton thesis), running alongside the escrow-based task economy.
-// Arc only: x402 settles through Circle Gateway, and BOT Chain has no Circle
-// presence (and no USDC) for a facilitator to work with. Guarded rather than
-// faked — see the compatibility report.
-const X402_NETWORK_ID = DEFAULT_NETWORK;
-const X402_SELLER = getNetwork(X402_NETWORK_ID).supportsX402
-  ? process.env.X402_SELLER || signerAddress(X402_NETWORK_ID)
-  : null;
+const X402_SELLER = process.env.X402_SELLER || signerAddress();
 if (X402_SELLER) {
   try {
     const gateway = createGatewayMiddleware({
@@ -994,7 +593,6 @@ if (X402_SELLER) {
       const pay = req.payment || {};
       res.json({
         service: "polaris-price-oracle",
-        network: X402_NETWORK_ID,
         usdcQuote: 1.0,
         asOf: Date.now(),
         paidBy: pay.payer,
@@ -1117,8 +715,4 @@ if (ucEnabled()) {
 
 app.listen(PORT, () => {
   console.log(`Polaris verifier on :${PORT} | signer ${signerAddress() ?? "(unset)"}`);
-  for (const id of activeNetworkIds()) {
-    const n = getNetwork(id);
-    console.log(`  ↳ ${n.label} (${id}) chain ${n.chainId} · ${n.asset.symbol} · signer ${signerAddress(id) ?? "(unset)"}`);
-  }
 });

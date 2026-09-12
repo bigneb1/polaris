@@ -31,12 +31,13 @@ describe("Native-coin market", () => {
   /** The digest server/server.js signs: chain + bridge + task + agent + requester. */
   async function verdict(taskId, passed, score, deliverable = "work") {
     const hash = ethers.keccak256(ethers.toUtf8Bytes(deliverable));
+    const decision = ethers.keccak256(ethers.toUtf8Bytes(`decision-${taskId}`));
     const chainId = (await ethers.provider.getNetwork()).chainId;
     const digest = ethers.solidityPackedKeccak256(
-      ["uint256", "address", "bytes32", "address", "address", "bool", "uint8", "bytes32"],
-      [chainId, await bridge.getAddress(), taskId, agent.address, requester.address, passed, score, hash],
+      ["uint256", "address", "bytes32", "address", "address", "bool", "uint8", "bytes32", "bytes32"],
+      [chainId, await bridge.getAddress(), taskId, agent.address, requester.address, passed, score, hash, decision],
     );
-    return { hash, score, sig: await verifier.signMessage(ethers.getBytes(digest)) };
+    return { hash, score, decision, sig: await verifier.signMessage(ethers.getBytes(digest)) };
   }
 
   beforeEach(async () => {
@@ -149,11 +150,11 @@ describe("Native-coin market", () => {
     });
 
     it("pays the agent its bid and refunds the requester the rest on a pass", async () => {
-      const { hash, score, sig } = await verdict(taskId, true, 88);
+      const { hash, score, decision, sig } = await verdict(taskId, true, 88);
       const agentBefore = await ethers.provider.getBalance(agent.address);
       const reqBefore = await ethers.provider.getBalance(requester.address);
 
-      await bridge.connect(verifier).submitVerification(taskId, agent.address, requester.address, true, score, hash, sig);
+      await bridge.connect(verifier).submitVerification(taskId, agent.address, requester.address, true, score, hash, decision, sig);
 
       expect((await ethers.provider.getBalance(agent.address)) - agentBefore).to.equal(BID);
       expect((await ethers.provider.getBalance(requester.address)) - reqBefore).to.equal(BUDGET - BID);
@@ -166,10 +167,10 @@ describe("Native-coin market", () => {
     });
 
     it("refunds the requester and slashes 10% of the native stake on a fail", async () => {
-      const { hash, score, sig } = await verdict(taskId, false, 40);
+      const { hash, score, decision, sig } = await verdict(taskId, false, 40);
       const reqBefore = await ethers.provider.getBalance(requester.address);
 
-      await bridge.connect(verifier).submitVerification(taskId, agent.address, requester.address, false, score, hash, sig);
+      await bridge.connect(verifier).submitVerification(taskId, agent.address, requester.address, false, score, hash, decision, sig);
 
       // Requester gets the whole budget back plus the 10% slash penalty.
       const penalty = MIN_STAKE / 10n;
@@ -184,9 +185,9 @@ describe("Native-coin market", () => {
     it("still rejects a verdict replayed with a different agent/requester pair", async () => {
       // The Security #1 fix must hold on the native path too: the digest binds the
       // exact pair, so a legitimately-signed verdict can't redirect the payout.
-      const { hash, score, sig } = await verdict(taskId, true, 88);
+      const { hash, score, decision, sig } = await verdict(taskId, true, 88);
       await expect(
-        bridge.connect(verifier).submitVerification(taskId, other.address, requester.address, true, score, hash, sig),
+        bridge.connect(verifier).submitVerification(taskId, other.address, requester.address, true, score, hash, decision, sig),
       ).to.be.revertedWith("Bad signature");
     });
 

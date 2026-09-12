@@ -1,156 +1,90 @@
 import { ethers } from "ethers";
 import fs from "node:fs";
-import { getChainCtx } from "./chain.js";
-import { DEFAULT_NETWORK, getNetwork, isDeployed, scopedKey } from "./networks.js";
-import { chat, SCHEMAS } from "./llm.js";
-import { disputeVerdictDigest } from "./digests.js";
-import { storePath, writeJsonAtomic } from "./store-path.js";
+import { provider, ADDR, ABI, CHAIN_ID, readTaskMeta, queryLogsChunked } from "./chain.js";
+import { adjudicateDispute, genlayerEnabled } from "./genlayer.js";
+import { storePath } from "./store-path.js";
 
 /**
  * AI jury + dispute resolution (Phase C).
  *
- * A requester opens a staked dispute on-chain; this module runs an impartial LLM
- * jury that re-reads the original request vs the delivered work and the
- * complaint, then signs the verdict and calls resolveDispute on-chain
- * (trusted-signer model). Upheld → bond refunded to the requester; rejected →
- * bond split (agent + treasury) as anti-abuse. The jury reasoning is recorded
- * on-chain.
- *
- * MULTI-CHAIN: every entry point takes a network. The signed digest binds that
- * chain's id and DisputeManager address, so a verdict produced for one network is
- * unusable on another. Rework records are keyed by chain too — task ids are only
- * unique within a chain.
+ * A requester opens a staked dispute on-chain; GenLayer's validator committee
+ * acts as the jury, re-reading the request, work, rubric, and complaint. After
+ * the GenLayer decision finalizes, this module relays it to Arc. Upheld → bond refunded to the requester; rejected →
+ * bond paid to the agent (anti-abuse). The jury reasoning is recorded on-chain.
  */
+const SIGNER_KEY = process.env.VERIFIER_SIGNER_KEY;
 const DELIVERABLE_STORE = storePath("DELIVERABLE_STORE", "deliverables.json");
 const REWORK_STORE = storePath("REWORK_STORE", "reworks.json");
 
 // ── Rework queue: an UPHELD dispute asks the assigned agent to redo the work.
 // The swarm polls /api/reworks and re-produces the deliverable (real-time).
 function loadReworks() {
-  try {
-    return JSON.parse(fs.readFileSync(REWORK_STORE, "utf8"));
-  } catch {
-    return {};
-  }
+  try { return JSON.parse(fs.readFileSync(REWORK_STORE, "utf8")); } catch { return {}; }
 }
 function saveReworks(r) {
-  try {
-    writeJsonAtomic(REWORK_STORE, r);
-  } catch {
-    /* best-effort */
-  }
+  try { fs.writeFileSync(REWORK_STORE, JSON.stringify(r)); } catch { /* best-effort */ }
 }
-
-/** Reworks pending on one network, keyed by bare task id (what the swarm expects). */
-export function listReworks(networkId = DEFAULT_NETWORK) {
-  const all = loadReworks();
-  const out = {};
-  for (const [key, rec] of Object.entries(all)) {
-    // Legacy records (pre multi-chain) have no network and belong to Arc.
-    const net = rec.network || DEFAULT_NETWORK;
-    if (net !== networkId) continue;
-    const taskId = String(rec.taskId || key).toLowerCase();
-    out[taskId] = rec;
-  }
-  return out;
-}
-
-export function markReworkDone(networkId, taskId) {
+export function listReworks() { return loadReworks(); }
+export function markReworkDone(taskId) {
   const r = loadReworks();
-  const scoped = scopedKey(networkId, taskId);
-  const legacy = String(taskId).toLowerCase();
-  let changed = false;
-  if (r[scoped]) {
-    delete r[scoped];
-    changed = true;
-  }
-  if (networkId === DEFAULT_NETWORK && r[legacy]) {
-    delete r[legacy];
-    changed = true;
-  }
-  if (changed) saveReworks(r);
+  if (r[taskId.toLowerCase()]) { delete r[taskId.toLowerCase()]; saveReworks(r); }
 }
-
-function requestRework(networkId, taskId, feedback) {
+function requestRework(taskId, feedback) {
   const r = loadReworks();
-  r[scopedKey(networkId, taskId)] = {
-    taskId,
-    network: networkId,
-    feedback: String(feedback || "").slice(0, 500),
-    atMs: Date.now(),
-  };
+  r[taskId.toLowerCase()] = { taskId, feedback: String(feedback || "").slice(0, 500), atMs: Date.now() };
   saveReworks(r);
-  console.log(`[disputes:${networkId}] rework requested for task ${taskId.slice(0, 10)}…`);
+  console.log(`[disputes] rework requested for task ${taskId.slice(0, 10)}…`);
 }
 
-function loadDeliverable(networkId, taskId) {
+function loadDeliverable(taskId) {
   try {
-    const store = JSON.parse(fs.readFileSync(DELIVERABLE_STORE, "utf8"));
-    const scoped = store[scopedKey(networkId, taskId)];
-    const legacy = networkId === DEFAULT_NETWORK ? store[String(taskId).toLowerCase()] : undefined;
-    return (scoped ?? legacy)?.deliverable || null;
+    return JSON.parse(fs.readFileSync(DELIVERABLE_STORE, "utf8"))[taskId.toLowerCase()]?.deliverable || null;
   } catch {
     return null;
   }
 }
 
-export async function runJury({ title, description, rubric, deliverable, complaint }) {
-  const sys =
-    "You are an impartial 3-member AI jury for an autonomous task marketplace. " +
-    "Decide whether the requester's dispute is VALID: does the delivered work genuinely " +
-    "fail to meet the original request and rubric? Be fair to both sides — a vague or " +
-    "unfair complaint must be rejected; a deliverable that truly misses the brief must be " +
-    'upheld. Respond ONLY as JSON: {"upheld": boolean, "reasoning": string}. Keep reasoning to 2-3 sentences.';
-  const user =
-    `ORIGINAL REQUEST\nTitle: ${title}\nDescription: ${description}\nRubric: ${rubric}\n\n` +
-    `DELIVERED WORK\n${deliverable}\n\nREQUESTER'S COMPLAINT\n${complaint}`;
-  const out = await chat([{ role: "system", content: sys }, { role: "user", content: user }], {
-    json: true,
-    maxTokens: 400,
-    schema: SCHEMAS.jury,
-  });
-  let parsed;
-  try {
-    parsed = JSON.parse(out);
-  } catch {
-    parsed = { upheld: false, reasoning: "Jury output unparseable; dispute rejected by default." };
-  }
-  return { upheld: !!parsed.upheld, juryNote: String(parsed.reasoning || "").slice(0, 300) };
-}
-
-/** Resolve an open dispute: run the jury, sign the verdict, settle on-chain. */
-export async function resolveDispute(networkId, disputeId, complaint = "") {
-  const ctx = getChainCtx(networkId);
-  const wallet = ctx.signer();
-  if (!wallet) throw new Error(`No verifier signer key configured for ${ctx.label}`);
-  if (!ctx.ADDR.disputeManager) throw new Error(`DisputeManager isn't deployed on ${ctx.label}`);
-
-  const reader = ctx.contract("disputeManager", "disputeManager");
+/** Resolve an open dispute: finalize the GenLayer jury, then settle on Arc. */
+export async function resolveDispute(disputeId, complaint = "") {
+  if (!SIGNER_KEY) throw new Error("VERIFIER_SIGNER_KEY not set");
+  const reader = new ethers.Contract(ADDR.disputeManager, ABI.disputeManager, provider);
   const d = await reader.getDispute(disputeId);
   if (Number(d.status) !== 1) throw new Error("Dispute is not open");
 
-  const meta = await ctx.readTaskMeta(d.taskId);
-  const deliverable = loadDeliverable(networkId, d.taskId) || "(no deliverable on record)";
-  const { upheld, juryNote } = await runJury({
+  const meta = await readTaskMeta(d.taskId);
+  const deliverable = loadDeliverable(d.taskId) || "(no deliverable on record)";
+  const verdict = await adjudicateDispute({
+    disputeId,
+    taskId: d.taskId,
+    requester: d.requester,
+    agent: d.agent,
     title: meta?.title || "",
     description: meta?.description || "",
     rubric: meta?.rubric || "",
     deliverable,
     complaint: complaint || "(no written complaint provided)",
   });
+  const upheld = !!verdict.upheld;
+  const juryNote = String(verdict.reasoning || "").slice(0, 300);
 
+  const wallet = new ethers.Wallet(SIGNER_KEY, provider);
   // Must match DisputeManager.resolveDispute's digest exactly (chain + contract
-  // instance domain separation) — see docs/AUDIT_REPORT.md, Security #5. Using
-  // this network's chain id and manager address is what makes a verdict
-  // unusable on any other deployment.
-  const inner = disputeVerdictDigest(ctx, { disputeId, upheld });
+  // instance domain separation) — see docs/AUDIT_REPORT.md, Security #5.
+  const inner = ethers.solidityPackedKeccak256(
+    ["uint256", "address", "bytes32", "bool", "bytes32"],
+    [CHAIN_ID, ADDR.disputeManager, disputeId, upheld, verdict.adjudicationId],
+  );
   const sig = await wallet.signMessage(ethers.getBytes(inner));
-  const writer = ctx.contract("disputeManager", "disputeManager", wallet);
-  const tx = await writer.resolveDispute(disputeId, upheld, juryNote, sig);
+  const writer = new ethers.Contract(ADDR.disputeManager, ABI.disputeManager, wallet);
+  const tx = await writer.resolveDispute(disputeId, upheld, juryNote, verdict.adjudicationId, sig);
   await tx.wait();
   // Upheld → queue the assigned agent to rework the task (picked up by the swarm).
-  if (upheld) requestRework(networkId, d.taskId, juryNote);
-  return { upheld, juryNote, txHash: tx.hash, network: networkId };
+  if (upheld) requestRework(d.taskId, juryNote);
+  return {
+    upheld, juryNote, txHash: tx.hash,
+    genLayerDecisionId: verdict.adjudicationId,
+    genlayerTxHash: verdict.genlayerTxHash,
+  };
 }
 
 /**
@@ -159,38 +93,33 @@ export async function resolveDispute(networkId, disputeId, complaint = "") {
  * scans recent DisputeOpened events and settles any still-open dispute, so the
  * jury verdict always lands even when the client didn't complete it.
  */
-export function startDisputeResolver(networkId = DEFAULT_NETWORK) {
-  const ctx = getChainCtx(networkId);
-  if (!isDeployed(networkId) || !ctx.ADDR.disputeManager) {
-    console.log(`[disputes:${networkId}] auto-resolver disabled (DisputeManager not deployed)`);
+export function startDisputeResolver() {
+  if (!SIGNER_KEY || !genlayerEnabled()) {
+    console.log("[disputes] auto-resolver disabled (Arc relay signer or GenLayer adjudicator not configured)");
     return;
   }
-  if (!ctx.signer()) {
-    console.log(`[disputes:${networkId}] auto-resolver disabled (no signer key)`);
-    return;
-  }
-  const reader = ctx.contract("disputeManager", "disputeManager");
+  const reader = new ethers.Contract(ADDR.disputeManager, ABI.disputeManager, provider);
   const POLL = Number(process.env.DISPUTE_POLL_MS || 60000);
   const LOOKBACK = Number(process.env.DISPUTE_LOOKBACK_BLOCKS || 100000);
   const tick = async () => {
     try {
-      const opened = await ctx.queryLogsChunked(reader, reader.filters.DisputeOpened(), LOOKBACK);
+      const opened = await queryLogsChunked(reader, reader.filters.DisputeOpened(), LOOKBACK);
       for (const log of opened) {
         const id = log.args.disputeId;
         try {
           const d = await reader.getDispute(id);
           if (Number(d.status) !== 1) continue; // already resolved
-          console.log(`[disputes:${networkId}] auto-resolving ${id.slice(0, 10)}…`);
-          await resolveDispute(networkId, id, log.args.reason || "");
+          console.log(`[disputes] auto-resolving ${id.slice(0, 10)}…`);
+          await resolveDispute(id, log.args.reason || "");
         } catch {
           /* transient (RPC / not-open race) — retry next tick */
         }
       }
     } catch (e) {
-      console.error(`[disputes:${networkId}] resolver tick error:`, e.message);
+      console.error("[disputes] resolver tick error:", e.message);
     }
   };
   tick();
   setInterval(tick, POLL).unref();
-  console.log(`[disputes:${networkId}] auto-resolver on · every ${POLL / 1000}s · ${getNetwork(networkId).label}`);
+  console.log(`[disputes] auto-resolver on · every ${POLL / 1000}s`);
 }

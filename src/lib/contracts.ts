@@ -150,17 +150,17 @@ export const BID_ENGINE_ABI = parseAbi([
 ]);
 
 export const VERIFIER_BRIDGE_ABI = parseAbi([
-  "function submitVerification(bytes32 taskId, address agent, address requester, bool passed, uint8 score, bytes32 deliverableHash, bytes signature)",
+  "function submitVerification(bytes32 taskId, address agent, address requester, bool passed, uint8 score, bytes32 deliverableHash, bytes32 genLayerDecisionId, bytes signature)",
   "function processed(bytes32) view returns (bool)",
-  "function attestations(bytes32) view returns (address agent, bool passed, uint8 score, bytes32 deliverableHash, uint256 timestamp)",
-  "event VerificationSubmitted(bytes32 indexed taskId, address indexed agent, bool passed, uint8 score, bytes32 deliverableHash)",
+  "function attestations(bytes32) view returns (address agent, bool passed, uint8 score, bytes32 deliverableHash, bytes32 genLayerDecisionId, uint256 timestamp)",
+  "event VerificationSubmitted(bytes32 indexed taskId, address indexed agent, bool passed, uint8 score, bytes32 deliverableHash, bytes32 genLayerDecisionId)",
 ]);
 
 export const DISPUTE_MANAGER_ABI = parseAbi([
   "function openDispute(bytes32 disputeId, bytes32 taskId, address agent, uint256 bond, string reason)",
-  "function getDispute(bytes32) view returns (address requester, address agent, bytes32 taskId, uint256 bond, uint8 status)",
+  "function getDispute(bytes32) view returns (address requester, address agent, bytes32 taskId, uint256 bond, uint8 status, bytes32 genLayerDecisionId)",
   "event DisputeOpened(bytes32 indexed disputeId, bytes32 indexed taskId, address indexed requester, address agent, uint256 bond, string reason)",
-  "event DisputeResolved(bytes32 indexed disputeId, bool upheld, string juryNote)",
+  "event DisputeResolved(bytes32 indexed disputeId, bool upheld, string juryNote, bytes32 genLayerDecisionId)",
 ]);
 
 export const RECURRING_MARKET_ABI = parseAbi([
@@ -193,9 +193,9 @@ export const ERC8004_IDENTITY_ABI = parseAbi([
 export const SUBSCRIPTION_MANAGER_ABI = parseAbi([
   "function createSubscription(bytes32 subId, address agent, uint256 perDeliveryUsdc, uint32 totalDeliveries, (string title, string brief, string rubric, string taskType, string schedule) meta)",
   "function cancelSubscription(bytes32 subId)",
-  "function recordDelivery(bytes32 subId, uint32 index, bytes32 deliverableHash, uint8 score, bytes signature)",
+  "function recordDelivery(bytes32 subId, uint32 index, bytes32 deliverableHash, uint8 score, bytes32 genLayerDecisionId, bytes signature)",
   "function getSubscription(bytes32 subId) view returns (address subscriber, address agent, uint256 perDeliveryUsdc, uint32 totalDeliveries, uint32 deliveriesDone, uint256 escrowed, bool active)",
   "event SubscriptionCreated(bytes32 indexed subId, address indexed subscriber, address indexed agent, uint256 perDeliveryUsdc, uint32 totalDeliveries, string title, string brief, string rubric, string taskType, string schedule)",
-  "event DeliveryReleased(bytes32 indexed subId, address indexed agent, uint32 index, uint256 amount, uint8 score, bytes32 deliverableHash)",
+  "event DeliveryReleased(bytes32 indexed subId, address indexed agent, uint32 index, uint256 amount, uint8 score, bytes32 deliverableHash, bytes32 genLayerDecisionId)",
   "event SubscriptionCancelled(bytes32 indexed subId, uint256 refund)",
 ]);

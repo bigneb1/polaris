@@ -17,9 +17,9 @@ interface ITaskRegistryDM {
  * DisputeManager — staked dispute resolution for settled tasks (Phase C).
  *
  * Even when the verifier passes a task (score ≥ 70), the requester may feel the
- * deliverable misses the brief. They open a dispute by staking a USDC bond. An
- * off-chain AI jury re-reads the original request vs the delivered work and signs
- * a verdict (the SAME trusted-signer model as VerifierBridge):
+ * deliverable misses the brief. They open a dispute by staking a USDC bond.
+ * GenLayer's validator jury re-reads the original request vs the delivered work;
+ * a narrow Arc relay signs and transports the finalized result:
  *   - upheld   → the bond is refunded to the requester; the runtime pings the
  *                agent to rework and applies an off-chain reputation penalty.
  *   - rejected → the bond is paid to the agent. This is the anti-abuse stake: a
@@ -53,12 +53,13 @@ contract DisputeManager is ReentrancyGuard {
         bytes32 taskId;
         uint256 bond;
         Status status;
+        bytes32 genLayerDecisionId;
     }
 
     mapping(bytes32 => Dispute) public disputes;
 
     event DisputeOpened(bytes32 indexed disputeId, bytes32 indexed taskId, address indexed requester, address agent, uint256 bond, string reason);
-    event DisputeResolved(bytes32 indexed disputeId, bool upheld, string juryNote);
+    event DisputeResolved(bytes32 indexed disputeId, bool upheld, string juryNote, bytes32 genLayerDecisionId);
     event TrustedSignerUpdated(address indexed signer);
 
     constructor(address _usdc, address _signer, address _treasury, address _taskRegistry) {
@@ -112,30 +113,34 @@ contract DisputeManager is ReentrancyGuard {
             agent: agent,
             taskId: taskId,
             bond: bond,
-            status: Status.OPEN
+            status: Status.OPEN,
+            genLayerDecisionId: bytes32(0)
         });
         emit DisputeOpened(disputeId, taskId, msg.sender, agent, bond, reason);
     }
 
-    /// Resolve with a trusted-signer (AI jury) verdict. upheld → refund requester;
+    /// Relay a finalized GenLayer jury verdict. upheld → refund requester;
     /// rejected → bond to the agent. Signature binds (disputeId, upheld).
     function resolveDispute(
         bytes32 disputeId,
         bool upheld,
         string calldata juryNote,
+        bytes32 genLayerDecisionId,
         bytes calldata signature
     ) external nonReentrant {
         Dispute storage d = disputes[disputeId];
         require(d.status == Status.OPEN, "Not open");
+        require(genLayerDecisionId != bytes32(0), "Missing GenLayer decision");
 
         bytes32 digest = keccak256(
-            abi.encodePacked(block.chainid, address(this), disputeId, upheld)
+            abi.encodePacked(block.chainid, address(this), disputeId, upheld, genLayerDecisionId)
         ).toEthSignedMessageHash();
         require(ECDSA.recover(digest, signature) == trustedSigner, "Bad signature");
 
         uint256 bond = d.bond;
         d.bond = 0;
         d.status = upheld ? Status.UPHELD : Status.REJECTED;
+        d.genLayerDecisionId = genLayerDecisionId;
         if (upheld) {
             // Valid dispute: full bond back to the requester.
             require(usdc.transfer(d.requester, bond), "Refund failed");
@@ -148,7 +153,7 @@ contract DisputeManager is ReentrancyGuard {
             require(usdc.transfer(treasury, toTreasury), "Treasury payout failed");
             require(usdc.transfer(d.requester, bond - toAgent - toTreasury), "Refund failed");
         }
-        emit DisputeResolved(disputeId, upheld, juryNote);
+        emit DisputeResolved(disputeId, upheld, juryNote, genLayerDecisionId);
     }
 
     function getDispute(bytes32 disputeId) external view returns (Dispute memory) {

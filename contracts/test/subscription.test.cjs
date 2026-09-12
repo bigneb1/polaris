@@ -2,6 +2,7 @@ const { expect } = require("chai");
 const { ethers } = require("hardhat");
 
 const USDC = (n) => ethers.parseUnits(String(n), 6);
+const DECISION = ethers.id("genlayer-finalized-decision");
 
 /**
  * SubscriptionManager: pre-fund a recurring plan, release per-delivery on a
@@ -36,8 +37,8 @@ describe("SubscriptionManager", function () {
   async function signDelivery(index, hash, score) {
     const { chainId } = await ethers.provider.getNetwork();
     const inner = ethers.solidityPackedKeccak256(
-      ["uint256", "address", "bytes32", "uint32", "bytes32", "uint8"],
-      [chainId, await sub.getAddress(), subId, index, hash, score],
+      ["uint256", "address", "bytes32", "uint32", "bytes32", "uint8", "bytes32"],
+      [chainId, await sub.getAddress(), subId, index, hash, score, DECISION],
     );
     return signer.signMessage(ethers.getBytes(inner));
   }
@@ -55,7 +56,7 @@ describe("SubscriptionManager", function () {
     await create();
     const hash = ethers.id("delivery-0");
     const before = await usdc.balanceOf(agent.address);
-    await sub.recordDelivery(subId, 0, hash, 88, await signDelivery(0, hash, 88));
+    await sub.recordDelivery(subId, 0, hash, 88, DECISION, await signDelivery(0, hash, 88));
     expect(await usdc.balanceOf(agent.address)).to.equal(before + PER);
     const s = await sub.getSubscription(subId);
     expect(s.deliveriesDone).to.equal(1);
@@ -69,23 +70,23 @@ describe("SubscriptionManager", function () {
     const badSig = await agent.signMessage(ethers.getBytes(
       ethers.solidityPackedKeccak256(["bytes32", "uint32", "bytes32", "uint8"], [subId, 0, hash, 88]),
     ));
-    await expect(sub.recordDelivery(subId, 0, hash, 88, badSig)).to.be.revertedWith("Bad signature");
+    await expect(sub.recordDelivery(subId, 0, hash, 88, DECISION, badSig)).to.be.revertedWith("Bad signature");
     // valid once, then replay-blocked
-    await sub.recordDelivery(subId, 0, hash, 88, await signDelivery(0, hash, 88));
-    await expect(sub.recordDelivery(subId, 0, hash, 88, await signDelivery(0, hash, 88))).to.be.revertedWith("Released");
+    await sub.recordDelivery(subId, 0, hash, 88, DECISION, await signDelivery(0, hash, 88));
+    await expect(sub.recordDelivery(subId, 0, hash, 88, DECISION, await signDelivery(0, hash, 88))).to.be.revertedWith("Released");
   });
 
   it("rejects a below-threshold score", async () => {
     await create();
     const hash = ethers.id("d");
-    await expect(sub.recordDelivery(subId, 0, hash, 69, await signDelivery(0, hash, 69))).to.be.revertedWith("Below MIN_SCORE");
+    await expect(sub.recordDelivery(subId, 0, hash, 69, DECISION, await signDelivery(0, hash, 69))).to.be.revertedWith("Below MIN_SCORE");
   });
 
   it("completes the plan after the last delivery", async () => {
     await create(2);
     const h0 = ethers.id("d0"), h1 = ethers.id("d1");
-    await sub.recordDelivery(subId, 0, h0, 80, await signDelivery(0, h0, 80));
-    await sub.recordDelivery(subId, 1, h1, 90, await signDelivery(1, h1, 90));
+    await sub.recordDelivery(subId, 0, h0, 80, DECISION, await signDelivery(0, h0, 80));
+    await sub.recordDelivery(subId, 1, h1, 90, DECISION, await signDelivery(1, h1, 90));
     const s = await sub.getSubscription(subId);
     expect(s.active).to.equal(false);
     expect(s.deliveriesDone).to.equal(2);
@@ -95,7 +96,7 @@ describe("SubscriptionManager", function () {
   it("refunds the remaining escrow on cancel", async () => {
     await create();
     const h0 = ethers.id("d0");
-    await sub.recordDelivery(subId, 0, h0, 80, await signDelivery(0, h0, 80)); // 1 of 5 used
+    await sub.recordDelivery(subId, 0, h0, 80, DECISION, await signDelivery(0, h0, 80)); // 1 of 5 used
     const before = await usdc.balanceOf(subscriber.address);
     await sub.connect(subscriber).cancelSubscription(subId);
     expect(await usdc.balanceOf(subscriber.address)).to.equal(before + PER * BigInt(TOTAL - 1));

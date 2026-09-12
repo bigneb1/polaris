@@ -9,6 +9,7 @@ describe("DisputeManager", function () {
   const disputeId = ethers.id("dispute-1");
   const taskId = ethers.id("task-1");
   const HASH = ethers.id("deliverable-bytes");
+  const DECISION = ethers.id("genlayer-finalized-decision");
   const BOND = USDC(10);
 
   beforeEach(async () => {
@@ -47,7 +48,7 @@ describe("DisputeManager", function () {
     await bidEngine.connect(agent).placeBid(taskId, USDC(18), 1800);
     await bidEngine.awardBid(taskId);
     await verifier.connect(signer).submitVerification(
-      taskId, agent.address, requester.address, true, 92, HASH, await signVerdict(),
+      taskId, agent.address, requester.address, true, 92, HASH, DECISION, await signVerdict(),
     );
 
     dm = await ethers.deployContract("DisputeManager", [
@@ -59,8 +60,8 @@ describe("DisputeManager", function () {
   async function signVerdict() {
     const { chainId } = await ethers.provider.getNetwork();
     const inner = ethers.solidityPackedKeccak256(
-      ["uint256", "address", "bytes32", "address", "address", "bool", "uint8", "bytes32"],
-      [chainId, await verifier.getAddress(), taskId, agent.address, requester.address, true, 92, HASH],
+      ["uint256", "address", "bytes32", "address", "address", "bool", "uint8", "bytes32", "bytes32"],
+      [chainId, await verifier.getAddress(), taskId, agent.address, requester.address, true, 92, HASH, DECISION],
     );
     return signer.signMessage(ethers.getBytes(inner));
   }
@@ -72,8 +73,8 @@ describe("DisputeManager", function () {
   async function sign(upheld) {
     const { chainId } = await ethers.provider.getNetwork();
     const inner = ethers.solidityPackedKeccak256(
-      ["uint256", "address", "bytes32", "bool"],
-      [chainId, await dm.getAddress(), disputeId, upheld],
+      ["uint256", "address", "bytes32", "bool", "bytes32"],
+      [chainId, await dm.getAddress(), disputeId, upheld, DECISION],
     );
     return signer.signMessage(ethers.getBytes(inner));
   }
@@ -109,7 +110,7 @@ describe("DisputeManager", function () {
   it("upheld → refunds the bond to the requester", async () => {
     await open();
     const before = await usdc.balanceOf(requester.address);
-    await dm.resolveDispute(disputeId, true, "Deliverable missed the brief", await sign(true));
+    await dm.resolveDispute(disputeId, true, "Deliverable missed the brief", DECISION, await sign(true));
     expect(await usdc.balanceOf(requester.address)).to.equal(before + BOND);
     expect((await dm.getDispute(disputeId)).status).to.equal(2); // UPHELD
   });
@@ -119,7 +120,7 @@ describe("DisputeManager", function () {
     const aBefore = await usdc.balanceOf(agent.address);
     const tBefore = await usdc.balanceOf(treasury.address);
     const rBefore = await usdc.balanceOf(requester.address);
-    await dm.resolveDispute(disputeId, false, "Work met the brief; dispute frivolous", await sign(false));
+    await dm.resolveDispute(disputeId, false, "Work met the brief; dispute frivolous", DECISION, await sign(false));
     expect(await usdc.balanceOf(agent.address)).to.equal(aBefore + USDC(3)); // 30%
     expect(await usdc.balanceOf(treasury.address)).to.equal(tBefore + USDC(2)); // 20%
     expect(await usdc.balanceOf(requester.address)).to.equal(rBefore + USDC(5)); // 50%
@@ -129,9 +130,9 @@ describe("DisputeManager", function () {
   it("rejects a forged verdict and double-resolution", async () => {
     await open();
     const bad = await agent.signMessage(ethers.getBytes(ethers.solidityPackedKeccak256(["bytes32", "bool"], [disputeId, true])));
-    await expect(dm.resolveDispute(disputeId, true, "x", bad)).to.be.revertedWith("Bad signature");
-    await dm.resolveDispute(disputeId, true, "ok", await sign(true));
-    await expect(dm.resolveDispute(disputeId, true, "again", await sign(true))).to.be.revertedWith("Not open");
+    await expect(dm.resolveDispute(disputeId, true, "x", DECISION, bad)).to.be.revertedWith("Bad signature");
+    await dm.resolveDispute(disputeId, true, "ok", DECISION, await sign(true));
+    await expect(dm.resolveDispute(disputeId, true, "again", DECISION, await sign(true))).to.be.revertedWith("Not open");
   });
 
   it("blocks a duplicate dispute id", async () => {

@@ -1,9 +1,8 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useWallet } from "../context/WalletProvider";
-import { Lock } from "lucide-react";
-import { AppShell } from "../components/shell/AppShell";
-import { PanelRow, PanelSection } from "../components/shell/StudioPanel";
+import { Info, Lock } from "lucide-react";
+import { PageHeader } from "../components/ui/cards";
 import { Panel, USDCAmount } from "../components/ui/primitives";
 import { WalletGate } from "../components/layout/guards";
 import ImagePicker from "../components/ImagePicker";
@@ -11,10 +10,7 @@ import { useTx } from "../hooks/useTx";
 import { submitTask, newTaskId, createPlan } from "../lib/tx";
 import { uploadAsset } from "../lib/api";
 import { coreDeployed } from "../lib/contracts";
-import ContractsNotice from "../components/ContractsNotice";
-import { useAsset } from "../hooks/useAsset";
-import { useAgents } from "../lib/onchain";
-import { agentsForTask, cn } from "../lib/utils";
+import { ContractsNotice } from "./TaskMarket";
 
 const DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
@@ -22,73 +18,21 @@ const TASK_TYPES = ["research", "writing", "code", "build-app", "website", "code
 
 const PROTOCOL_FEE_PCT = 1; // 1% routed to RevenueRouter
 
-/**
- * Post work to the swarm.
- *
- * The form is the page, so it gets the whole scrolling column, and the "how it works"
- * explanation moves into the details panel where it can be collapsed once the user
- * knows the flow.
- */
 export default function CreateTask() {
-  const { symbol, gasSymbol, feesInDollars, nativeAsset, network } = useAsset();
-
   return (
-    <AppShell
-      panel={
-        <>
-          <PanelSection title="How it works">
-            <ol className="flex flex-col gap-2.5">
-              {[
-                ["Lock", `Your ${symbol} budget moves into ${nativeAsset ? "NativeEscrow" : "USDCEscrow"}.sol the moment you post.`],
-                ["Bid", "Online agents that meet the reputation floor bid, and the engine ranks them."],
-                ["Verify", "The winner submits work and it is scored against your rubric."],
-                ["Settle", `Score 70 or above releases ${symbol} to the agent. Below it, their stake is slashed.`],
-              ].map(([t, d], i) => (
-                <li key={t} className="flex gap-2">
-                  <span className="grid h-4 w-4 shrink-0 place-items-center rounded-full border border-border bg-muted font-mono text-[9px] text-primary">
-                    {i + 1}
-                  </span>
-                  <div className="min-w-0">
-                    <div className="text-xs font-medium text-foreground">{t}</div>
-                    <div className="text-[11px] leading-relaxed text-muted-foreground">{d}</div>
-                  </div>
-                </li>
-              ))}
-            </ol>
-          </PanelSection>
-
-          <PanelSection title="Settlement">
-            <PanelRow label="Network" value={network.label} />
-            <PanelRow label="Escrow asset" value={symbol} />
-            <PanelRow label="Gas token" value={gasSymbol} />
-            <PanelRow label="Protocol fee" value={`${PROTOCOL_FEE_PCT}%`} />
-            <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-              {feesInDollars
-                ? `${gasSymbol} is the gas token here, so fees are dollar-denominated (about $0.01) and finality is sub-second.`
-                : nativeAsset
-                  ? `Budgets and network fees are both paid in ${symbol}, the chain's own coin, so there is no token approval step.`
-                  : `Budgets settle in ${symbol} and network fees are paid in ${gasSymbol}.`}
-            </p>
-          </PanelSection>
-        </>
-      }
-    >
-      <div className="max-w-2xl mx-auto p-4">
-        {!coreDeployed(network.id) ? (
-          <ContractsNotice />
-        ) : (
-          <WalletGate label={`Connect a wallet to post a task and lock ${symbol}.`}>
-            <Form />
-          </WalletGate>
-        )}
-      </div>
-    </AppShell>
+    <div>
+      <PageHeader
+        eyebrow="Create Task"
+        title="Post work to the swarm"
+        sub="Lock a USDC budget in escrow and define how the deliverable will be judged."
+      />
+      {!coreDeployed() ? <ContractsNotice /> : <WalletGate label="Connect a wallet to post a task and lock USDC."><Form /></WalletGate>}
+    </div>
   );
 }
 
 function Form() {
   const { address, signer } = useWallet();
-  const { symbol, nativeAsset, network } = useAsset();
   const navigate = useNavigate();
   const { run, loading } = useTx();
 
@@ -114,13 +58,6 @@ function Form() {
 
   // For "other", the agent-facing category is whatever the user typed.
   const effectiveType = taskType === "other" ? customType.trim() : taskType;
-
-  // Who could actually take this? A task no agent will look at still escrows the
-  // budget and still sits OPEN until it is refunded, and nothing on this form used
-  // to say so — the requester found out hours later, from an empty bid list.
-  const { agents } = useAgents();
-  const minRepN = parseInt(minRep) || 0;
-  const eligible = agentsForTask(agents, effectiveType, minRepN);
   const perN = parseFloat(perDelivery) || 0;
   const countN = parseInt(deliveries) || 0;
   const budgetN = recurring ? perN * countN : parseFloat(budget) || 0;
@@ -164,7 +101,7 @@ function Form() {
             taskType: effectiveType,
             schedule: `${days.join(",")}@${time}`,
           }, signer),
-        { pending: "Escrowing plan & posting to market…", success: "Recurring plan posted, agents can bid" },
+        { pending: "Escrowing plan & posting to market…", success: "Recurring plan posted — agents can bid" },
       );
       if (hash) {
         if (image) await uploadAsset(planId, image);
@@ -186,7 +123,7 @@ function Form() {
           rubric: rubric.trim(),
           taskType: effectiveType,
         }, signer),
-      { pending: `Approving ${symbol} & locking escrow…`, success: "Task posted onchain" },
+      { pending: "Approving USDC & locking escrow…", success: "Task posted onchain" },
     );
     if (hash) {
       if (image) await uploadAsset(taskId, image);
@@ -195,216 +132,216 @@ function Form() {
   };
 
   return (
-    <Panel title="Task definition">
-    <div className="flex flex-col gap-4">
-        {/* One-off vs recurring */}
-        <div className="grid grid-cols-2 gap-2 rounded-[4px] border border-border bg-muted p-0.5">
-          <button
-            type="button"
-            onClick={() => setRecurring(false)}
-            className={`rounded-[3px] py-1.5 font-mono text-[11px] transition-colors ${!recurring ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
-          >
-            One-off task
-          </button>
-          <button
-            type="button"
-            onClick={() => setRecurring(true)}
-            className={`rounded-[3px] py-1.5 font-mono text-[11px] transition-colors ${recurring ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
-          >
-            Recurring (subscription)
-          </button>
-        </div>
-
-        <Field label="Task name" hint="A short, specific title.">
-          <input
-            className="field"
-            placeholder="Summarize the Q2 DeFi research corpus"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
-        </Field>
-
-        <Field label="Task type">
-          <div className="flex flex-wrap gap-1">
-            {TASK_TYPES.map((t) => (
-              <button
-                key={t}
-                onClick={() => setType(t)}
-                data-active={taskType === t}
-                className="tool-btn border-border bg-muted"
-              >
-                {t === "other" ? "other (custom)" : t}
-              </button>
-            ))}
+    <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
+      <Panel title="Task Definition">
+        <div className="flex flex-col gap-5">
+          {/* One-off vs recurring */}
+          <div className="grid grid-cols-2 gap-2 rounded-xl border border-border bg-deep p-1">
+            <button
+              type="button"
+              onClick={() => setRecurring(false)}
+              className={`mono rounded-lg px-3 py-2 text-[12px] transition-colors ${!recurring ? "bg-blue-violet text-white" : "text-grey hover:text-grey-l"}`}
+            >
+              One-off task
+            </button>
+            <button
+              type="button"
+              onClick={() => setRecurring(true)}
+              className={`mono rounded-lg px-3 py-2 text-[12px] transition-colors ${recurring ? "bg-blue-violet text-white" : "text-grey hover:text-grey-l"}`}
+            >
+              Recurring (subscription)
+            </button>
           </div>
-          {taskType === "other" && (
+
+          <Field label="Task name" hint="A short, specific title.">
             <input
-              className="field mt-3"
-              placeholder="Name your task type, e.g. video-editing, smart-contract-audit…"
-              value={customType}
-              onChange={(e) => setCustomType(e.target.value)}
+              className="input-field"
+              placeholder="Summarize the Q2 DeFi research corpus"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
             />
-          )}
-          {effectiveType && (
-            <p className={cn("mt-2 text-[11px]", eligible.length === 0 ? "text-destructive" : "text-muted-foreground")}>
-              {eligible.length === 0 ? (
-                <>
-                  No agent on {network.shortLabel} can take this yet
-                  {minRepN > 0 && <> at reputation {minRepN} or above</>}. Posting it would lock your
-                  budget in escrow until the deadline refunds it.
-                </>
-              ) : (
-                <>
-                  {eligible.length} agent{eligible.length === 1 ? "" : "s"} can bid on this
-                  {minRepN > 0 && <> at reputation {minRepN} or above</>}
-                  {eligible.length <= 4 && <> — {eligible.map((a) => a.name).join(", ")}</>}.
-                </>
-              )}
-            </p>
-          )}
-        </Field>
+          </Field>
 
-        <Field label="Description" hint="What the agent must produce.">
-          <textarea
-            className="field-area min-h-[100px] resize-y"
-            placeholder="Provide a 500-word synthesis of the attached sources, with citations…"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-        </Field>
-
-        <Field label="Reference / work location" hint="Where the work is done or checked, e.g. a GitHub repo, dataset, doc, or spec URL.">
-          <input
-            className="field"
-            placeholder="https://github.com/org/repo  ·  https://docs… (optional)"
-            value={refLink}
-            onChange={(e) => setRefLink(e.target.value)}
-          />
-        </Field>
-
-        <Field label="Expected deliverable format" hint="How the result should be delivered (optional).">
-          <input
-            className="field"
-            placeholder="e.g. a markdown report, a PR link, a CSV, a code diff…"
-            value={deliverFormat}
-            onChange={(e) => setDeliverFormat(e.target.value)}
-          />
-        </Field>
-
-        <ImagePicker value={image} onChange={setImage} label="Cover image (optional)" hint="Shown on the task card. Max ~3MB; downscaled automatically." />
-
-        <Field label="Quality rubric" hint="our algorithm scores the deliverable against this, 0-100. Pass ≥ 70.">
-          <textarea
-            className="field-area min-h-[80px] resize-y"
-            placeholder="Accurate (40), well-cited (30), concise & clear (20), formatted (10)…"
-            value={rubric}
-            onChange={(e) => setRubric(e.target.value)}
-          />
-        </Field>
-
-        {!recurring ? (
-          <div className="grid grid-cols-3 gap-4">
-            <Field label={`Budget (${symbol})`}>
-              <input type="number" min="0" className="field" value={budget} onChange={(e) => setBudget(e.target.value)} />
-            </Field>
-            <Field label="Deadline (days)">
-              <input type="number" min="1" className="field" value={deadlineDays} onChange={(e) => setDeadlineDays(e.target.value)} />
-              {deadlineN < 1 && <div className="font-mono mt-1 text-[11px] text-destructive">Must be at least 1 day</div>}
-            </Field>
-            <Field label="Min reputation">
-              <input type="number" min="100" max="1000" className="field" value={minRep} onChange={(e) => setMinRep(e.target.value)} />
-            </Field>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-5">
-            <div className="rounded-[4px] border border-secondary/25 bg-secondary/8 p-2.5 text-[11px] leading-relaxed text-muted-foreground">
-              Posted to the open market, agents <span className="text-foreground">bid</span> like any task, and the winner
-              delivers on your schedule. You don't pick the agent; the auction does.
+          <Field label="Task type">
+            <div className="flex flex-wrap gap-2">
+              {TASK_TYPES.map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setType(t)}
+                  className={`mono rounded-lg border px-3 py-1.5 text-xs uppercase tracking-wider transition-colors ${
+                    taskType === t
+                      ? "border-blue/50 bg-blue/10 text-blue-l"
+                      : "border-border bg-deep text-grey hover:text-grey-l"
+                  }`}
+                >
+                  {t === "other" ? "other (custom)" : t}
+                </button>
+              ))}
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <Field label={`Per delivery (${symbol})`}>
-                <input type="number" min="1" className="field" value={perDelivery} onChange={(e) => setPerDelivery(e.target.value)} />
+            {taskType === "other" && (
+              <input
+                className="input-field mt-3"
+                placeholder="Name your task type, e.g. video-editing, smart-contract-audit…"
+                value={customType}
+                onChange={(e) => setCustomType(e.target.value)}
+              />
+            )}
+          </Field>
+
+          <Field label="Description" hint="What the agent must produce.">
+            <textarea
+              className="input-field min-h-[110px] resize-y"
+              placeholder="Provide a 500-word synthesis of the attached sources, with citations…"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </Field>
+
+          <Field label="Reference / work location" hint="Where the work is done or checked, e.g. a GitHub repo, dataset, doc, or spec URL.">
+            <input
+              className="input-field"
+              placeholder="https://github.com/org/repo  ·  https://docs… (optional)"
+              value={refLink}
+              onChange={(e) => setRefLink(e.target.value)}
+            />
+          </Field>
+
+          <Field label="Expected deliverable format" hint="How the result should be delivered (optional).">
+            <input
+              className="input-field"
+              placeholder="e.g. a markdown report, a PR link, a CSV, a code diff…"
+              value={deliverFormat}
+              onChange={(e) => setDeliverFormat(e.target.value)}
+            />
+          </Field>
+
+          <ImagePicker value={image} onChange={setImage} label="Cover image (optional)" hint="Shown on the task card. Max ~3MB; downscaled automatically." />
+
+          <Field label="Quality rubric" hint="our algorithm scores the deliverable against this, 0-100. Pass ≥ 70.">
+            <textarea
+              className="input-field min-h-[90px] resize-y"
+              placeholder="Accurate (40), well-cited (30), concise & clear (20), formatted (10)…"
+              value={rubric}
+              onChange={(e) => setRubric(e.target.value)}
+            />
+          </Field>
+
+          {!recurring ? (
+            <div className="grid grid-cols-3 gap-4">
+              <Field label="Budget (USDC)">
+                <input type="number" min="0" className="input-field" value={budget} onChange={(e) => setBudget(e.target.value)} />
               </Field>
-              <Field label="# of deliveries">
-                <input type="number" min="1" className="field" value={deliveries} onChange={(e) => setDeliveries(e.target.value)} />
+              <Field label="Deadline (days)">
+                <input type="number" min="1" className="input-field" value={deadlineDays} onChange={(e) => setDeadlineDays(e.target.value)} />
+                {deadlineN < 1 && <div className="mono mt-1 text-[11px] text-red">Must be at least 1 day</div>}
+              </Field>
+              <Field label="Min reputation">
+                <input type="number" min="100" max="1000" className="input-field" value={minRep} onChange={(e) => setMinRep(e.target.value)} />
               </Field>
             </div>
-            <div>
-              <div className="field-label mb-2">Schedule (days &amp; time, UTC)</div>
-              <div className="flex flex-wrap gap-1.5">
-                {DAYS.map((d) => (
-                  <button key={d} type="button" onClick={() => toggleDay(d)}
-                    data-active={days.includes(d)}
-                    className="tool-btn border-border bg-muted uppercase">
-                    {d}
-                  </button>
-                ))}
-              </div>
-              <input type="time" className="field mt-3" value={time} onChange={(e) => setTime(e.target.value)} />
-            </div>
-          </div>
-        )}
-
-        {/* Fee breakdown */}
-        <div className="rounded-[4px] border border-border bg-muted p-3">
-          <div className="field-label mb-3">{recurring ? "Subscription" : "Fee breakdown"}</div>
-          {recurring ? (
-            <Row label={`Plan escrowed (${perN || 0} × ${countN || 0})`} value={budgetN} symbol={symbol} native={nativeAsset} />
           ) : (
-            <>
-              <Row label="Budget locked in escrow" value={budgetN} symbol={symbol} native={nativeAsset} />
-              <Row label={`Protocol fee (${PROTOCOL_FEE_PCT}%)`} value={fee} muted symbol={symbol} native={nativeAsset} />
-            </>
+            <div className="flex flex-col gap-5">
+              <div className="rounded-xl border border-violet/25 bg-violet/5 p-3 text-[11px] leading-relaxed text-grey-l">
+                Posted to the open market — agents <span className="text-white">bid</span> like any task, and the winner
+                delivers on your schedule. You don't pick the agent; the auction does.
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Per delivery (USDC)">
+                  <input type="number" min="1" className="input-field" value={perDelivery} onChange={(e) => setPerDelivery(e.target.value)} />
+                </Field>
+                <Field label="# of deliveries">
+                  <input type="number" min="1" className="input-field" value={deliveries} onChange={(e) => setDeliveries(e.target.value)} />
+                </Field>
+              </div>
+              <div>
+                <div className="eyebrow mb-2">Schedule (days &amp; time, UTC)</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {DAYS.map((d) => (
+                    <button key={d} type="button" onClick={() => toggleDay(d)}
+                      className={`mono rounded-lg border px-2.5 py-1 text-[11px] uppercase transition-colors ${days.includes(d) ? "border-violet bg-violet/15 text-white" : "border-border bg-deep text-grey hover:text-grey-l"}`}>
+                      {d}
+                    </button>
+                  ))}
+                </div>
+                <input type="time" className="input-field mt-3" value={time} onChange={(e) => setTime(e.target.value)} />
+              </div>
+            </div>
           )}
-          <Row label="Est. network fee" value={network.estTxFee} muted symbol={symbol} native={nativeAsset} />
-          <div className="my-3 border-t border-border" />
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-foreground">Total to approve</span>
-            <USDCAmount amount={budgetN + fee} size="sm" className="text-foreground" />
-          </div>
-        </div>
 
-        <button onClick={onSubmit} disabled={!valid || loading} className="tool-btn-primary w-full">
-          <Lock className="h-3.5 w-3.5" /> {loading ? (recurring ? "Subscribing…" : "Posting…") : recurring ? "Escrow plan & subscribe" : `Lock ${symbol} & post task`}
-        </button>
+          {/* Fee breakdown */}
+          <div className="rounded-xl border border-border bg-deep p-4">
+            <div className="eyebrow mb-3">{recurring ? "Subscription" : "Fee breakdown"}</div>
+            {recurring ? (
+              <Row label={`Plan escrowed (${perN || 0} × ${countN || 0})`} value={budgetN} />
+            ) : (
+              <>
+                <Row label="Budget locked in escrow" value={budgetN} />
+                <Row label={`Protocol fee (${PROTOCOL_FEE_PCT}%)`} value={fee} muted />
+              </>
+            )}
+            <Row label="Est. network fee" value={0.01} muted />
+            <div className="hairline my-3" />
+            <div className="flex items-center justify-between">
+              <span className="mono text-sm text-white">Total to approve</span>
+              <USDCAmount amount={budgetN + fee} size="md" className="text-white" />
+            </div>
+          </div>
+
+          <button onClick={onSubmit} disabled={!valid || loading} className="btn-primary w-full">
+            <Lock size={15} /> {loading ? (recurring ? "Subscribing…" : "Posting…") : recurring ? "Escrow plan & subscribe" : "Lock USDC & post task"}
+          </button>
+        </div>
+      </Panel>
+
+      <div className="flex flex-col gap-6">
+        <Panel title="How it works">
+          <ol className="flex flex-col gap-4">
+            {[
+              ["Lock", "Your USDC budget moves into USDCEscrow.sol the moment you post."],
+              ["Bid", "Online agents that meet min-reputation bid; the engine ranks them."],
+              ["Verify", "The winner submits work; our algorithm scores it against your rubric."],
+              ["Settle", "Score ≥ 70 releases USDC to the agent. Below, their stake is slashed."],
+            ].map(([t, d], i) => (
+              <li key={t} className="flex gap-3">
+                <span className="mono grid h-6 w-6 shrink-0 place-items-center rounded-full border border-border2 bg-deep text-[11px] text-blue-l">
+                  {i + 1}
+                </span>
+                <div>
+                  <div className="text-sm font-semibold text-white">{t}</div>
+                  <div className="text-xs leading-relaxed text-grey-l">{d}</div>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </Panel>
+
+        <div className="panel flex gap-3 border-blue/20 bg-blue/5 p-5">
+          <Info size={18} className="mt-0.5 shrink-0 text-blue-l" />
+          <p className="text-xs leading-relaxed text-grey-l">
+            Settled on <span className="text-white">Arc</span>, Circle's stablecoin-native L1. USDC is
+            the gas token, so fees are dollar-denominated (~$0.01) and finality is sub-second.
+          </p>
+        </div>
       </div>
-    </Panel>
+    </div>
   );
 }
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <div className="field-label mb-2">{label}</div>
+      <div className="eyebrow mb-2">{label}</div>
       {children}
-      {hint && <div className="font-mono mt-1.5 text-[11px] text-muted-foreground">{hint}</div>}
+      {hint && <div className="mono mt-1.5 text-[11px] text-grey">{hint}</div>}
     </label>
   );
 }
 
-/**
- * One line of the fee breakdown. `symbol`/`native` exist because a bare "$" is
- * only correct where the escrow asset is a dollar stablecoin: on BOT Chain the
- * same number is a quantity of BOT, and needs more decimals to mean anything.
- */
-function Row({
-  label,
-  value,
-  muted,
-  symbol,
-  native,
-}: {
-  label: string;
-  value: number;
-  muted?: boolean;
-  symbol?: string;
-  native?: boolean;
-}) {
-  const text = native ? `${value.toFixed(4)} ${symbol ?? ""}`.trim() : `$${value.toFixed(2)}`;
+function Row({ label, value, muted }: { label: string; value: number; muted?: boolean }) {
   return (
-    <div className={`flex items-center justify-between py-0.5 text-xs ${muted ? "text-muted-foreground" : "text-foreground"}`}>
-      <span className="font-mono text-[11px] text-muted-foreground">{label}</span>
-      <span className="font-mono">{text}</span>
+    <div className={`flex items-center justify-between py-1 text-sm ${muted ? "text-grey" : "text-grey-l"}`}>
+      <span className="mono text-xs">{label}</span>
+      <span className="mono">${value.toFixed(2)}</span>
     </div>
   );
 }
