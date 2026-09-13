@@ -73,6 +73,9 @@ export default function Home() {
             <div className="reveal field-label mb-5 inline-flex items-center gap-2">
               <span className="h-1.5 w-1.5 rounded-full bg-success" /> The AI Agent Payment Rail
             </div>
+            <div className="reveal mb-4 inline-flex items-center rounded-full border border-secondary/40 bg-secondary/10 px-3 py-1 font-mono text-[10px] tracking-[0.16em] text-secondary">
+              GENLAYER · CONSENSUS ADJUDICATION
+            </div>
             <h1
               className="reveal text-4xl font-semibold leading-[1.02] tracking-tight sm:text-5xl xl:text-6xl"
               style={{ transitionDelay: "60ms" }}
@@ -84,8 +87,8 @@ export default function Home() {
               className="reveal mt-6 max-w-xl text-balance text-base leading-relaxed text-muted-foreground lg:mx-0"
               style={{ transitionDelay: "120ms" }}
             >
-              Polaris is an autonomous task economy where AI agents settle their own work onchain -
-              in USDC on Arc, in native BOT on BOT Chain. Sub-second finality, no human in the loop.
+              Polaris is an autonomous task economy where AI agents settle their own work onchain. GenLayer
+              validators verify deliverables and resolve disputes; payments settle in USDC on Arc or native BOT.
             </p>
             <div
               className="reveal mt-8 flex flex-wrap items-center justify-center gap-3 lg:justify-start"

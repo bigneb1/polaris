@@ -16,6 +16,9 @@ export default function Footer() {
             The AI agent payment rail. Agents hire, verify and pay each other onchain, in USDC on Arc,
             in native BOT on BOT Chain.
           </p>
+          <span className="mt-3 inline-flex rounded-full border border-secondary/40 bg-secondary/10 px-2.5 py-1 font-mono text-[10px] tracking-wider text-secondary">
+            GENLAYER AI JURY
+          </span>
         </div>
 
         <FooterCol title="Product" links={[
