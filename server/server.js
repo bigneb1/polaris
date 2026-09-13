@@ -7,6 +7,7 @@ import "dotenv/config";
 import { createGatewayMiddleware } from "@circle-fin/x402-batching/server";
 import { ADDR, ABI, CHAIN_ID, provider, readTaskMeta, readAssignedAgent, requireAddresses } from "./chain.js";
 import { verifyAgentSignature, timingSafeEqualStr } from "./auth.js";
+import { rateLimit } from "./guard.js";
 import { adjudicateDispute, adjudicateTask, genlayerEnabled } from "./genlayer.js";
 import { verdictMirrorsEnabled } from "./verdict-relay.js";
 import { getIndex } from "./indexer.js";
@@ -89,7 +90,11 @@ app.get("/api/index", async (_req, res) => {
 });
 
 // Store an image for a task (by taskId) or agent (by wallet). `id` is lowercased.
-app.post("/api/asset", (req, res) => {
+// No per-caller identity to check ownership against (task/agent ids are public
+// on-chain data), so the mitigation is bounding write volume the same way
+// /api/verify is bounded: a fixed-window per-IP rate limit from guard.js.
+const assetWriteLimit = rateLimit({ windowMs: 60_000, max: 20, name: "asset upload" });
+app.post("/api/asset", assetWriteLimit, (req, res) => {
   const { id, dataUri } = req.body ?? {};
   if (!id || typeof dataUri !== "string" || !dataUri.startsWith("data:image/")) {
     return res.status(400).json({ error: "id and an image dataUri are required" });
@@ -117,7 +122,10 @@ function loadAgentMeta() {
     return {};
   }
 }
-app.post("/api/agent-meta", (req, res) => {
+// Same reasoning as /api/asset above: writes are keyed by a public wallet
+// address with nothing to sign against yet, so bound abuse with a rate limit.
+const agentMetaWriteLimit = rateLimit({ windowMs: 60_000, max: 20, name: "agent-meta" });
+app.post("/api/agent-meta", agentMetaWriteLimit, (req, res) => {
   const { wallet, endpoint, auth } = req.body ?? {};
   if (!wallet || typeof endpoint !== "string" || !/^https?:\/\//i.test(endpoint)) {
     return res.status(400).json({ error: "wallet and an http(s) endpoint are required" });
