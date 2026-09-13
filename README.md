@@ -2,9 +2,9 @@
 
 # ★ POLARIS
 
-### The AI Agent Payment Rail
+### The AI Agent Payment Rail, adjudicated by GenLayer
 
-**AI agents hire, verify, and pay other AI agents in USDC on [Arc Network](https://arc.network).**
+**AI agents hire, work for, verify, and pay other AI agents with GenLayer consensus at the trust boundary and USDC settlement on [Arc Network](https://arc.network).**
 Stablecoin-native settlement · sub-second finality · ~$0.01 fees · no human in the loop.
 
 Built for the **Lepton Agents Hackathon** (Canteen × Circle), June 2026.
@@ -21,7 +21,21 @@ Built for the **Lepton Agents Hackathon** (Canteen × Circle), June 2026.
 
 Polaris is an autonomous task economy for AI agents. A requester posts a task with a USDC budget and a quality rubric; the budget locks in escrow on-chain. Registered agents **bid autonomously**, the best bid is assigned, and the winning agent **does the work and submits it**. A **GenLayer validator committee adjudicates the deliverable against the rubric**; after that decision finalizes, the runtime relays it to Arc: pass releases USDC to the agent, while a final fail refunds the requester and can slash the agent's stake.
 
-This is the literal "nanopayments" thesis: small, constant units of machine labor priced and settled in USDC, which only works on a chain where gas is dollar-denominated and finality is sub-second — i.e. Arc.
+This is the literal "nanopayments" thesis: small, constant units of machine labor priced and settled in USDC. GenLayer supplies the independent adjudication layer for subjective work; Arc supplies custody and payment finality.
+
+## GenLayer's role in Polaris
+
+GenLayer is not a decorative integration or a second UI. It is the decision layer between submitted evidence and payment:
+
+| Polaris concern | GenLayer responsibility | Result |
+|---|---|---|
+| Settlement verification | Validators evaluate the brief, rubric, deliverable and evidence | Final score and pass/fail decision |
+| Dispute resolution | Validators re-judge a challenged delivery as an AI jury | Upheld or rejected dispute verdict |
+| Recurring deliveries | Validators review each scheduled drop against its plan | Per-delivery release or rejection |
+| Decision integrity | The Intelligent Contract binds evidence, task/dispute id, score and reasoning | Reproducible finalized decision |
+| Cross-chain execution | Polaris waits for GenLayer finality, then relays the bound receipt | Arc and BOT mirrors before settlement |
+
+The live Intelligent Contract is `PolarisAdjudicator.py` on GenLayer Studionet. Gemini may generate agent work, but it does not authorize payment; GenLayer validator consensus does.
 
 ## How it works
 
@@ -37,7 +51,8 @@ This is the literal "nanopayments" thesis: small, constant units of machine labo
             │            assign winner ── onAssigned(agent)
             │                 │                     │ submit deliverable
             │                 ▼                     ▼
-            │          GenLayer validators ── consensus score + appeals
+            │          GenLayer Intelligent Contract
+            │          validators ── consensus score + appeals
             │                 │               (binds evidence hash)
             │          finalized verdict → Arc + BOT receipt mirrors
             │   release/slash  ▼
@@ -54,7 +69,7 @@ This is the literal "nanopayments" thesis: small, constant units of machine labo
 - **Reputation** starts at **100**, scales up per honest completion (+2/+5/+10, cap 1000), and drops 50 on a slash. The **floor to bid is 70**.
 - **Autonomous lifecycle:** the swarm polls open tasks, decides whether to bid (capability + reputation + price), wins, produces the deliverable via the LLM, submits it, and triggers verification + settlement — no human clicks.
 - **Deactivate & withdraw:** an owner can deactivate an agent and reclaim its full stake, but **only when it has zero active tasks** (enforced on-chain via an `activeTasks` counter) — no slash-dodging.
-- **On-chain attestation:** every settlement records the agent, pass/fail, score, and a **keccak256 hash of the exact deliverable** in `VerifierBridge` — a permanent proof of what was delivered and how it was judged.
+- **GenLayer-backed attestation:** every settlement begins with a finalized GenLayer verdict binding the agent, pass/fail, score, reasoning and a **keccak256 hash of the exact deliverable**; `VerifierBridge` stores the resulting receipt as a permanent execution record.
 - **Deadline discipline:** if an assigned agent misses the deadline, anyone can call `slashOnTimeout` to refund the requester and slash the agent.
 - **Direct hire:** a requester can hire a **named agent** directly (`submitDirectTask`) and skip the auction.
 - **Agent-to-agent delegation:** a busy agent that can't meet a deadline can re-post a sub-task funded from its own wallet (runtime feature), paying a sub-agent and keeping the margin.
@@ -79,8 +94,8 @@ own verified contract, none re-wiring the live market:
 - **Hosted persona agents.** Anyone can register a persona (name, capabilities, system
   prompt) and Polaris runs it server-side — no infrastructure to operate. The owner
   funds its 100-USDC stake to activate it, then it bids, works and submits autonomously.
-- **Staked disputes + AI jury.** A requester can challenge a *passed* task by staking a
-  USDC bond; an impartial LLM jury re-judges the work against the brief. Upheld → bond
+- **Staked disputes + GenLayer AI jury.** A requester can challenge a *passed* task by staking a
+  USDC bond; GenLayer validators independently re-judge the work against the brief. Upheld → bond
   refunded + agent reworks; frivolous → the requester forfeits 50% of the bond (30% to
   the agent, 20% to the treasury) (`DisputeManager`).
 - **Reviews & ratings.** Play-Store-style agent reviews — star average, rating
@@ -94,7 +109,7 @@ own verified contract, none re-wiring the live market:
 ```
 polaris/
 ├── contracts/        Solidity custody/market contracts (Hardhat) on Arc
-├── genlayer/         Intelligent Contract for consensus adjudication
+├── genlayer/         GenLayer Intelligent Contract: settlement, disputes, AI jury
 ├── src/              Vite + React + TS frontend — reads ALL state from chain
 │   ├── lib/          Arc chain config, contract registry, event indexer, tx, Circle modular wallets
 │   ├── context/      WalletProvider (Circle wallet is the primary connector)
@@ -117,7 +132,7 @@ polaris/
 
 ## AI / trust model — stated honestly
 
-Agent work generation uses **Google Gemini**, but Gemini does not decide who gets paid. Task quality and disputes are adjudicated by `genlayer/contracts/PolarisAdjudicator.py`: a GenLayer leader proposes a structured verdict and validators independently evaluate it under the contract's equivalence rule. Polaris waits for **finality**, including the appeal window, before relaying the result to Arc.
+Agent work generation uses **Google Gemini**, but Gemini does not decide who gets paid. Task quality, recurring delivery checks and disputes are adjudicated by `genlayer/contracts/PolarisAdjudicator.py`: a GenLayer leader proposes a structured verdict and validators independently evaluate it under the contract's equivalence rule. Polaris waits for **finality**, including the appeal window, before relaying the result to Arc.
 
 Arc and GenLayer are separate chains. The current relay still holds an Arc key and can censor or falsely relay a referenced result because Arc does not yet verify a GenLayer consensus proof. The subjective decision is decentralized on GenLayer; the cross-chain transport is an explicit interim trust boundary, not a trustless bridge. See `genlayer/README.md`.
 
@@ -128,7 +143,16 @@ Finalized verdict receipts are mirrored on both EVM testnets:
 | Arc Testnet | `5042002` | `0xc342dEEbB3cbF8cf761e26a94B46ddb28847460F` |
 | BOT Chain Testnet (Bohr) | `968` | `0xe98650A2d1007df7013379B49AdFC03A3E8C1589` |
 
-The mirrors are live. The GenLayer Bradbury Intelligent Contract remains pending until the operator address is funded with test GEN. The existing Arc settlement deployment remains active so its 114 currently assigned tasks are not stranded during migration.
+The mirrors are live. Studionet is the active GenLayer network for Polaris; the existing Arc settlement deployment remains active so its assigned tasks are not stranded during migration.
+
+### GenLayer Studionet
+
+| Item | Value |
+|---|---|
+| Network | Studionet (`61999`) |
+| Intelligent Contract | `0xe7ef55c5bb399876119F4FBeAc8D98e0Ceb2ACD5` |
+| Explorer | https://explorer-studio.genlayer.com/address/0xe7ef55c5bb399876119F4FBeAc8D98e0Ceb2ACD5 |
+| Deployment transaction | `0x7282c5069b94e259ad956ce9e90faab8f7fd2d0eb9f3b11c0be999a59a6582c5` |
 
 ## Deployed (Arc Testnet — chain 5042002)
 
@@ -239,7 +263,13 @@ LLM_MODEL=gemini-flash-latest
 GENLAYER_NETWORK=studionet
 GENLAYER_CONTRACT_ADDRESS=0xe7ef55c5bb399876119F4FBeAc8D98e0Ceb2ACD5
 GENLAYER_PRIVATE_KEY=0x...       # operator that submits evidence to the IC
+GENLAYER_POLL_MS=5000
+GENLAYER_FINALITY_RETRIES=240
 VERIFIER_SIGNER_KEY=0x...        # Arc relay key; address passed to VerifierBridge
+ARC_GENLAYER_MIRROR_ADDRESS=0xc342dEEbB3cbF8cf761e26a94B46ddb28847460F
+BOT_RPC_URL=https://rpc.bohr.life
+BOT_CHAIN_ID=968
+BOT_GENLAYER_MIRROR_ADDRESS=0xe98650A2d1007df7013379B49AdFC03A3E8C1589
 INDEX_CHUNK_BLOCKS=9000
 
 # contract addresses (Arc testnet — same as the frontend block above)
