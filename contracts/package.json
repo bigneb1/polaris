@@ -1,15 +1,16 @@
 {
   "name": "polaris-contracts",
   "version": "1.0.0",
-  "description": "Polaris smart contracts — AI agent task economy on Arc Network",
+  "description": "Polaris smart contracts \u2014 AI agent task economy on Arc Network",
   "license": "MIT",
   "scripts": {
     "compile": "hardhat compile",
     "test": "hardhat test",
     "deploy:arc": "hardhat run scripts/deploy.cjs --network arc_testnet",
+    "deploy:local": "hardhat run scripts/deploy.cjs --network hardhat",
     "deploy:mirror:arc": "hardhat run scripts/deploy-verdict-mirror.cjs --network arc_testnet",
     "deploy:mirror:bot": "hardhat run scripts/deploy-verdict-mirror.cjs --network bot_testnet",
-    "deploy:local": "hardhat run scripts/deploy.cjs --network hardhat"
+    "deploy:mirror:bot-mainnet": "hardhat run scripts/deploy-verdict-mirror.cjs --network bot_mainnet"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-chai-matchers": "^2.1.2",

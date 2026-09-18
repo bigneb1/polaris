@@ -87,6 +87,14 @@ const arcTestnet = {
    * Flip this to false the day Arc is redeployed from contracts/.
    */
   legacyVerdictDigest: true,
+  /**
+   * True once this network's contracts bind the finalized GenLayer decision id into
+   * the verdict digest (and require it non-zero). Nothing with that ABI is deployed
+   * anywhere yet — see server/digests.js — so GenLayer adjudicates and mirrors, but
+   * the settlement call still uses the shape the live instance verifies. Flip this
+   * the day the five contracts are redeployed from contracts/ on this network.
+   */
+  genlayerDecisionBinding: false,
   /** Env var holding the verdict-signing key for this network. */
   signerKeyEnv: "VERIFIER_SIGNER_KEY",
   indexFromBlock: process.env.INDEX_FROM_BLOCK ? Number(process.env.INDEX_FROM_BLOCK) : 47764000,
@@ -161,6 +169,9 @@ function botChain({ id, label, chainId, rpcEnv, rpcDefault, explorerUrl, deploym
     gasSymbol: "BOT",
     /** Deployed from this repo, so the hardened, domain-separated digests apply. */
     legacyVerdictDigest: false,
+    /** ...but deployed BEFORE the GenLayer decision id joined that digest. See the
+     *  note on arcTestnet, and server/digests.js. */
+    genlayerDecisionBinding: false,
     // A separate signer key is allowed per network (recommended: don't reuse the
     // Arc signer on a real-money chain), falling back to the shared one.
     signerKeyEnv: process.env[`BOT_VERIFIER_SIGNER_KEY_${key}`] ? `BOT_VERIFIER_SIGNER_KEY_${key}` : "VERIFIER_SIGNER_KEY",

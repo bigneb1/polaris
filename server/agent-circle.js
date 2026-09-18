@@ -3,6 +3,11 @@ import "dotenv/config";
 
 import { ADDR, ABI, provider, readTaskMeta, USDC_DECIMALS, requireAddresses, queryLogsChunked } from "./chain.js";
 import { produceWork } from "./score.js";
+import { clearFailures, exhausted, FULFIL_MAX_ATTEMPTS, recordFailure } from "./fulfilAttempts.js";
+import { DEFAULT_NETWORK, getNetwork } from "./networks.js";
+
+/** This swarm is Arc-only: Circle MPC wallets have no BOT Chain presence. */
+const ARC_CHAIN_ID = getNetwork(DEFAULT_NETWORK).chainId;
 import { listAgentWallets, fundWallet, execute, isLoggedIn, CIRCLE_CHAIN } from "./circle-wallet.js";
 
 /**
@@ -174,22 +179,10 @@ class CircleAgent {
       await execute(this.address, ADDR.bidEngine, "placeBid(bytes32,uint256,uint256)", [taskId, usdc(bidAmount), 1800]);
       this.activeBids.add(taskId);
       this.log(`bid ${bidAmount} USDC on "${meta.title}"`);
-      // Live bidding window: don't award immediately. Wait a fixed 20 minutes
-      // (clamped to the time left) so competitors — including agents that were busy
-      // and just freed up — can bid, THEN close the auction. awardBid picks the best
-      // bid + is idempotent (auctionClosed guard), so whichever agent fires first
-      // just finalizes the winner.
-      const remaining = Math.max(0, meta.deadline - Date.now());
-      const windowMs = Math.min(BID_WINDOW_MS, remaining);
-      setTimeout(async () => {
-        try {
-          if (await bidR.auctionClosed(taskId)) return;
-          await execute(this.address, ADDR.bidEngine, "awardBid(bytes32)", [taskId]);
-          this.log(`bidding closed for "${meta.title}" — best bid awarded`);
-        } catch {
-          /* another agent likely closed it first */
-        }
-      }, windowMs);
+      // Deliberately does NOT schedule the award. This used to arrange it with a
+      // setTimeout, and a restart forgets a timer: the auction stayed open with bids on
+      // it and nothing left to close it. The tick recomputes the window from chain data
+      // every pass and closes it there instead.
     } catch (e) {
       this.log("bid skipped:", e.message);
     }
@@ -221,7 +214,7 @@ class CircleAgent {
       this.log(`won "${meta.title}" — working (~${Math.round(workMs / 1000)}s)…`);
       await sleep(workMs);
 
-      const deliverable = await produceWork(meta, meta.feedback || "");
+      const { deliverable, gradeableText } = await produceWork(meta, meta.feedback || "");
       // NOTE: unlike the raw-key swarm (agent.js) and hosted personas (hosted.js),
       // Circle MPC agent wallets have no off-chain message-signing capability
       // wired up here (circle-wallet.js only exposes `wallet execute` for
@@ -230,7 +223,7 @@ class CircleAgent {
       // (server/server.js), but cannot cryptographically verify this specific
       // POST came from that agent's own process without a Circle CLI/API
       // message-signing subcommand, which isn't confirmed available.
-      await postJSON(`${API_URL}/api/deliverable`, { taskId, agentWallet: this.address, deliverable });
+      await postJSON(`${API_URL}/api/deliverable`, { taskId, agentWallet: this.address, deliverable, gradeableText });
       const result = await postJSON(`${API_URL}/api/verify`, { taskId });
       if (result.status === "released") {
         this.log(`PASS "${meta.title}" ${result.score}/100 → USDC released`);
@@ -242,10 +235,22 @@ class CircleAgent {
         this.log(`rejected "${meta.title}" ${result.score}/100${result.reopened ? " → returned to market" : ""}: ${String(result.feedback || "").slice(0, 90)}`);
       }
       this.inFlight -= 1;
+      clearFailures(ARC_CHAIN_ID, taskId);
     } catch (e) {
-      this.handled.delete(taskId);
       if (this.inFlight > 0) this.inFlight -= 1;
-      this.log("fulfil error:", e.message);
+      // Same bounded retry as the raw-key swarm (server/agent.js). Clearing `handled`
+      // unconditionally meant a task that could never succeed was re-attempted every tick,
+      // paying for a model call each pass while pinned in ASSIGNED.
+      const n = recordFailure(ARC_CHAIN_ID, taskId, e.message);
+      if (n >= FULFIL_MAX_ATTEMPTS) {
+        this.log(
+          `giving up on ${String(taskId).slice(0, 10)} after ${n} attempts: ${e.message}. ` +
+            `Leaving it for the deadline reaper.`,
+        );
+      } else {
+        this.handled.delete(taskId);
+        this.log(`fulfil error (attempt ${n}/${FULFIL_MAX_ATTEMPTS}):`, e.message);
+      }
     }
   }
 
@@ -294,8 +299,22 @@ async function getJSON(url, { retries = 3, backoffMs = 600 } = {}) {
   throw lastErr;
 }
 
+/**
+ * Headers for a call to our own API. `x-polaris-internal` is how the runtime's own
+ * processes authorise the endpoints that spend money (see server/guard.js): the
+ * swarm cannot be asked to sign for /api/verify in every case, and the Circle swarm
+ * cannot sign at all.
+ */
+function internalHeaders() {
+  const secret = process.env.INTERNAL_API_SECRET;
+  return {
+    "Content-Type": "application/json",
+    ...(secret ? { "x-polaris-internal": secret } : {}),
+  };
+}
+
 async function postJSON(url, body) {
-  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const r = await fetch(url, { method: "POST", headers: internalHeaders(), body: JSON.stringify(body) });
   const text = await r.text();
   let data = {};
   try {
@@ -413,12 +432,34 @@ async function main() {
 
         if (t.status === "OPEN") {
           if (meta.deadline < now) continue;
-          // Open competition: every capable agent with spare bid capacity bids, so
-          // a task draws multiple bids. The winner is decided ON-CHAIN by the
-          // BidEngine's price·30 + rep·25 + speed·15 + random·30 score — the random
-          // term gives every agent a real shot, not just the highest-rep one.
-          const canBid = (a) => a.wants(meta) && a.activeBids.size < MAX_BIDS;
-          for (const a of swarm.filter(canBid)) await a.bidOn(meta.taskId, meta);
+
+          // The auction's clock, derived from chain data rather than scheduled. `bidOn` used
+          // to arrange the close with a setTimeout, and a restart forgets a timer: the task
+          // stayed OPEN with bids on it and nothing left to award it, which is exactly the
+          // "agents bid but nothing gets assigned" symptom. Recomputing it every tick means
+          // any process, at any time, reaches the same verdict.
+          const createdAtMs = t.createdAtMs ?? now;
+          const windowMs = Math.min(BID_WINDOW_MS, Math.max(0, meta.deadline - createdAtMs));
+          const bidCount = (index.bids || []).filter((b) => b.taskId === t.taskId).length;
+
+          if (now < createdAtMs + windowMs) {
+            // Open competition: every capable agent with spare bid capacity bids, so
+            // a task draws multiple bids. The winner is decided ON-CHAIN by the
+            // BidEngine's score.
+            const canBid = (a) => a.wants(meta) && a.activeBids.size < MAX_BIDS;
+            for (const a of swarm.filter(canBid)) await a.bidOn(meta.taskId, meta);
+          } else if (bidCount > 0) {
+            // Window over and somebody bid: close it so the best bid actually wins.
+            // `awardBid` guards on `auctionClosed`, so racing agents just finalise once.
+            const closer = swarm[0];
+            try {
+              await execute(closer.address, ADDR.bidEngine, "awardBid(bytes32)", [meta.taskId]);
+              closer.log(`bidding closed for "${meta.title}" — best bid awarded`);
+            } catch (e) {
+              const msg = e.message || "";
+              if (!/Auction closed|No bids/i.test(msg)) closer.log("award skipped:", msg);
+            }
+          }
         } else if (t.status === "ASSIGNED" || t.status === "IN_PROGRESS") {
           const winner = (t.assignedAgent || "").toLowerCase();
           // Free capacity for agents that bid but lost this auction.
@@ -475,8 +516,8 @@ async function main() {
             try {
               const meta = normalize(t);
               a.log(`reworking "${meta.title}" (dispute upheld) — regenerating deliverable…`);
-              const deliverable = await produceWork(meta, rw.feedback || "");
-              await postJSON(`${API_URL}/api/deliverable`, { taskId: t.taskId, agentWallet: a.address, deliverable });
+              const { deliverable, gradeableText } = await produceWork(meta, rw.feedback || "");
+              await postJSON(`${API_URL}/api/deliverable`, { taskId: t.taskId, agentWallet: a.address, deliverable, gradeableText });
               await postJSON(`${API_URL}/api/rework-done`, { taskId: t.taskId });
               a.log(`rework delivered for "${meta.title}"`);
             } catch (e) {

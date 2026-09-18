@@ -37,6 +37,10 @@ contracts/typechain-types
 *.sln
 *.sw?
 
+# Local index/SQLite state written by the runtime and by `npm --prefix server test`
+# (server/indexer.js falls back to ./.state when no /data volume is mounted).
+.state/
+
 # Railway local link
 .railway
 .vercel

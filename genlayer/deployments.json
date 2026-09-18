@@ -1,9 +1,40 @@
 {
-  "generatedAt": "2026-09-12",
+  "generatedAt": "2026-09-18",
+  "genlayerStudioNext": {
+    "chainId": 61997,
+    "rpcUrl": "https://studio-dev.genlayer.com/api",
+    "sdkChain": "studioDevnet (genlayer-js 2.0.0-rc.1; absent from 1.1.8, the current npm latest)",
+    "adjudicator": null,
+    "status": "BLOCKED: GenVM on 61997 cannot load any published py-genlayer runner",
+    "attempts": [
+      {
+        "sdk": "genlayer-js@1.1.8",
+        "transaction": "0x174a420d10c572440745065717f9606e61f157556be86df72c8392db40607c79",
+        "result": "EVM revert: FeesDistributionMissing \u2014 1.1.8 sends no fee distribution"
+      },
+      {
+        "sdk": "genlayer-js@2.0.0-rc.1",
+        "transaction": "0x666c63f412f828d7c5cc0437022a62c0ac0ab64aa51ec95b5c19c50e0be6c1d5",
+        "result": "EVM revert: FeeValueMustBeNonZero(1) \u2014 fees must be estimated explicitly"
+      },
+      {
+        "sdk": "genlayer-js@2.0.0-rc.1 + estimateFeesDistribution/estimateTransactionFees",
+        "transaction": "0x4e97e84286d27410c83b9b5b36f547b6ab519dd139e5c2b76a43abf711c28a5a",
+        "result": "consensus MAJORITY_AGREE, execution FINISHED_WITH_ERROR: 'invalid_contract runner malformed'"
+      }
+    ],
+    "runnerProbe": {
+      "note": "Minimal three-line contract, same SDK, to isolate the runner from PolarisAdjudicator.py",
+      "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6": "invalid_contract runner malformed",
+      "py-genlayer:test": "exit_code 1",
+      "py-genlayer:latest": "exit_code 1",
+      "control on chain 61999, same contract and pinned runner": "deployed successfully"
+    }
+  },
   "genlayerBradbury": {
     "chainId": 4221,
     "adjudicator": null,
-    "status": "deferred: Polaris currently targets stable Studionet"
+    "status": "deferred: Polaris targets Studionet; Studio Next blocked upstream"
   },
   "genlayerStudionet": {
     "chainId": 61999,
@@ -28,7 +59,7 @@
     "botTransaction": "0x1af79154a7440c098df2fa73ecea9b71ce3d79bf86a9348e400297d38bee4958"
   },
   "studionetEndToEndTest": {
-    "decisionId": "0xee9ac66dfeb06d2850814634c067bb95eba2cfdfa0ba5f2de12cdcf6f04a910",
+    "decisionId": "0xee9ac66dfeb06d2850814634c067bb95eba2cfdfa0ba5f2de12cdcf6f04a910f",
     "genlayerTransaction": "0xfc2e78999176a85bb148729b207d247df9bb508c932ebdf444326cec872825d9",
     "score": 100,
     "passed": true,

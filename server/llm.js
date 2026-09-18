@@ -1,93 +1,188 @@
 import "dotenv/config";
-import { GoogleGenAI, ApiError } from "@google/genai";
 
 /**
- * LLM layer — Google Gemini via the official SDK (free tier — no billing
- * account attached, since enabling billing on the GEMINI_API_KEY's project
- * deletes the free tier entirely).
+ * LLM layer — OpenRouter (OpenAI-compatible chat completions).
  *
- * Model: gemini-flash-latest by default (override via LLM_MODEL). Flash
- * models have an internal "thinking" mode that shares the maxOutputTokens
- * budget with the visible answer, so we keep a token floor (never below
- * MIN_TOKENS) the same way the codebase has for every prior provider —
- * short JSON answers (scoring/jury) could otherwise get truncated.
+ * Default model: deepseek/deepseek-v4-flash-0731. Two properties of that model
+ * shape this file:
+ *
+ *  1. It is a REASONING model. Reasoning tokens are drawn from the same
+ *     max_tokens budget as the visible answer (measured: 76 of 98 completion
+ *     tokens on a short grading call), so a small budget yields an empty answer.
+ *     Hence the MIN_TOKENS floor, and `reasoning.exclude` so the thinking never
+ *     comes back as content for callers to trip over. Every prior provider in this
+ *     file needed the same floor for the same reason.
+ *
+ *  2. It is TEXT-ONLY (`input_modalities: ["text"]`). Image deliverables therefore
+ *     cannot be graded by this model; `chat` rejects image content with a clear
+ *     error rather than sending a request that is guaranteed to fail, so
+ *     score.js's fallback path engages immediately.
+ *
+ * Verdicts move money, so JSON responses use OpenRouter's STRICT json_schema
+ * structured output where a caller supplies a schema. Without it this model
+ * occasionally emits a malformed key (observed: `{":": 100}` instead of
+ * `{"score": 100}`), which would parse to score 0 and fail an honest agent.
  */
-const MODEL = process.env.LLM_MODEL || "gemini-flash-latest";
+const BASE_URL = process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
+const MODEL = process.env.OPENROUTER_MODEL || process.env.LLM_MODEL || "deepseek/deepseek-v4-flash-0731";
+/**
+ * Model used when a request carries an image. The default text model is
+ * `input_modalities: ["text"]` and cannot see, so image grading needs its own
+ * model. Unset means image grading is UNAVAILABLE, and callers must treat that as
+ * "cannot grade" rather than "accept": score.js used to swallow the error and pay
+ * the agent 82/100 for an image nobody had looked at.
+ */
+const VISION_MODEL = process.env.OPENROUTER_VISION_MODEL || "";
+const KEY = process.env.OPENROUTER_API_KEY || process.env.LLM_API_KEY;
 const MIN_TOKENS = Number(process.env.LLM_MIN_TOKENS || 4096);
 const DEFAULT_TOKENS = Number(process.env.LLM_DEFAULT_TOKENS || 8192);
-const KEY = process.env.GEMINI_API_KEY;
+const TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS || 120000);
+const RETRIES = Number(process.env.LLM_RETRIES || 2);
 
-// Never hardcode a key — resolved from GEMINI_API_KEY above.
-const ai = new GoogleGenAI({ apiKey: KEY });
+/** Common JSON shapes, so callers get schema-enforced output on the money path. */
+export const SCHEMAS = {
+  verdict: {
+    name: "verdict",
+    strict: true,
+    schema: {
+      type: "object",
+      properties: {
+        score: { type: "integer", description: "0-100 quality score against the rubric" },
+        passed: { type: "boolean" },
+        reasoning: { type: "string" },
+      },
+      required: ["score", "passed", "reasoning"],
+      additionalProperties: false,
+    },
+  },
+  imageVerdict: {
+    name: "image_verdict",
+    strict: true,
+    schema: {
+      type: "object",
+      properties: {
+        onTopic: { type: "boolean" },
+        score: { type: "integer" },
+        reasoning: { type: "string" },
+      },
+      required: ["onTopic", "score", "reasoning"],
+      additionalProperties: false,
+    },
+  },
+  jury: {
+    name: "jury_verdict",
+    strict: true,
+    schema: {
+      type: "object",
+      properties: {
+        upheld: { type: "boolean" },
+        reasoning: { type: "string" },
+      },
+      required: ["upheld", "reasoning"],
+      additionalProperties: false,
+    },
+  },
+};
 
-/**
- * Translate OpenAI-shaped content into Gemini `parts`. Strings pass through
- * as a single text part. The only array shape any caller sends today is
- * score.js's scoreImage vision path: [{type:"text"}, {type:"image_url", image_url:{url}}],
- * where `url` is always a `data:image/...;base64,...` URI.
- */
-function toParts(content) {
-  if (typeof content === "string") return [{ text: content }];
-  if (!Array.isArray(content)) return [{ text: String(content ?? "") }];
-  return content.map((block) => {
-    if (block?.type === "image_url") {
-      const url = block.image_url?.url || "";
-      const m = /^data:([^;]+);base64,(.+)$/s.exec(url);
-      return m ? { inlineData: { mimeType: m[1], data: m[2] } } : { text: url };
-    }
-    if (block?.type === "text") return { text: block.text };
-    return { text: JSON.stringify(block) };
-  });
+/** True when any message carries non-text content this model can't accept. */
+function hasImageContent(messages) {
+  return messages.some(
+    (m) => Array.isArray(m.content) && m.content.some((b) => b?.type === "image_url"),
+  );
 }
 
 /**
- * Call the Gemini API.
+ * Call OpenRouter.
  * @param {Array<{role:string, content:string|Array<any>}>} messages
- * @param {{ maxTokens?: number, json?: boolean }} [opts]
+ * @param {{ maxTokens?: number, json?: boolean, schema?: object }} [opts]
  * @returns {Promise<string>} the assistant's text reply
  */
 export async function chat(messages, opts = {}) {
-  if (!KEY) throw new Error("GEMINI_API_KEY not set — required for the LLM layer");
+  if (!KEY) throw new Error("OPENROUTER_API_KEY not set — required for the LLM layer");
+  // Pick the model per request: an image needs a vision-capable one.
+  const withImages = hasImageContent(messages);
+  if (withImages && !VISION_MODEL) {
+    // Deliberately an error, not a silent pass. The caller must decide, and the
+    // only safe decision on the money path is "not graded, so not paid".
+    throw new Error(
+      `${MODEL} cannot see images and OPENROUTER_VISION_MODEL is not set, so image deliverables cannot be graded`,
+    );
+  }
+  const model = withImages ? VISION_MODEL : MODEL;
 
-  const maxTokens = Math.max(MIN_TOKENS, opts.maxTokens ?? DEFAULT_TOKENS);
-
-  // Gemini takes systemInstruction as a separate config field, not a
-  // {role:"system"} message. Gemini's assistant role is "model", not "assistant".
-  let systemInstruction;
-  const contents = [];
-  for (const m of messages) {
-    if (m.role === "system") {
-      const text = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
-      systemInstruction = systemInstruction ? `${systemInstruction}\n\n${text}` : text;
-    } else {
-      contents.push({ role: m.role === "assistant" ? "model" : m.role, parts: toParts(m.content) });
-    }
+  const body = {
+    model,
+    messages,
+    max_tokens: Math.max(MIN_TOKENS, opts.maxTokens ?? DEFAULT_TOKENS),
+    // Keep chain-of-thought out of `content`; we only ever want the answer.
+    reasoning: { exclude: true },
+  };
+  if (opts.json) {
+    body.response_format = opts.schema
+      ? { type: "json_schema", json_schema: opts.schema }
+      : { type: "json_object" };
   }
 
-  const config = { maxOutputTokens: maxTokens };
-  if (systemInstruction) config.systemInstruction = systemInstruction;
-  // Native JSON mode — a real improvement over the prompt-reinforcement
-  // workaround prior providers needed. Callers' own JSON-parsing fallbacks
-  // (score.js's parseJSON, disputes.js's parse-with-fallback) stay as backup.
-  if (opts.json) config.responseMimeType = "application/json";
+  let lastErr;
+  for (let attempt = 0; attempt <= RETRIES; attempt++) {
+    try {
+      const res = await fetch(`${BASE_URL}/chat/completions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${KEY}`,
+          "Content-Type": "application/json",
+          // OpenRouter attribution headers (optional, and useful in its dashboard).
+          "HTTP-Referer": process.env.OPENROUTER_SITE_URL || "https://polarisswarm.xyz",
+          "X-Title": "Polaris",
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
 
-  let resp;
-  try {
-    resp = await ai.models.generateContent({ model: MODEL, contents, config });
-  } catch (err) {
-    if (err instanceof ApiError) {
-      // Mirrors the "LLM {status}: {message}" log line used by every prior
-      // provider in this file, so log-watching habits keep working.
-      throw new Error(`LLM ${err.status ?? "network"}: ${err.message}`);
+      const text = await res.text();
+      if (!res.ok) {
+        // Mirrors the "LLM {status}: {message}" log line every prior provider in
+        // this file used, so log-watching habits keep working.
+        const err = new Error(`LLM ${res.status}: ${text.slice(0, 300)}`);
+        // Retry transient failures only; a bad key or bad request never recovers.
+        err.retryable = res.status === 429 || res.status >= 500;
+        throw err;
+      }
+
+      const data = JSON.parse(text);
+      if (data.error) throw new Error(`LLM error: ${JSON.stringify(data.error).slice(0, 300)}`);
+
+      // An empty completion is a FAILURE, not a value.
+      //
+      // This used to `?? ""`, and that empty string became the agent's deliverable. The
+      // deliverable endpoint then correctly refused it with 400 "taskId and deliverable
+      // required", the agent treated the 400 as retryable, and the task retried every ~20s
+      // forever: a model call paid for on each pass, and a task that could never leave
+      // ASSIGNED. A provider that returns no content (a refusal, a truncation, a filtered
+      // response) has failed, and the only safe thing to do with a failure is surface it.
+      //
+      // Marked retryable because the usual causes are transient, so the retry ladder above
+      // gets a chance before the caller ever sees it.
+      const content = data.choices?.[0]?.message?.content;
+      if (typeof content !== "string" || content.trim() === "") {
+        const reason = data.choices?.[0]?.finish_reason ?? "none";
+        const err = new Error(`LLM returned an empty completion (model=${model}, finish_reason=${reason})`);
+        err.retryable = true;
+        throw err;
+      }
+      return content;
+    } catch (e) {
+      lastErr = e;
+      const retryable = e.retryable || e.name === "TimeoutError" || e.name === "AbortError";
+      if (attempt === RETRIES || !retryable) throw e;
+      await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
     }
-    throw err;
   }
-
-  return resp.text ?? "";
+  throw lastErr;
 }
 
-// Image provider: free keyless Pollinations by default. Settlement adjudication
-// is handled separately by GenLayer; this provider only creates deliverables.
+// Image provider: free keyless Pollinations. The text model can't generate images,
+// so image deliverables stay on a dedicated provider.
 const IMAGE_PROVIDER = (process.env.IMAGE_PROVIDER || "pollinations").toLowerCase();
 
 /**
@@ -111,8 +206,7 @@ async function pollinationsImage(prompt) {
   for (let attempt = 0; attempt < 3 && Date.now() < deadline; attempt++) {
     for (const url of urls) {
       try {
-        const ctrl = AbortSignal.timeout(45000);
-        const res = await fetch(url, { redirect: "follow", signal: ctrl });
+        const res = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(45000) });
         const ct = res.headers.get("content-type") || "";
         if (res.ok && ct.startsWith("image/")) {
           const buf = Buffer.from(await res.arrayBuffer());

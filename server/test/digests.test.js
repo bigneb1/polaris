@@ -31,6 +31,9 @@ const legacyCtx = {
   ADDR: { verifierBridge: BRIDGE, subscriptionManager: SUBS, recurringMarket: RM, disputeManager: DM },
 };
 const hardenedCtx = { ...legacyCtx, legacyVerdictDigest: false };
+/** Post-redeploy: the contracts also bind the finalized GenLayer decision id. */
+const genlayerCtx = { ...hardenedCtx, genlayerDecisionBinding: true };
+const decision = "0x" + "55".repeat(32);
 
 const taskId = "0x" + "11".repeat(32);
 const hash = "0x" + "22".repeat(32);
@@ -123,5 +126,71 @@ test("upholding and rejecting a dispute produce different digests", () => {
   assert.notEqual(
     disputeVerdictDigest(hardenedCtx, { disputeId: taskId, upheld: true }),
     disputeVerdictDigest(hardenedCtx, { disputeId: taskId, upheld: false }),
+  );
+});
+
+/**
+ * The GenLayer tier. Nothing with this ABI is deployed yet, so these are the only
+ * thing pinning the shape until the redeploy — and a digest that disagrees with the
+ * contract by one field does not fail loudly, it fails every settlement with "Bad
+ * signature" and strands the escrow. The same trap the legacy/hardened split exists
+ * for, one tier further on.
+ */
+test("GenLayer tier appends the decision id to every hardened digest", () => {
+  assert.equal(
+    taskVerdictDigest(genlayerCtx, { taskId, agent, requester, passed: true, score: 90, deliverableHash: hash, genLayerDecisionId: decision }),
+    ethers.solidityPackedKeccak256(
+      ["uint256", "address", "bytes32", "address", "address", "bool", "uint8", "bytes32", "bytes32"],
+      [CHAIN, BRIDGE, taskId, agent, requester, true, 90, hash, decision],
+    ),
+  );
+  assert.equal(
+    subscriptionDeliveryDigest(genlayerCtx, { subId: taskId, index: 3, deliverableHash: hash, score: 90, genLayerDecisionId: decision }),
+    ethers.solidityPackedKeccak256(
+      ["uint256", "address", "bytes32", "uint32", "bytes32", "uint8", "bytes32"],
+      [CHAIN, SUBS, taskId, 3, hash, 90, decision],
+    ),
+  );
+  assert.equal(
+    recurringDeliveryDigest(genlayerCtx, { planId: taskId, index: 3, deliverableHash: hash, score: 90, genLayerDecisionId: decision }),
+    ethers.solidityPackedKeccak256(
+      ["uint256", "address", "bytes32", "uint32", "bytes32", "uint8", "bytes32"],
+      [CHAIN, RM, taskId, 3, hash, 90, decision],
+    ),
+  );
+  assert.equal(
+    disputeVerdictDigest(genlayerCtx, { disputeId: taskId, upheld: true, genLayerDecisionId: decision }),
+    ethers.solidityPackedKeccak256(
+      ["uint256", "address", "bytes32", "bool", "bytes32"],
+      [CHAIN, DM, taskId, true, decision],
+    ),
+  );
+});
+
+test("a network that has not been redeployed still signs the hardened shape", () => {
+  // Passing a decision id must not silently change what is signed: until the network
+  // flips, the deployed contract verifies the shape WITHOUT it, and signing the other
+  // one would revert every settlement.
+  assert.equal(
+    disputeVerdictDigest(hardenedCtx, { disputeId: taskId, upheld: true, genLayerDecisionId: decision }),
+    disputeVerdictDigest(hardenedCtx, { disputeId: taskId, upheld: true }),
+  );
+});
+
+test("the GenLayer tier refuses to sign without a decision id", () => {
+  // The contract rejects a zero id outright, so this must fail where the caller is
+  // still named rather than as an opaque revert after adjudication has been paid for.
+  for (const missing of [undefined, null, "0x" + "00".repeat(32)]) {
+    assert.throws(
+      () => disputeVerdictDigest(genlayerCtx, { disputeId: taskId, upheld: true, genLayerDecisionId: missing }),
+      /GenLayer decision id is required/,
+    );
+  }
+});
+
+test("binding the decision id changes the digest", () => {
+  assert.notEqual(
+    disputeVerdictDigest(genlayerCtx, { disputeId: taskId, upheld: true, genLayerDecisionId: decision }),
+    disputeVerdictDigest(hardenedCtx, { disputeId: taskId, upheld: true }),
   );
 });

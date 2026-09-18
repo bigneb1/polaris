@@ -1,17 +1,25 @@
 import fs from "node:fs";
 import { ethers } from "ethers";
 import { createAccount, createClient } from "genlayer-js";
-import { studionet } from "genlayer-js/chains";
 import { CalldataAddress, ExecutionResult, TransactionResult, TransactionStatus } from "genlayer-js/types";
+import { DEFAULT_GENLAYER_NETWORK, GENLAYER_NETWORKS } from "./genlayer-chains.js";
 
 const privateKey = process.env.GENLAYER_PRIVATE_KEY || process.env.DEPLOYER_PRIVATE_KEY;
 if (!privateKey) throw new Error("GENLAYER_PRIVATE_KEY or DEPLOYER_PRIVATE_KEY is required");
 
+// Which GenLayer network to deploy to. Defaults to whatever the runtime adjudicates
+// on, so "deploy then set the address" cannot silently target a different chain.
+const networkName = process.env.GENLAYER_NETWORK || DEFAULT_GENLAYER_NETWORK;
+const chain = GENLAYER_NETWORKS[networkName];
+if (!chain) {
+  throw new Error(`Unsupported GENLAYER_NETWORK: ${networkName}. One of: ${Object.keys(GENLAYER_NETWORKS).join(", ")}`);
+}
+
 const account = createAccount(privateKey);
-const client = createClient({ chain: studionet, account });
+const client = createClient({ chain, account });
 const code = fs.readFileSync(new URL("../genlayer/contracts/PolarisAdjudicator.py", import.meta.url), "utf8");
 
-console.log(`Deploying PolarisAdjudicator to Studionet from ${account.address}`);
+console.log(`Deploying PolarisAdjudicator to ${chain.name} (chain ${chain.id}) from ${account.address}`);
 const operator = new CalldataAddress(ethers.getBytes(account.address));
 const hash = await client.deployContract({ account, code, args: [operator] });
 console.log(`Deployment transaction: ${hash}`);
@@ -35,3 +43,4 @@ if (!execution && consensus !== TransactionResult.MAJORITY_AGREE && consensus !=
 const address = transaction.data?.contract_address || transaction.recipient || transaction.to_address || receipt.recipient || receipt.to_address;
 if (!address) throw new Error("Deployment finalized without a contract address");
 console.log(`PolarisAdjudicator: ${address}`);
+console.log(`Set GENLAYER_NETWORK=${networkName} and GENLAYER_CONTRACT_ADDRESS=${address}`);

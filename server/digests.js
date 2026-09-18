@@ -27,57 +27,103 @@ import { ethers } from "ethers";
  * `ctx.legacyVerdictDigest` (see server/networks.js) selects the shape. New
  * deployments — BOT Chain, and Arc whenever it is redeployed — use the hardened
  * digests, and flipping that one flag is the whole migration.
+ *
+ * The GenLayer migration adds a THIRD tier for the same reason. Contracts in
+ * `contracts/` now bind the finalized GenLayer decision id into the digest (and
+ * require it non-zero), but nothing with that ABI is deployed on any network yet —
+ * every live DisputeManager, VerifierBridge, RecurringMarket and SubscriptionManager
+ * still has the four-argument signature. `ctx.genlayerDecisionBinding` selects it, so
+ * the runtime can adjudicate on GenLayer and mirror the receipt today, against the
+ * contracts that are actually out there, and each network flips the flag on the day
+ * it is redeployed. Without this the runtime would have to ship in lockstep with a
+ * five-contract redeploy on three chains, including BOT mainnet.
  */
 
+/**
+ * The contracts reject a zero decision id outright ("Missing GenLayer decision"), so a
+ * missing one must fail here, where the caller is still named, rather than as an opaque
+ * revert after the adjudication has already been paid for.
+ */
+function requireDecision(genLayerDecisionId) {
+  if (!genLayerDecisionId || /^0x0{64}$/.test(genLayerDecisionId)) {
+    throw new Error("A GenLayer decision id is required to sign a verdict on this deployment");
+  }
+  return genLayerDecisionId;
+}
+
 /** VerifierBridge.submitVerification — releases or slashes a task's escrow. */
-export function taskVerdictDigest(ctx, { taskId, agent, requester, passed, score, deliverableHash }) {
+export function taskVerdictDigest(ctx, { taskId, agent, requester, passed, score, deliverableHash, genLayerDecisionId }) {
   if (ctx.legacyVerdictDigest) {
     return ethers.solidityPackedKeccak256(
       ["bytes32", "bool", "uint8", "bytes32"],
       [taskId, passed, score, deliverableHash],
     );
   }
+  if (!ctx.genlayerDecisionBinding) {
+    return ethers.solidityPackedKeccak256(
+      ["uint256", "address", "bytes32", "address", "address", "bool", "uint8", "bytes32"],
+      [ctx.CHAIN_ID, ctx.ADDR.verifierBridge, taskId, agent, requester, passed, score, deliverableHash],
+    );
+  }
   return ethers.solidityPackedKeccak256(
-    ["uint256", "address", "bytes32", "address", "address", "bool", "uint8", "bytes32"],
-    [ctx.CHAIN_ID, ctx.ADDR.verifierBridge, taskId, agent, requester, passed, score, deliverableHash],
+    ["uint256", "address", "bytes32", "address", "address", "bool", "uint8", "bytes32", "bytes32"],
+    [ctx.CHAIN_ID, ctx.ADDR.verifierBridge, taskId, agent, requester, passed, score, deliverableHash, requireDecision(genLayerDecisionId)],
   );
 }
 
 /** SubscriptionManager.recordDelivery — releases one slice of a prepaid plan. */
-export function subscriptionDeliveryDigest(ctx, { subId, index, deliverableHash, score }) {
+export function subscriptionDeliveryDigest(ctx, { subId, index, deliverableHash, score, genLayerDecisionId }) {
   if (ctx.legacyVerdictDigest) {
     return ethers.solidityPackedKeccak256(
       ["bytes32", "uint32", "bytes32", "uint8"],
       [subId, index, deliverableHash, score],
     );
   }
+  if (!ctx.genlayerDecisionBinding) {
+    return ethers.solidityPackedKeccak256(
+      ["uint256", "address", "bytes32", "uint32", "bytes32", "uint8"],
+      [ctx.CHAIN_ID, ctx.ADDR.subscriptionManager, subId, index, deliverableHash, score],
+    );
+  }
   return ethers.solidityPackedKeccak256(
-    ["uint256", "address", "bytes32", "uint32", "bytes32", "uint8"],
-    [ctx.CHAIN_ID, ctx.ADDR.subscriptionManager, subId, index, deliverableHash, score],
+    ["uint256", "address", "bytes32", "uint32", "bytes32", "uint8", "bytes32"],
+    [ctx.CHAIN_ID, ctx.ADDR.subscriptionManager, subId, index, deliverableHash, score, requireDecision(genLayerDecisionId)],
   );
 }
 
 /** RecurringMarket.recordDelivery — releases one drop of an auctioned plan. */
-export function recurringDeliveryDigest(ctx, { planId, index, deliverableHash, score }) {
+export function recurringDeliveryDigest(ctx, { planId, index, deliverableHash, score, genLayerDecisionId }) {
   if (ctx.legacyVerdictDigest) {
     return ethers.solidityPackedKeccak256(
       ["bytes32", "uint32", "bytes32", "uint8"],
       [planId, index, deliverableHash, score],
     );
   }
+  if (!ctx.genlayerDecisionBinding) {
+    return ethers.solidityPackedKeccak256(
+      ["uint256", "address", "bytes32", "uint32", "bytes32", "uint8"],
+      [ctx.CHAIN_ID, ctx.ADDR.recurringMarket, planId, index, deliverableHash, score],
+    );
+  }
   return ethers.solidityPackedKeccak256(
-    ["uint256", "address", "bytes32", "uint32", "bytes32", "uint8"],
-    [ctx.CHAIN_ID, ctx.ADDR.recurringMarket, planId, index, deliverableHash, score],
+    ["uint256", "address", "bytes32", "uint32", "bytes32", "uint8", "bytes32"],
+    [ctx.CHAIN_ID, ctx.ADDR.recurringMarket, planId, index, deliverableHash, score, requireDecision(genLayerDecisionId)],
   );
 }
 
 /** DisputeManager.resolveDispute — refunds or forfeits the dispute bond. */
-export function disputeVerdictDigest(ctx, { disputeId, upheld }) {
+export function disputeVerdictDigest(ctx, { disputeId, upheld, genLayerDecisionId }) {
   if (ctx.legacyVerdictDigest) {
     return ethers.solidityPackedKeccak256(["bytes32", "bool"], [disputeId, upheld]);
   }
+  if (!ctx.genlayerDecisionBinding) {
+    return ethers.solidityPackedKeccak256(
+      ["uint256", "address", "bytes32", "bool"],
+      [ctx.CHAIN_ID, ctx.ADDR.disputeManager, disputeId, upheld],
+    );
+  }
   return ethers.solidityPackedKeccak256(
-    ["uint256", "address", "bytes32", "bool"],
-    [ctx.CHAIN_ID, ctx.ADDR.disputeManager, disputeId, upheld],
+    ["uint256", "address", "bytes32", "bool", "bytes32"],
+    [ctx.CHAIN_ID, ctx.ADDR.disputeManager, disputeId, upheld, requireDecision(genLayerDecisionId)],
   );
 }

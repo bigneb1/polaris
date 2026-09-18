@@ -1,5 +1,14 @@
 import { ethers } from "ethers";
-import { CHAIN_ID } from "./chain.js";
+
+/**
+ * The two mirrors are fixed DESTINATIONS — every finalized decision lands on both,
+ * whichever network it came from. What varies is the SOURCE: `sourceChainId` is the
+ * chain whose contracts the decision settles, and it is bound into both the stored
+ * verdict and the relay signature, so it has to come from the caller's chain context
+ * rather than a module-level constant. Getting that wrong would record a BOT Chain
+ * decision as an Arc one on both mirrors, and `relayOne`'s conflict check could not
+ * tell the difference.
+ */
 
 const ABI = [
   "function verdicts(bytes32) view returns (uint256 sourceChainId,address sourceContract,bytes32 sourceId,bytes32 evidenceHash,uint8 kind,bool outcome,uint8 score,bytes32 reasoningHash,uint64 timestamp)",
@@ -10,7 +19,7 @@ function targets() {
   const key = process.env.BOT_RELAY_PRIVATE_KEY || process.env.VERIFIER_SIGNER_KEY;
   if (!key) return [];
   return [
-    { name: "arc", rpc: process.env.ARC_RPC_URL, chainId: Number(process.env.ARC_CHAIN_ID || CHAIN_ID), address: process.env.ARC_GENLAYER_MIRROR_ADDRESS || "0xc342dEEbB3cbF8cf761e26a94B46ddb28847460F" },
+    { name: "arc", rpc: process.env.ARC_RPC_URL || "https://rpc.testnet.arc.network", chainId: Number(process.env.ARC_CHAIN_ID || 5042002), address: process.env.ARC_GENLAYER_MIRROR_ADDRESS || "0xc342dEEbB3cbF8cf761e26a94B46ddb28847460F" },
     { name: "bot", rpc: process.env.BOT_RPC_URL || "https://rpc.bohr.life", chainId: Number(process.env.BOT_CHAIN_ID || 968), address: process.env.BOT_GENLAYER_MIRROR_ADDRESS || "0xe98650A2d1007df7013379B49AdFC03A3E8C1589" },
   ].filter((target) => target.rpc && target.address).map((target) => ({ ...target, key }));
 }
@@ -60,12 +69,30 @@ async function relayOne(target, verdict) {
   return tx.hash;
 }
 
-export async function relayFinalizedVerdict({ decisionId, sourceContract, sourceId, evidenceHash, kind, outcome, score, reasoning }) {
+/**
+ * The mirror stores `sourceId`/`evidenceHash`/`decisionId` as bytes32 and
+ * `sourceContract` as an address. A caller that passes a local store key
+ * (`<network>:<planId>#<index>`) instead of a hash fails deep inside ethers with
+ * "invalid BytesLike value", AFTER validators have already been paid for the
+ * adjudication. Name it here, where the caller is still obvious.
+ */
+function requireShapes(verdict) {
+  for (const field of ["decisionId", "sourceId", "evidenceHash"]) {
+    if (!/^0x[0-9a-fA-F]{64}$/.test(String(verdict[field]))) {
+      throw new Error(`Verdict ${field} must be a 32-byte hash, got: ${verdict[field]}`);
+    }
+  }
+  if (!ethers.isAddress(verdict.sourceContract)) {
+    throw new Error(`Verdict sourceContract must be an address, got: ${verdict.sourceContract}`);
+  }
+}
+
+export async function relayFinalizedVerdict(ctx, { decisionId, sourceContract, sourceId, evidenceHash, kind, outcome, score, reasoning }) {
   const configured = targets();
   if (configured.length === 0) return {};
   const verdict = {
     decisionId,
-    sourceChainId: CHAIN_ID,
+    sourceChainId: ctx.CHAIN_ID,
     sourceContract,
     sourceId,
     evidenceHash,
@@ -74,6 +101,7 @@ export async function relayFinalizedVerdict({ decisionId, sourceContract, source
     score,
     reasoningHash: ethers.keccak256(ethers.toUtf8Bytes(reasoning || "")),
   };
+  requireShapes(verdict);
   const entries = await Promise.all(configured.map(async (target) => [target.name, await relayOne(target, verdict)]));
   return Object.fromEntries(entries);
 }

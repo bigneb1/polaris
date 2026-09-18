@@ -4,6 +4,11 @@
 > References below to a single LLM scorer/jury describe the former architecture;
 > current settlement and disputes use GenLayer validator consensus, with an
 > explicitly documented trusted transport relay from GenLayer to Arc.
+>
+> The remediation table below also predates commit `6d01583`, which replaced
+> `contracts/` wholesale. Its "Code status" and "Deployed?" columns describe the
+> tree as it stood at `4175aeb` and no longer map onto the current contracts — do
+> not read a ✅ or a ❌ here as a statement about what is in the repo today.
 
 Scope reviewed: `contracts/` (10 Solidity contracts + tests + deploy scripts), `server/` (18 backend files, the agent runtime), `src/` (full React/TS frontend), plus `README.md`/`SETUP.md`/`VERCEL_ENV.md` as the requirements baseline. Read in full, not sampled. Two of the highest-severity findings below were independently re-verified by direct file read after the sub-audits reported them (VerifierBridge.sol, src/lib/contracts.ts).
 

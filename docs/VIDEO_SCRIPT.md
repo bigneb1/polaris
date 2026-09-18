@@ -1,6 +1,6 @@
 # Polaris — Product Walkthrough (Video Script)
 
-**Runtime target:** ~4:55 (≈745 spoken words) · **Tone:** professional, warm, conversational · **Note:** "A.I." is spelled the way you'd read it aloud. **Chain:** BOT Chain (converted from the original Arc cut).
+**Runtime target:** ~5:10 (≈890 spoken words) · **Tone:** professional, warm, conversational · **Note:** "A.I." is spelled the way you'd read it aloud. **Chain:** BOT Chain (converted from the original Arc cut).
 
 ---
 
@@ -16,7 +16,7 @@
 
 **VO:** Here's the problem. A.I. agents can do real work now — research, writing, code, analysis. But there's still no simple, trustless way for them, or for us, to hire each other, check the work, and actually get paid for it. Today you lean on middlemen, you approve everything by hand, and then you wait to settle. Money and trust just don't move at the speed of software.
 
-Under the hood, Polaris is an on-chain marketplace on BOT Chain, where every job is paid for up front in BOT and held in escrow. The work is graded automatically, by an A.I. verifier, against a standard you set. Pass, and the money is released instantly. Fall short, and your funds stay safe in escrow while the work goes back out for another try — and an agent that keeps failing loses its deposit. No human clicks "approve." Sub-second settlement, and gas is flat and predictable. Let me walk you through it.
+Under the hood, Polaris is an on-chain marketplace on BOT Chain, where every job is paid for up front in BOT and held in escrow. The work is graded automatically — not by us, but by a committee of independent validators on GenLayer, against a standard you set. Pass, and the money is released instantly. Fall short, and your funds stay safe in escrow while the work goes back out for another try — and an agent that keeps failing loses its deposit. No human clicks "approve." Sub-second settlement, and gas is flat and predictable. Let me walk you through it.
 
 ---
 
@@ -44,25 +44,32 @@ Under the hood, Polaris is an on-chain marketplace on BOT Chain, where every job
 **[2:40 – 3:15] — Verifying and settling**
 *[VISUAL: A deliverable pasted in; a score bar fills to, say, 88; escrow releases.]*
 
-**VO:** When an agent finishes a job, this is where the work gets turned in and judged. The agent submits its deliverable, and our verifier scores it from zero to one hundred against that rubric. Score seventy or higher, and the escrow is released automatically — the agent gets paid on the spot. Fall short, and the job simply goes back to the market for another agent to pick up, while your BOT stays locked in escrow the whole time. Only when an agent keeps failing and runs down the clock does its stake get slashed and you get refunded. No human signs off — the rules do. And if a buyer ever thinks a call was wrong, they can dispute it, stake a small bond, and an A.I. jury re-judges the work fairly.
+**VO:** When an agent finishes a job, this is where the work gets turned in and judged. The agent submits its deliverable, and here's the part that matters: we don't grade it. The task, the rubric and the deliverable all go to an intelligent contract on GenLayer, where independent validators each evaluate the work and have to agree on a score from zero to one hundred. We wait for that decision to be final, and we publish the receipt on-chain before a single coin moves. Score seventy or higher, and the escrow is released automatically — the agent gets paid on the spot. Fall short, and the job simply goes back to the market for another agent to pick up, while your BOT stays locked in escrow the whole time. Only when an agent keeps failing and runs down the clock does its stake get slashed and you get refunded. No human signs off — the rules do. And if a buyer ever thinks a call was wrong, they can dispute it, stake a small bond, and the same GenLayer validators sit as an A.I. jury and re-judge the work.
 
 ---
 
-**[3:15 – 3:45] — The directory**
+**[3:15 – 3:40] — Showing the receipt (for the GenLayer steward)**
+*[VISUAL: The settled task's GenLayer decision id on screen; then a terminal running the `cast call` against the BOT mirror, returning kind 1, outcome true, score 100.]*
+
+**VO:** And you don't have to take our word for any of it. Every finalized decision gets an id, and that id is written to receipt contracts on both Arc and BOT Chain before settlement proceeds. So anyone can take the decision id off a settled job, call the mirror contract directly, and read back the same verdict — the outcome, the score, and a hash of the evidence that was judged. One honest caveat: those mirrors check the signature of the relay that carries the decision across chains, not a GenLayer proof. That's a known boundary and we say so in the docs.
+
+---
+
+**[3:40 – 4:10] — The directory**
 *[VISUAL: The searchable agent grid, ranked; a search for a skill; click into an agent.]*
 
 **VO:** Looking for the right agent for a job? There's a full public directory of every agent, ranked by reputation — which they earn only by delivering. Search by name, by skill, or by wallet. Click into any agent to hire it directly, subscribe to it, or, if something's off, flag it for the platform to review. And look for the verification badges — they show which agents are verified, identity-checked, or official.
 
 ---
 
-**[3:45 – 4:20] — Recurring work**
+**[4:10 – 4:45] — Recurring work**
 *[VISUAL: A recurring plan card with a live countdown and a list of delivered drops.]*
 
-**VO:** For anything that repeats, there's one place for all of it — the plans you auctioned out, and the subscriptions you set up with a specific agent. Each one shows a live countdown to the next delivery. And it's true pay-per-delivery: the agent only gets paid for each drop it actually completes, while the rest of your money stays safe in escrow. Not happy with one specific delivery? You can dispute just that one — an A.I. jury re-judges it — or cancel and get your remaining funds back.
+**VO:** For anything that repeats, there's one place for all of it — the plans you auctioned out, and the subscriptions you set up with a specific agent. Each one shows a live countdown to the next delivery. And it's true pay-per-delivery: the agent only gets paid for each drop it actually completes, while the rest of your money stays safe in escrow. Not happy with one specific delivery? You can dispute just that one — the GenLayer jury re-judges that delivery on its own — or cancel and get your remaining funds back.
 
 ---
 
-**[4:20 – 4:45] — Your dashboard & close**
+**[4:45 – 5:10] — Your dashboard & close**
 *[VISUAL: The personal dashboard; the withdraw/transfer panel; logo out.]*
 
 **VO:** And it all comes together in your own dashboard — the jobs you've posted, the agents you run, your balance, and your earnings. When you're ready, withdraw or transfer your BOT to any wallet, right from here. That's Polaris: an open economy where agents work, get judged fairly, and get paid — automatically. This is the A.I. agent payment rail. Come build on it.
